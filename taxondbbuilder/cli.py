@@ -13,6 +13,7 @@ import hashlib
 import shutil
 import sys
 from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from http import HTTPStatus
 from http.client import HTTPException, RemoteDisconnected
@@ -127,6 +128,438 @@ def _build_marker_rules(
     return selected_header_formats, marker_rules
 
 
+@dataclass
+class _BuildContext:
+    cfg: Dict[str, Any]
+    config: Path
+    source: BuildSource
+    taxon: List[str]
+    taxids: List[str]
+    resolved_taxa: List[ResolvedTaxon]
+    marker_keys: List[str]
+    marker_query: str
+    marker_rules: List[Dict[str, Any]]
+    marker_map: Dict[str, Dict[str, Any]]
+    output_cfg: Dict[str, Any]
+    selected_header_formats: List[str]
+    ncbi_cfg: Dict[str, Any]
+    filters_cfg: Dict[str, Any]
+    taxon_noexp: bool
+    output_prefix: str
+    out_path: Path
+    log_path: Path
+    dump_gb: Optional[Path]
+    from_gb: Optional[Path]
+    resume: bool
+    dry_run: bool
+    workers: int
+    uses_ncbi: bool
+    uses_bold: bool
+    warnings: List[str]
+    post_prep: bool
+    post_prep_steps_run: List[str]
+    has_length_filter: bool
+    has_primer_trim: bool
+    post_min: Optional[int]
+    post_max: Optional[int]
+    post_primer_forward: List[str]
+    post_primer_reverse: List[str]
+    post_primer_file: Optional[str]
+    post_primer_set_names: List[str]
+    post_primer_trim_options: Dict[str, Any]
+    run_logger: Any = None
+    lock: Lock = field(default_factory=Lock)
+    counters: Dict[str, int] = field(
+        default_factory=lambda: {
+            "total_records": 0,
+            "matched_records": 0,
+            "matched_features": 0,
+            "kept_records": 0,
+            "skipped_same": 0,
+            "duplicated_diff": 0,
+        }
+    )
+    acc_to_seqs: Dict[str, set] = field(default_factory=dict)
+    dup_accessions: Dict[str, int] = field(default_factory=dict)
+    emitted_records: List[Dict[str, str]] = field(default_factory=list)
+    source_merge_rows: List[Dict[str, str]] = field(default_factory=list)
+    progress: Optional[Progress] = None
+
+
+def _show_build_plan(ctx: _BuildContext) -> bool:
+    print_header()
+    render_run_table(
+        ctx.config,
+        ctx.source,
+        ctx.taxids,
+        ctx.marker_keys,
+        ctx.out_path,
+        ctx.filters_cfg,
+        dump_gb=ctx.dump_gb,
+        from_gb=ctx.from_gb,
+        resume=ctx.resume,
+    )
+    for warning in ctx.warnings:
+        console.print(f"[yellow]WARNING:[/yellow] {warning}")
+    if not ctx.dry_run:
+        return False
+    if ctx.uses_ncbi:
+        for taxid in ctx.taxids:
+            query = build_query(taxid, ctx.marker_query, ctx.filters_cfg, ctx.taxon_noexp)
+            console.print(query)
+    if ctx.uses_bold:
+        for item in ctx.resolved_taxa:
+            console.print(f"BOLD query taxon: {item.scientific_name}")
+    return True
+
+
+def _log_build_inputs(ctx: _BuildContext) -> None:
+    logger = ctx.run_logger
+    logger.info(f"# started: {datetime.now().isoformat()}")
+    logger.info(f"# config: {ctx.config}")
+    logger.info(f"# source: {ctx.source.value}")
+    logger.info(f"# taxon input: {ctx.taxon}")
+    logger.info(f"# taxids: {ctx.taxids}")
+    logger.info(f"# scientific_names: {[item.scientific_name for item in ctx.resolved_taxa]}")
+    logger.info(f"# markers: {ctx.marker_keys}")
+    logger.info(f"# output_prefix: {ctx.output_prefix}")
+    logger.info(f"# dump_gb: {ctx.dump_gb}" if ctx.dump_gb else "# dump_gb: none")
+    logger.info(f"# from_gb: {ctx.from_gb}" if ctx.from_gb else "# from_gb: none")
+    logger.info(f"# resume: {ctx.resume}")
+    logger.info(f"# post_prep: {ctx.post_prep}")
+    if ctx.post_prep:
+        steps_text = ", ".join(ctx.post_prep_steps_run) if ctx.post_prep_steps_run else "none"
+        logger.info(f"# post_prep.steps: {steps_text}")
+    if ctx.post_prep and ctx.has_length_filter:
+        if ctx.post_min is not None:
+            logger.info(f"# post_prep.sequence_length_min: {ctx.post_min}")
+        if ctx.post_max is not None:
+            logger.info(f"# post_prep.sequence_length_max: {ctx.post_max}")
+
+
+def _log_primer_inputs(ctx: _BuildContext) -> None:
+    if not ctx.post_prep or not ctx.has_primer_trim:
+        return
+    logger = ctx.run_logger
+    options = ctx.post_primer_trim_options
+    logger.info(f"# post_prep.primer_file: {ctx.post_primer_file}")
+    logger.info(f"# post_prep.primer_set: {', '.join(ctx.post_primer_set_names)}")
+    logger.info(f"# post_prep.primer_forward_count: {len(ctx.post_primer_forward)}")
+    logger.info(f"# post_prep.primer_reverse_count: {len(ctx.post_primer_reverse)}")
+    logger.info(f"# post_prep.primer_trim_mode: {options['trim_mode']}")
+    logger.info(f"# post_prep.primer_max_mismatch: {options['max_mismatch']}")
+    logger.info(f"# post_prep.primer_max_error_rate: {options['max_error_rate']}")
+    logger.info(f"# post_prep.primer_min_overlap_bp: {options['min_overlap_bp']}")
+    logger.info(f"# post_prep.primer_min_overlap_ratio: {options['min_overlap_ratio']}")
+    logger.info(f"# post_prep.primer_end_max_offset: {options['end_max_offset']}")
+    logger.info(f"# post_prep.primer_iter_enable: {options['iter_enable']}")
+    logger.info(f"# post_prep.primer_iter_max_rounds: {options['iter_max_rounds']}")
+    logger.info(f"# post_prep.primer_sidecar_format: {options['sidecar_format']}")
+    logger.info(f"# post_prep.primer_recheck_tool: {options['recheck_tool']}")
+    logger.info(f"# post_prep.primer_recheck_min_identity: {options['recheck_min_identity']}")
+    logger.info(f"# post_prep.primer_recheck_min_query_cov: {options['recheck_min_query_cov']}")
+
+
+def _initialize_build_runtime(ctx: _BuildContext) -> None:
+    ctx.progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[bold]{task.description}"),
+        BarColumn(),
+        MofNCompleteColumn(),
+        TimeElapsedColumn(),
+        console=console,
+        disable=not console.is_terminal,
+    )
+    _log_build_inputs(ctx)
+    _log_primer_inputs(ctx)
+    if ctx.warnings:
+        ctx.run_logger.info("# warnings:")
+        for warning in ctx.warnings:
+            ctx.run_logger.info(f"# - {warning}")
+    ctx.run_logger.info(f"# workers: {ctx.workers}")
+
+
+def _process_ncbi_chunks(
+    ctx: _BuildContext,
+    taxid: str,
+    count: Optional[int],
+    data_iter: Iterable[Tuple[int, str]],
+    spool_f: Any,
+    task_id: int,
+) -> None:
+    if ctx.workers < 1:
+        raise typer.BadParameter("--workers must be >= 1.")
+    queue: Queue = Queue(maxsize=max(1, ctx.workers * 2))
+    stop_event = Event()
+    errors: List[Exception] = []
+
+    def worker() -> None:
+        while True:
+            item = queue.get()
+            if item is None:
+                queue.task_done()
+                break
+            try:
+                _, chunk = item
+                records = extract_ncbi_records_from_genbank_chunk(
+                    chunk,
+                    ctx.marker_rules,
+                    ctx.acc_to_seqs,
+                    ctx.counters,
+                    ctx.dup_accessions,
+                    ctx.lock,
+                    ctx.progress,
+                    task_id,
+                    taxid,
+                    ctx.dump_gb,
+                )
+                append_records_to_spool(records, spool_f, ctx.lock)
+            except Exception as exc:
+                errors.append(exc)
+                stop_event.set()
+            finally:
+                queue.task_done()
+
+    threads = [Thread(target=worker, daemon=True) for _ in range(ctx.workers)]
+    for thread in threads:
+        thread.start()
+    for start, chunk in data_iter:
+        if stop_event.is_set():
+            break
+        if not chunk:
+            continue
+        if count is not None and count > 0:
+            per_query = int(ctx.ncbi_cfg.get("per_query", 100))
+            fetched = min(start + per_query, count)
+            ctx.run_logger.info(f"# fetch progress taxid={taxid}: {fetched}/{count}")
+        queue.put((start, chunk))
+    for _ in threads:
+        queue.put(None)
+    queue.join()
+    for thread in threads:
+        thread.join()
+    if errors:
+        raise errors[0]
+
+
+def _run_ncbi_stage(ctx: _BuildContext, spool_f: Any) -> None:
+    if not ctx.uses_ncbi:
+        return
+    for taxid in ctx.taxids:
+        query = build_query(taxid, ctx.marker_query, ctx.filters_cfg, ctx.taxon_noexp)
+        ctx.run_logger.info(f"# query taxid={taxid}: {query}")
+        delay_sec = default_delay(ctx.ncbi_cfg)
+        if ctx.from_gb:
+            data_iter = iter_genbank_files(ctx.from_gb, taxid)
+            count = None
+            ctx.run_logger.info(f"# query count taxid={taxid}: from-gb")
+        else:
+            count, data_iter = fetch_genbank(
+                query,
+                ctx.ncbi_cfg,
+                delay_sec,
+                dump_dir=ctx.dump_gb,
+                resume=ctx.resume,
+                taxid=taxid,
+            )
+            ctx.run_logger.info(f"# query count taxid={taxid}: {count}")
+            if count == 0:
+                console.print(f"[yellow]taxid {taxid}: 0 records[/yellow]")
+                continue
+            ctx.run_logger.info(f"# fetch progress taxid={taxid}: 0/{count}")
+        task_id = ctx.progress.add_task(f"taxid {taxid}", total=count)
+        _process_ncbi_chunks(ctx, taxid, count, data_iter, spool_f, task_id)
+
+
+def _run_bold_stage(ctx: _BuildContext, spool_f: Any, spool_dir: Path) -> None:
+    if not ctx.uses_bold:
+        return
+    ncbi_accessions = set(ctx.acc_to_seqs.keys())
+    for resolved_taxon in ctx.resolved_taxa:
+        try:
+            prepared_query = prepare_bold_query(resolved_taxon.scientific_name, ctx.cfg.get("bold"))
+            process_bold_taxon_to_spool(
+                resolved_taxon,
+                prepared_query,
+                ctx.marker_keys,
+                ctx.marker_map,
+                ctx.output_cfg,
+                ctx.source,
+                ctx.progress,
+                spool_f,
+                ctx.lock,
+                ctx.counters,
+                ctx.source_merge_rows,
+                ncbi_accessions,
+                spool_dir,
+                ctx.run_logger,
+            )
+        except BoldApiError as exc:
+            raise typer.BadParameter(str(exc)) from exc
+
+
+def _merge_source_records(ctx: _BuildContext, ncbi_spool_path: Path, bold_spool_path: Path) -> None:
+    ncbi_records = load_records_from_spool(ncbi_spool_path)
+    bold_records = load_records_from_spool(bold_spool_path)
+    ncbi_records.sort(key=canonical_record_sort_key)
+    bold_records.sort(key=canonical_record_sort_key)
+    with ctx.out_path.open("w", encoding="utf-8") as out_f:
+        if ncbi_records:
+            emit_records_to_fasta(
+                ncbi_records,
+                out_f,
+                ctx.counters,
+                ctx.emitted_records,
+                ctx.lock,
+                source_merge_rows=ctx.source_merge_rows,
+            )
+        if bold_records:
+            emit_records_to_fasta(
+                bold_records,
+                out_f,
+                ctx.counters,
+                ctx.emitted_records,
+                ctx.lock,
+                source_merge_rows=ctx.source_merge_rows,
+            )
+
+
+def _run_source_stages(ctx: _BuildContext, spool_dir: Path) -> None:
+    ncbi_spool_path = spool_dir / "ncbi_records.jsonl"
+    bold_spool_path = spool_dir / "bold_records.jsonl"
+    with ncbi_spool_path.open("w", encoding="utf-8") as ncbi_spool_f, bold_spool_path.open(
+        "w", encoding="utf-8"
+    ) as bold_spool_f, ctx.progress:
+        _run_ncbi_stage(ctx, ncbi_spool_f)
+        _run_bold_stage(ctx, bold_spool_f, spool_dir)
+    _merge_source_records(ctx, ncbi_spool_path, bold_spool_path)
+
+
+def _run_primer_post_prep(ctx: _BuildContext) -> None:
+    if PostPrepStep.PRIMER_TRIM.value not in ctx.post_prep_steps_run:
+        return
+    stats = apply_post_prep_primer_trim(
+        ctx.out_path,
+        ctx.post_primer_forward,
+        ctx.post_primer_reverse,
+        options=ctx.post_primer_trim_options,
+    )
+    ctx.counters["kept_records"] = stats["after"]
+    ctx.run_logger.info(
+        "# post_prep primer trim:"
+        f" before={stats['before']} after={stats['after']} removed={stats['removed']}"
+        f" trimmed_both={stats['trimmed_both']} trimmed_left_only={stats['trimmed_left_only']}"
+        f" trimmed_right_only={stats['trimmed_right_only']} untrimmed={stats['untrimmed']}"
+        f" dropped_empty={stats['dropped_empty']} canonical_orientation={stats['canonical_orientation']}"
+        f" reverse_orientation={stats['reverse_orientation']} confidence_high={stats['confidence_high']}"
+        f" confidence_medium={stats['confidence_medium']} confidence_low={stats['confidence_low']}"
+        f" rounds_run={stats['rounds_run']} best_round={stats['best_round']}"
+        f" high_conf_rate={stats['high_conf_rate']:.4f}"
+    )
+    if stats.get("sidecar_path"):
+        ctx.run_logger.info(f"# post_prep primer sidecar: {stats['sidecar_path']}")
+    if stats.get("retained_path"):
+        ctx.run_logger.info(f"# post_prep primer retained_fasta: {stats['retained_path']}")
+    ctx.run_logger.info(
+        "# post_prep primer recheck:"
+        f" tool={stats.get('recheck_tool', 'off')} attempted={stats.get('recheck_attempted', 0)}"
+        f" rescued={stats.get('recheck_rescued', 0)} error={stats.get('recheck_error') or 'none'}"
+    )
+
+
+def _run_length_post_prep(ctx: _BuildContext) -> None:
+    if PostPrepStep.LENGTH_FILTER.value not in ctx.post_prep_steps_run:
+        return
+    stats = apply_post_prep_length_filter(ctx.out_path, ctx.post_min, ctx.post_max)
+    ctx.counters["kept_records"] = stats["after"]
+    ctx.run_logger.info(
+        "# post_prep length filter:"
+        f" before={stats['before']} after={stats['after']} removed={stats['removed']}"
+    )
+
+
+def _run_duplicate_post_prep(ctx: _BuildContext) -> None:
+    if PostPrepStep.DUPLICATE_REPORT.value not in ctx.post_prep_steps_run:
+        ctx.run_logger.info("# post_prep duplicate_acc_report: skipped (step disabled)")
+        return
+    records_path, groups_path, stats, reason = write_duplicate_acc_reports_csv(
+        ctx.out_path, ctx.selected_header_formats
+    )
+    if reason:
+        ctx.run_logger.info(f"# post_prep duplicate_acc_report: skipped ({reason})")
+        console.print(f"[yellow]post_prep:[/yellow] duplicate ACC report skipped ({reason}).")
+        return
+    ctx.run_logger.info(
+        "# post_prep duplicate_acc_report:"
+        f" total={stats['total_records']} parsed={stats['parsed_records']}"
+        f" unparsed={stats['unparsed_records']} groups={stats['duplicate_groups']}"
+        f" records={stats['duplicate_records']} cross_organism_groups={stats['cross_organism_groups']}"
+    )
+    if records_path:
+        ctx.run_logger.info(f"# post_prep duplicate_acc_records_csv: {records_path}")
+        console.print(f"post_prep duplicate ACC records CSV: {records_path}")
+    if groups_path:
+        ctx.run_logger.info(f"# post_prep duplicate_acc_groups_csv: {groups_path}")
+        console.print(f"post_prep duplicate ACC groups CSV: {groups_path}")
+
+
+def _run_post_prep(ctx: _BuildContext) -> None:
+    if not ctx.post_prep:
+        return
+    before = ctx.counters["kept_records"]
+    ctx.run_logger.info(f"# kept records before post_prep: {before}")
+    _run_primer_post_prep(ctx)
+    _run_length_post_prep(ctx)
+    _run_duplicate_post_prep(ctx)
+
+
+def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
+    acc_species_map_path, stats = write_acc_organism_mapping_csv(ctx.out_path, ctx.emitted_records)
+    ctx.run_logger.info(
+        "# acc_organism_map:"
+        f" total={stats['total_records']} mapped={stats['mapped_records']}"
+        f" unmapped={stats['unmapped_records']} unused_source_records={stats['unused_records']}"
+        f" unique_accessions={stats['unique_accessions']} unique_organisms={stats['unique_organisms']}"
+    )
+    ctx.run_logger.info(f"# acc_organism_map_csv: {acc_species_map_path}")
+    for label, key in (
+        ("total records", "total_records"),
+        ("matched records", "matched_records"),
+        ("matched features", "matched_features"),
+        ("kept records", "kept_records"),
+        ("skipped duplicates (same accession+sequence)", "skipped_same"),
+        ("kept duplicates (same accession, different sequence)", "duplicated_diff"),
+    ):
+        ctx.run_logger.info(f"# {label}: {ctx.counters[key]}")
+    if ctx.dup_accessions:
+        ctx.run_logger.info("# duplicate accessions with different sequences:")
+        for acc, count in sorted(ctx.dup_accessions.items()):
+            ctx.run_logger.info(f"# - {acc}: {count} sequences")
+    ctx.run_logger.info(f"# output: {ctx.out_path}")
+    ctx.run_logger.info(f"# finished: {datetime.now().isoformat()}")
+    render_result_table(
+        ctx.counters["total_records"],
+        ctx.counters["matched_records"],
+        ctx.counters["matched_features"],
+        ctx.counters["kept_records"],
+        ctx.counters["skipped_same"],
+        ctx.counters["duplicated_diff"],
+        ctx.out_path,
+        ctx.log_path,
+    )
+    if ctx.dup_accessions:
+        console.print(
+            "[yellow]WARNING:[/yellow] duplicate accessions with different sequences were kept. See log for details."
+        )
+    console.print(f"ACC-organism mapping CSV: {acc_species_map_path}")
+    console.print(f"Source merge CSV: {source_merge_path}")
+    if stats["unmapped_records"] > 0:
+        console.print(
+            "[yellow]WARNING:[/yellow] Some final FASTA records could not be mapped to source ACC/organism. "
+            "See .log for details."
+        )
+
+
 def _run_build_pipeline(
     *,
     cfg: Dict[str, Any],
@@ -168,375 +601,32 @@ def _run_build_pipeline(
     post_primer_trim_options: Dict[str, Any],
 ) -> None:
     run_logger = setup_run_logger(log_path)
+    ctx = _BuildContext(
+        cfg=cfg, config=config, source=source, taxon=taxon, taxids=taxids, resolved_taxa=resolved_taxa,
+        marker_keys=marker_keys, marker_query=marker_query, marker_rules=marker_rules, marker_map=marker_map,
+        output_cfg=output_cfg, selected_header_formats=selected_header_formats, ncbi_cfg=ncbi_cfg,
+        filters_cfg=filters_cfg, taxon_noexp=taxon_noexp, output_prefix=output_prefix, out_path=out_path,
+        log_path=log_path, dump_gb=dump_gb, from_gb=from_gb, resume=resume, dry_run=dry_run, workers=workers,
+        uses_ncbi=uses_ncbi, uses_bold=uses_bold, warnings=warnings, post_prep=post_prep,
+        post_prep_steps_run=post_prep_steps_run, has_length_filter=has_length_filter,
+        has_primer_trim=has_primer_trim, post_min=post_min, post_max=post_max,
+        post_primer_forward=post_primer_forward, post_primer_reverse=post_primer_reverse,
+        post_primer_file=post_primer_file, post_primer_set_names=post_primer_set_names,
+        post_primer_trim_options=post_primer_trim_options, run_logger=run_logger,
+    )
     try:
         with tee_console_output(log_path):
-            print_header()
-            render_run_table(
-                config,
-                source,
-                taxids,
-                marker_keys,
-                out_path,
-                filters_cfg,
-                dump_gb=dump_gb,
-                from_gb=from_gb,
-                resume=resume,
-            )
-            for w in warnings:
-                console.print(f"[yellow]WARNING:[/yellow] {w}")
-
-            if dry_run:
-                if uses_ncbi:
-                    for taxid in taxids:
-                        query = build_query(taxid, marker_query, filters_cfg, taxon_noexp)
-                        console.print(query)
-                if uses_bold:
-                    for item in resolved_taxa:
-                        console.print(f"BOLD query taxon: {item.scientific_name}")
+            if _show_build_plan(ctx):
                 return
-
-            acc_to_seqs: Dict[str, set] = {}
-            counters = {
-                "total_records": 0,
-                "matched_records": 0,
-                "matched_features": 0,
-                "kept_records": 0,
-                "skipped_same": 0,
-                "duplicated_diff": 0,
-            }
-            dup_accessions: Dict[str, int] = {}
-            emitted_records: List[Dict[str, str]] = []
-            source_merge_rows: List[Dict[str, str]] = []
-
-            progress = Progress(
-                SpinnerColumn(),
-                TextColumn("[bold]{task.description}"),
-                BarColumn(),
-                MofNCompleteColumn(),
-                TimeElapsedColumn(),
-                console=console,
-                disable=not console.is_terminal,
-            )
-
-            run_logger.info(f"# started: {datetime.now().isoformat()}")
-            run_logger.info(f"# config: {config}")
-            run_logger.info(f"# source: {source.value}")
-            run_logger.info(f"# taxon input: {taxon}")
-            run_logger.info(f"# taxids: {taxids}")
-            run_logger.info(f"# scientific_names: {[item.scientific_name for item in resolved_taxa]}")
-            run_logger.info(f"# markers: {marker_keys}")
-            run_logger.info(f"# output_prefix: {output_prefix}")
-            run_logger.info(f"# dump_gb: {dump_gb}" if dump_gb else "# dump_gb: none")
-            run_logger.info(f"# from_gb: {from_gb}" if from_gb else "# from_gb: none")
-            run_logger.info(f"# resume: {resume}")
-            run_logger.info(f"# post_prep: {post_prep}")
-            if post_prep:
-                steps_text = ", ".join(post_prep_steps_run) if post_prep_steps_run else "none"
-                run_logger.info(f"# post_prep.steps: {steps_text}")
-            if post_prep and has_length_filter:
-                if post_min is not None:
-                    run_logger.info(f"# post_prep.sequence_length_min: {post_min}")
-                if post_max is not None:
-                    run_logger.info(f"# post_prep.sequence_length_max: {post_max}")
-            if post_prep and has_primer_trim:
-                run_logger.info(f"# post_prep.primer_file: {post_primer_file}")
-                run_logger.info(f"# post_prep.primer_set: {', '.join(post_primer_set_names)}")
-                run_logger.info(f"# post_prep.primer_forward_count: {len(post_primer_forward)}")
-                run_logger.info(f"# post_prep.primer_reverse_count: {len(post_primer_reverse)}")
-                run_logger.info(f"# post_prep.primer_trim_mode: {post_primer_trim_options['trim_mode']}")
-                run_logger.info(f"# post_prep.primer_max_mismatch: {post_primer_trim_options['max_mismatch']}")
-                run_logger.info(f"# post_prep.primer_max_error_rate: {post_primer_trim_options['max_error_rate']}")
-                run_logger.info(f"# post_prep.primer_min_overlap_bp: {post_primer_trim_options['min_overlap_bp']}")
-                run_logger.info(
-                    f"# post_prep.primer_min_overlap_ratio: {post_primer_trim_options['min_overlap_ratio']}"
-                )
-                run_logger.info(f"# post_prep.primer_end_max_offset: {post_primer_trim_options['end_max_offset']}")
-                run_logger.info(f"# post_prep.primer_iter_enable: {post_primer_trim_options['iter_enable']}")
-                run_logger.info(f"# post_prep.primer_iter_max_rounds: {post_primer_trim_options['iter_max_rounds']}")
-                run_logger.info(f"# post_prep.primer_sidecar_format: {post_primer_trim_options['sidecar_format']}")
-                run_logger.info(f"# post_prep.primer_recheck_tool: {post_primer_trim_options['recheck_tool']}")
-                run_logger.info(
-                    f"# post_prep.primer_recheck_min_identity: {post_primer_trim_options['recheck_min_identity']}"
-                )
-                run_logger.info(
-                    f"# post_prep.primer_recheck_min_query_cov: {post_primer_trim_options['recheck_min_query_cov']}"
-                )
-            if warnings:
-                run_logger.info("# warnings:")
-                for warning in warnings:
-                    run_logger.info(f"# - {warning}")
-
-            lock = Lock()
-            run_logger.info(f"# workers: {workers}")
+            _initialize_build_runtime(ctx)
 
             with tempfile.TemporaryDirectory(prefix="taxondbbuilder_spool_") as spool_dir_name:
                 spool_dir = Path(spool_dir_name)
-                ncbi_spool_path = spool_dir / "ncbi_records.jsonl"
-                bold_spool_path = spool_dir / "bold_records.jsonl"
-
-                with ncbi_spool_path.open("w", encoding="utf-8") as ncbi_spool_f, bold_spool_path.open(
-                    "w", encoding="utf-8"
-                ) as bold_spool_f, progress:
-                    if uses_ncbi:
-                        for taxid in taxids:
-                            query = build_query(taxid, marker_query, filters_cfg, taxon_noexp)
-                            run_logger.info(f"# query taxid={taxid}: {query}")
-                            delay_sec = default_delay(ncbi_cfg)
-                            if from_gb:
-                                data_iter = iter_genbank_files(from_gb, taxid)
-                                count = None
-                                run_logger.info(f"# query count taxid={taxid}: from-gb")
-                            else:
-                                count, data_iter = fetch_genbank(
-                                    query,
-                                    ncbi_cfg,
-                                    delay_sec,
-                                    dump_dir=dump_gb,
-                                    resume=resume,
-                                    taxid=taxid,
-                                )
-                                run_logger.info(f"# query count taxid={taxid}: {count}")
-                                if count == 0:
-                                    console.print(f"[yellow]taxid {taxid}: 0 records[/yellow]")
-                                    continue
-                                run_logger.info(f"# fetch progress taxid={taxid}: 0/{count}")
-
-                            task_id = progress.add_task(f"taxid {taxid}", total=count)
-                            if workers < 1:
-                                raise typer.BadParameter("--workers must be >= 1.")
-
-                            q: Queue = Queue(maxsize=max(1, workers * 2))
-                            stop_event = Event()
-                            errors: List[Exception] = []
-
-                            def worker() -> None:
-                                while True:
-                                    item = q.get()
-                                    if item is None:
-                                        q.task_done()
-                                        break
-                                    try:
-                                        start, chunk = item
-                                        records = extract_ncbi_records_from_genbank_chunk(
-                                            chunk,
-                                            marker_rules,
-                                            acc_to_seqs,
-                                            counters,
-                                            dup_accessions,
-                                            lock,
-                                            progress,
-                                            task_id,
-                                            taxid,
-                                            dump_gb,
-                                        )
-                                        append_records_to_spool(records, ncbi_spool_f, lock)
-                                    except Exception as exc:
-                                        errors.append(exc)
-                                        stop_event.set()
-                                    finally:
-                                        q.task_done()
-
-                            threads = [Thread(target=worker, daemon=True) for _ in range(workers)]
-                            for t in threads:
-                                t.start()
-
-                            for start, chunk in data_iter:
-                                if stop_event.is_set():
-                                    break
-                                if not chunk:
-                                    continue
-                                if count is not None and count > 0:
-                                    per_query = int(ncbi_cfg.get("per_query", 100))
-                                    fetched = min(start + per_query, count)
-                                    run_logger.info(f"# fetch progress taxid={taxid}: {fetched}/{count}")
-                                q.put((start, chunk))
-
-                            for _ in threads:
-                                q.put(None)
-                            q.join()
-                            for t in threads:
-                                t.join()
-                            if errors:
-                                raise errors[0]
-
-                    if uses_bold:
-                        ncbi_accessions = set(acc_to_seqs.keys())
-                        for resolved_taxon in resolved_taxa:
-                            try:
-                                prepared_query = prepare_bold_query(
-                                    resolved_taxon.scientific_name,
-                                    cfg.get("bold"),
-                                )
-                                process_bold_taxon_to_spool(
-                                    resolved_taxon,
-                                    prepared_query,
-                                    marker_keys,
-                                    marker_map,
-                                    output_cfg,
-                                    source,
-                                    progress,
-                                    bold_spool_f,
-                                    lock,
-                                    counters,
-                                    source_merge_rows,
-                                    ncbi_accessions,
-                                    spool_dir,
-                                    run_logger,
-                                )
-                            except BoldApiError as exc:
-                                raise typer.BadParameter(str(exc)) from exc
-
-                ncbi_records = load_records_from_spool(ncbi_spool_path)
-                bold_records = load_records_from_spool(bold_spool_path)
-                ncbi_records.sort(key=canonical_record_sort_key)
-                bold_records.sort(key=canonical_record_sort_key)
-
-                with out_path.open("w", encoding="utf-8") as out_f:
-                    if ncbi_records:
-                        emit_records_to_fasta(
-                            ncbi_records,
-                            out_f,
-                            counters,
-                            emitted_records,
-                            lock,
-                            source_merge_rows=source_merge_rows,
-                        )
-                    if bold_records:
-                        emit_records_to_fasta(
-                            bold_records,
-                            out_f,
-                            counters,
-                            emitted_records,
-                            lock,
-                            source_merge_rows=source_merge_rows,
-                        )
-
-            duplicate_records_report_path: Optional[Path] = None
-            duplicate_groups_report_path: Optional[Path] = None
-            source_merge_path = write_source_merge_csv(out_path, source_merge_rows)
-            run_logger.info(f"# source_merge_csv: {source_merge_path}")
-            if post_prep:
-                before_post_prep = counters["kept_records"]
-                run_logger.info(f"# kept records before post_prep: {before_post_prep}")
-
-                if PostPrepStep.PRIMER_TRIM.value in post_prep_steps_run:
-                    primer_stats = apply_post_prep_primer_trim(
-                        out_path,
-                        post_primer_forward,
-                        post_primer_reverse,
-                        options=post_primer_trim_options,
-                    )
-                    counters["kept_records"] = primer_stats["after"]
-                    run_logger.info(
-                        "# post_prep primer trim:"
-                        f" before={primer_stats['before']} after={primer_stats['after']}"
-                        f" removed={primer_stats['removed']} trimmed_both={primer_stats['trimmed_both']}"
-                        f" trimmed_left_only={primer_stats['trimmed_left_only']}"
-                        f" trimmed_right_only={primer_stats['trimmed_right_only']}"
-                        f" untrimmed={primer_stats['untrimmed']}"
-                        f" dropped_empty={primer_stats['dropped_empty']}"
-                        f" canonical_orientation={primer_stats['canonical_orientation']}"
-                        f" reverse_orientation={primer_stats['reverse_orientation']}"
-                        f" confidence_high={primer_stats['confidence_high']}"
-                        f" confidence_medium={primer_stats['confidence_medium']}"
-                        f" confidence_low={primer_stats['confidence_low']}"
-                        f" rounds_run={primer_stats['rounds_run']}"
-                        f" best_round={primer_stats['best_round']}"
-                        f" high_conf_rate={primer_stats['high_conf_rate']:.4f}"
-                    )
-                    if primer_stats.get("sidecar_path"):
-                        run_logger.info(f"# post_prep primer sidecar: {primer_stats['sidecar_path']}")
-                    if primer_stats.get("retained_path"):
-                        run_logger.info(f"# post_prep primer retained_fasta: {primer_stats['retained_path']}")
-                    run_logger.info(
-                        "# post_prep primer recheck:"
-                        f" tool={primer_stats.get('recheck_tool', 'off')}"
-                        f" attempted={primer_stats.get('recheck_attempted', 0)}"
-                        f" rescued={primer_stats.get('recheck_rescued', 0)}"
-                        f" error={primer_stats.get('recheck_error') or 'none'}"
-                    )
-
-                if PostPrepStep.LENGTH_FILTER.value in post_prep_steps_run:
-                    length_stats = apply_post_prep_length_filter(out_path, post_min, post_max)
-                    counters["kept_records"] = length_stats["after"]
-                    run_logger.info(
-                        "# post_prep length filter:"
-                        f" before={length_stats['before']} after={length_stats['after']}"
-                        f" removed={length_stats['removed']}"
-                    )
-
-                if PostPrepStep.DUPLICATE_REPORT.value in post_prep_steps_run:
-                    (
-                        duplicate_records_report_path,
-                        duplicate_groups_report_path,
-                        dup_stats,
-                        dup_reason,
-                    ) = write_duplicate_acc_reports_csv(out_path, selected_header_formats)
-                    if dup_reason:
-                        run_logger.info(f"# post_prep duplicate_acc_report: skipped ({dup_reason})")
-                        console.print(f"[yellow]post_prep:[/yellow] duplicate ACC report skipped ({dup_reason}).")
-                    else:
-                        run_logger.info(
-                            "# post_prep duplicate_acc_report:"
-                            f" total={dup_stats['total_records']} parsed={dup_stats['parsed_records']}"
-                            f" unparsed={dup_stats['unparsed_records']} groups={dup_stats['duplicate_groups']}"
-                            f" records={dup_stats['duplicate_records']}"
-                            f" cross_organism_groups={dup_stats['cross_organism_groups']}"
-                        )
-                        if duplicate_records_report_path:
-                            run_logger.info(f"# post_prep duplicate_acc_records_csv: {duplicate_records_report_path}")
-                            console.print(f"post_prep duplicate ACC records CSV: {duplicate_records_report_path}")
-                        if duplicate_groups_report_path:
-                            run_logger.info(f"# post_prep duplicate_acc_groups_csv: {duplicate_groups_report_path}")
-                            console.print(f"post_prep duplicate ACC groups CSV: {duplicate_groups_report_path}")
-                else:
-                    run_logger.info("# post_prep duplicate_acc_report: skipped (step disabled)")
-
-            acc_species_map_path, acc_species_stats = write_acc_organism_mapping_csv(out_path, emitted_records)
-            run_logger.info(
-                "# acc_organism_map:"
-                f" total={acc_species_stats['total_records']} mapped={acc_species_stats['mapped_records']}"
-                f" unmapped={acc_species_stats['unmapped_records']}"
-                f" unused_source_records={acc_species_stats['unused_records']}"
-                f" unique_accessions={acc_species_stats['unique_accessions']}"
-                f" unique_organisms={acc_species_stats['unique_organisms']}"
-            )
-            run_logger.info(f"# acc_organism_map_csv: {acc_species_map_path}")
-
-            run_logger.info(f"# total records: {counters['total_records']}")
-            run_logger.info(f"# matched records: {counters['matched_records']}")
-            run_logger.info(f"# matched features: {counters['matched_features']}")
-            run_logger.info(f"# kept records: {counters['kept_records']}")
-            run_logger.info(f"# skipped duplicates (same accession+sequence): {counters['skipped_same']}")
-            run_logger.info(f"# kept duplicates (same accession, different sequence): {counters['duplicated_diff']}")
-            if dup_accessions:
-                run_logger.info("# duplicate accessions with different sequences:")
-                for acc, count in sorted(dup_accessions.items()):
-                    run_logger.info(f"# - {acc}: {count} sequences")
-            run_logger.info(f"# output: {out_path}")
-            run_logger.info(f"# finished: {datetime.now().isoformat()}")
-
-            render_result_table(
-                counters["total_records"],
-                counters["matched_records"],
-                counters["matched_features"],
-                counters["kept_records"],
-                counters["skipped_same"],
-                counters["duplicated_diff"],
-                out_path,
-                log_path,
-            )
-            if dup_accessions:
-                console.print(
-                    "[yellow]WARNING:[/yellow] duplicate accessions with different sequences were kept. See log for details."
-                )
-            console.print(f"ACC-organism mapping CSV: {acc_species_map_path}")
-            console.print(f"Source merge CSV: {source_merge_path}")
-            if acc_species_stats["unmapped_records"] > 0:
-                console.print(
-                    "[yellow]WARNING:[/yellow] Some final FASTA records could not be mapped to source ACC/organism. "
-                    "See .log for details."
-                )
+                _run_source_stages(ctx, spool_dir)
+            source_merge_path = write_source_merge_csv(ctx.out_path, ctx.source_merge_rows)
+            ctx.run_logger.info(f"# source_merge_csv: {source_merge_path}")
+            _run_post_prep(ctx)
+            _show_build_result(ctx, source_merge_path)
     finally:
         close_run_logger(run_logger)
 
