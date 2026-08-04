@@ -1,0 +1,38 @@
+{
+  "accession": "AB123, AB124;AB123",
+  "emitted_to_fasta": true,
+  "header_values": {
+    "acc": "AB123, AB124;AB123",
+    "acc_id": "BOLD_PRC001",
+    "db": "bold",
+    "dup": "",
+    "end": "",
+    "label": "COI-5P",
+    "label_raw": "COI-5P",
+    "loc": "",
+    "marker": "coi",
+    "marker_raw": "coi",
+    "organism": "Fish_species",
+    "organism_raw": "Fish species",
+    "source": "bold",
+    "source_id": "PRC001",
+    "start": "",
+    "strand": "",
+    "type": "barcode",
+    "type_raw": "barcode"
+  },
+  "linked_to_ncbi": false,
+  "marker_key": "coi",
+  "marker_label": "COI-5P",
+  "metadata": {
+    "header_format": "bold|{acc_id}|{organism}",
+    "raw_row_json": "{\"marker_code\": \"COI-5P\", \"nucleotides\": \"acgt- 12!\", \"processid\": \"PRC001\", \"sampleid\": \"SAM001\", \"insdc_acs\": \"AB123, AB124;AB123\", \"species\": \"Fish species\"}"
+  },
+  "processid": "PRC001",
+  "sampleid": "SAM001",
+  "sequence": "ACGT",
+  "skip_reason": null,
+  "source": "bold",
+  "source_record_id": "PRC001",
+  "taxon_name": "Fish species"
+}

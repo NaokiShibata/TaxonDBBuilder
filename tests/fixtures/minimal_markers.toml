@@ -1,0 +1,21 @@
+[markers."12s"]
+aliases = ["12", "12s", "rrns"]
+phrases = ["12S", "rrnS"]
+region_patterns = ["12S", "rrnS"]
+feature_types = ["rRNA", "gene"]
+feature_fields = ["gene", "product"]
+header_format = "simple"
+
+[markers."12s".bold]
+marker_codes = ["12S"]
+
+[markers."coi"]
+aliases = ["coi", "co1"]
+phrases = ["COI"]
+region_patterns = ["COI"]
+feature_types = ["CDS", "gene"]
+feature_fields = ["gene", "product"]
+header_format = "verbose"
+
+[markers."coi".bold]
+marker_codes = ["COI-5P", "COI"]

@@ -1,0 +1,131 @@
+{
+  "counters": {
+    "duplicated_diff": 1,
+    "matched_features": 3,
+    "matched_records": 2,
+    "skipped_same": 0,
+    "total_records": 2
+  },
+  "duplicates": {
+    "TEST0001.1": 2
+  },
+  "records": [
+    {
+      "accession": "TEST0001.1",
+      "emitted_to_fasta": true,
+      "header_values": {
+        "acc": "TEST0001.1",
+        "acc_id": "TEST0001.1",
+        "db": "gb",
+        "dup": "",
+        "end": "20",
+        "label": "12S",
+        "label_raw": "12S",
+        "loc": "5-20",
+        "marker": "12s",
+        "marker_raw": "12s",
+        "organism": "Testus_alpha_other.",
+        "organism_raw": "Testus alpha other.",
+        "source": "ncbi",
+        "source_id": "TEST0001.1",
+        "start": "5",
+        "strand": "1",
+        "type": "gene",
+        "type_raw": "gene"
+      },
+      "linked_to_ncbi": false,
+      "marker_key": "12s",
+      "marker_label": "12S",
+      "metadata": {
+        "header_format": "{acc_id}|{marker}|{loc}",
+        "matched_type": "gene",
+        "organism_name": "Testus alpha other."
+      },
+      "processid": null,
+      "sampleid": null,
+      "sequence": "AAAAAAAAAAAAAAAA",
+      "skip_reason": null,
+      "source": "ncbi",
+      "source_record_id": "TEST0001.1",
+      "taxon_name": "Testus alpha other."
+    },
+    {
+      "accession": "TEST0001.1",
+      "emitted_to_fasta": true,
+      "header_values": {
+        "acc": "TEST0001.1",
+        "acc_id": "TEST0001.1_dup2",
+        "db": "gb",
+        "dup": "dup2",
+        "end": "40",
+        "label": "16S_ribosomal_RNA",
+        "label_raw": "16S ribosomal RNA",
+        "loc": "25-40",
+        "marker": "16s",
+        "marker_raw": "16s",
+        "organism": "Testus_alpha_other.",
+        "organism_raw": "Testus alpha other.",
+        "source": "ncbi",
+        "source_id": "TEST0001.1",
+        "start": "25",
+        "strand": "-1",
+        "type": "rRNA",
+        "type_raw": "rRNA"
+      },
+      "linked_to_ncbi": false,
+      "marker_key": "16s",
+      "marker_label": "16S ribosomal RNA",
+      "metadata": {
+        "header_format": "{acc_id}|{marker}|{loc}",
+        "matched_type": "rRNA",
+        "organism_name": "Testus alpha other."
+      },
+      "processid": null,
+      "sampleid": null,
+      "sequence": "TTTTTTTTTTTTTTTT",
+      "skip_reason": null,
+      "source": "ncbi",
+      "source_record_id": "TEST0001.1",
+      "taxon_name": "Testus alpha other."
+    },
+    {
+      "accession": "TEST0002.1",
+      "emitted_to_fasta": true,
+      "header_values": {
+        "acc": "TEST0002.1",
+        "acc_id": "TEST0002.1",
+        "db": "gb",
+        "dup": "",
+        "end": "25",
+        "label": "COI",
+        "label_raw": "COI",
+        "loc": "10-25",
+        "marker": "coi",
+        "marker_raw": "coi",
+        "organism": "Testus_beta_other.",
+        "organism_raw": "Testus beta other.",
+        "source": "ncbi",
+        "source_id": "TEST0002.1",
+        "start": "10",
+        "strand": "1",
+        "type": "gene",
+        "type_raw": "gene"
+      },
+      "linked_to_ncbi": false,
+      "marker_key": "coi",
+      "marker_label": "COI",
+      "metadata": {
+        "header_format": "{acc_id}|{marker}|{loc}",
+        "matched_type": "gene",
+        "organism_name": "Testus beta other."
+      },
+      "processid": null,
+      "sampleid": null,
+      "sequence": "CCCCCCCCCCCCCCCC",
+      "skip_reason": null,
+      "source": "ncbi",
+      "source_record_id": "TEST0002.1",
+      "taxon_name": "Testus beta other."
+    }
+  ]
+}

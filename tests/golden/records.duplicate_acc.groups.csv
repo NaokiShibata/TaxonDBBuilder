@@ -1,0 +1,2 @@
+group_id,sequence_hash,sequence_length,records_in_group,unique_accessions,unique_organisms,cross_organism_duplicate,accessions,organism_names
+1,8e6c5edb8644231f73a112c5958de953b563861c,8,2,2,2,true,AB123.1;BOLD_PRC002,Alpha fish;Beta fish

@@ -1,0 +1,17 @@
+[ncbi]
+email = "test@example.invalid"
+db = "nucleotide"
+
+[output]
+default_header_format = "{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}"
+
+[output.header_formats]
+simple = "{acc_id}|{marker}|{loc}"
+verbose = "{acc_id}|{organism_raw}|{marker_raw}|{label_raw}|{type_raw}|{loc}|{strand}"
+
+[markers]
+file = "minimal_markers.toml"
+
+[post_prep]
+primer_file = "minimal_primers.toml"
+primer_set = ["alpha"]

@@ -1,0 +1,18 @@
+{
+  "duplicate": {
+    "cross_organism_groups": 1,
+    "duplicate_groups": 1,
+    "duplicate_records": 2,
+    "parsed_records": 3,
+    "total_records": 3,
+    "unparsed_records": 0
+  },
+  "mapping": {
+    "mapped_records": 3,
+    "total_records": 3,
+    "unique_accessions": 3,
+    "unique_organisms": 3,
+    "unmapped_records": 0,
+    "unused_records": 0
+  }
+}
