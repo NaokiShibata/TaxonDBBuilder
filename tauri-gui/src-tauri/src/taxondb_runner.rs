@@ -66,8 +66,14 @@ pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
     args.extend([
         "--out".to_string(),
         params.output_file.display().to_string(),
-        "--dump-gb".to_string(),
-        params.dump_gb_dir.display().to_string(),
+    ]);
+    if !params.source.eq_ignore_ascii_case("bold") {
+        args.extend([
+            "--dump-gb".to_string(),
+            params.dump_gb_dir.display().to_string(),
+        ]);
+    }
+    args.extend([
         "--workers".to_string(),
         params.workers.to_string(),
         "--output-prefix".to_string(),
@@ -75,9 +81,11 @@ pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
     ]);
 
     if let Some(from_gb_dir) = &params.from_gb_dir {
-        args.extend(["--from-gb".to_string(), from_gb_dir.display().to_string()]);
+        if !params.source.eq_ignore_ascii_case("bold") {
+            args.extend(["--from-gb".to_string(), from_gb_dir.display().to_string()]);
+        }
     }
-    if params.resume {
+    if params.resume && !params.source.eq_ignore_ascii_case("bold") {
         args.push("--resume".to_string());
     }
     if params.post_prep {

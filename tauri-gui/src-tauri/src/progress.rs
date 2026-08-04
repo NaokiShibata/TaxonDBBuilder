@@ -108,7 +108,7 @@ impl ProgressParser {
         }
     }
 
-    fn consume_line(&mut self, line: &str) -> bool {
+    pub(crate) fn consume_line(&mut self, line: &str) -> bool {
         let line = strip_log_prefix(line);
         let mut changed = false;
 

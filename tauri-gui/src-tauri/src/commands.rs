@@ -1,11 +1,12 @@
 use crate::config::*;
 use crate::progress::*;
+use crate::sidecar::run_build_via_sidecar;
 use crate::state::*;
 use crate::taxondb_post_prep::{
     apply_length_filter, apply_primer_trim, combine_primer_sets, count_fasta_records,
     load_primer_sets, write_duplicate_acc_reports_csv, PrimerTrimOptions,
 };
-use crate::taxondb_runner::{run_build, BuildParams};
+use crate::taxondb_runner::BuildParams;
 use chrono::Local;
 use rfd::FileDialog;
 use rusqlite::{params, Connection, OpenFlags};
@@ -15,7 +16,6 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
-use std::time::Duration;
 use tauri::{AppHandle, State};
 
 pub(crate) fn run_post_prep_rust(
@@ -482,8 +482,6 @@ pub(crate) fn start_run(
     let app_for_thread = app.clone();
     let log_path_for_thread = log_path.clone();
     let output_file_for_thread = output_file.clone();
-    let config_dir_for_thread = config_dir.clone();
-    let req_for_thread = req.clone();
     let results_dir_for_thread = results_dir.clone();
     let job_dir_for_thread = job_dir.clone();
     let config_path_for_thread = config_path.clone();
@@ -495,6 +493,9 @@ pub(crate) fn start_run(
     let taxid_total = req.taxids.len();
     let workers_for_thread = req.workers;
     let output_prefix_for_thread = req.output_prefix.clone();
+    let post_prep_for_thread = req.post_prep.enable;
+    let post_steps_for_thread = req.post_prep.steps.clone();
+    let post_primer_sets_for_thread = req.post_prep.primer_set.clone();
     let post_steps_total = if req.post_prep.enable {
         req.post_prep.steps.len().max(1)
     } else {
@@ -503,79 +504,37 @@ pub(crate) fn start_run(
 
     thread::spawn(move || {
         let mut parser = ProgressParser::new(taxid_total, post_steps_total);
-        let mut offset: u64 = 0;
-        let (done_tx, done_rx) = std::sync::mpsc::channel::<Result<(), String>>();
-        let cancelled_for_worker = cancelled.clone();
-        let output_file_for_worker = output_file_for_thread.clone();
-        let log_path_for_worker = log_path_for_thread.clone();
-        thread::spawn(move || {
-            let build_params = BuildParams {
-                config_path: config_path_for_thread,
-                taxids: taxids_for_thread,
-                markers: marker_for_thread,
-                source: source_for_thread,
-                output_file: output_file_for_worker,
-                dump_gb_dir: gb_dir_for_thread,
-                from_gb_dir: None,
-                resume: resume_for_thread,
-                workers: workers_for_thread,
-                output_prefix: output_prefix_for_thread,
-                post_prep: false,
-                post_prep_steps: Vec::new(),
-                post_prep_primer_sets: Vec::new(),
-            };
-            let _ = done_tx.send(run_build(
-                &build_params,
-                &log_path_for_worker,
-                cancelled_for_worker.as_ref(),
-                &child_arc,
-            ));
-        });
-
-        let mut exit_code: i32 = loop {
-            if let Err(err) = tail_log_once(
-                &app_for_thread,
-                &mut parser,
-                &log_path_for_thread,
-                &mut offset,
-            ) {
-                emit_event(&app_for_thread, error_event(err));
-            }
-
-            if cancelled.load(Ordering::Relaxed) {
-                break 1;
-            }
-            match done_rx.try_recv() {
-                Ok(Ok(())) => break 0,
-                Ok(Err(err)) => {
-                    emit_event(&app_for_thread, error_event(err));
-                    break 1;
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => break 1,
-                Err(std::sync::mpsc::TryRecvError::Empty) => {}
-            }
-
-            thread::sleep(Duration::from_millis(300));
+        let build_params = BuildParams {
+            config_path: config_path_for_thread,
+            taxids: taxids_for_thread,
+            markers: marker_for_thread,
+            source: source_for_thread,
+            output_file: output_file_for_thread.clone(),
+            dump_gb_dir: gb_dir_for_thread,
+            from_gb_dir: None,
+            resume: resume_for_thread,
+            workers: workers_for_thread,
+            output_prefix: output_prefix_for_thread,
+            post_prep: post_prep_for_thread,
+            post_prep_steps: post_steps_for_thread,
+            post_prep_primer_sets: post_primer_sets_for_thread,
         };
-
-        if exit_code == 0 {
-            if let Err(err) = run_post_prep_rust(
-                &output_file_for_thread,
-                &log_path_for_thread,
-                &config_dir_for_thread,
-                &req_for_thread,
-            ) {
-                emit_event(&app_for_thread, error_event(err));
-                exit_code = 1;
-            }
-        }
-
-        let _ = tail_log_once(
+        let exit_code = match run_build_via_sidecar(
             &app_for_thread,
             &mut parser,
+            &build_params,
             &log_path_for_thread,
-            &mut offset,
-        );
+            cancelled.as_ref(),
+            &child_arc,
+        ) {
+            Ok(()) => 0,
+            Err(err) => {
+                if !cancelled.load(Ordering::Relaxed) {
+                    emit_event(&app_for_thread, error_event(err));
+                }
+                1
+            }
+        };
 
         let was_cancelled = cancelled.load(Ordering::Relaxed);
         let files = collect_files(&results_dir_for_thread, &[log_path_for_thread.clone()]);
