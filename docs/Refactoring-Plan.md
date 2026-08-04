@@ -12,7 +12,10 @@ TaxonDBBuilder のリファクタリング計画。実装は codex が担当し�
 - 既存の `configs/db.toml`, `configs/markers_mitogenome.toml`, `configs/primers.toml` をそのまま読めること
 - バグを見つけた場合は**直さずに** `docs/Refactoring-Findings.md` に記録する
 
-## 1. 現状
+## 1. 調査開始時の現状
+
+以下は Phase 0 の調査を開始した時点の構成である。
+現在の構成と実績は「5. 実施記録」に記載する。
 
 | 対象 | 行数 | 問題 |
 |---|---|---|
@@ -109,7 +112,8 @@ taxondbbuilder/
 
 ### Phase 2 — パッケージング追従
 
-**注記:** 調査の結果、この sidecar バイナリは Tauri アプリからは使われていない (Phase 3a 参照)。ただし CLI 単体配布物としては有効なため、package 化の追従は行う。優先度は Phase 1 / 3a より低い。
+**注記 (調査時点):** Phase 3a の調査時点では、この sidecar バイナリは Tauri アプリから使われていなかった。
+パッケージ化に合わせて PyInstaller spec と配置スクリプトを追従させ、その後の Phase 3b-2a で Tauri GUI の build 実行経路を sidecar に切り替えた。
 
 - `taxondbbuilder.spec` を package 構成に合わせて更新 (エントリ、`hiddenimports`, `datas`)
 - `tauri-gui/scripts/build_sidecar.py` が通ることを確認
@@ -119,7 +123,9 @@ taxondbbuilder/
 
 ### Phase 3a — Python / Rust 実装 drift の実態調査 (調査のみ、コード変更なし)
 
-**背景 (2026-08-04 判明):** GUI は Python sidecar を起動していない。`main.rs:1797` が `taxondb_runner::run_build` (ネイティブ Rust) を呼んでおり、`tauri.conf.json` に `externalBin` 宣言もない。つまり build パイプライン全体が Python と Rust で**独立に二重実装**されている。
+**背景 (2026-08-04 の調査時点):** GUI は Python sidecar を起動していなかった。
+`main.rs:1797` が `taxondb_runner::run_build` (ネイティブ Rust) を呼んでおり、`tauri.conf.json` に `externalBin` 宣言もなかった。
+つまり build パイプライン全体が Python と Rust で**独立に二重実装**されていた。
 
 Rust 側が再実装しているもの:
 
@@ -162,12 +168,14 @@ Rust 側が再実装しているもの:
 
 受入基準: `cargo test` green、`cargo clippy -- -D warnings` (可能な範囲で)、`cargo build` 成功。
 
-### Phase 4 — 統合検証
+### Phase 4 — 統合検証（完了）
 
 - 全テスト実行
 - CLI スモークテスト (ネットワーク不要な範囲)
 - `README.md` の構成説明・`CHANGELOG.md` を更新
 - 差分レビューとコミット整理
+
+受入結果は「5. 実施記録」の Phase 4 に記録する。
 
 ## 4. 進め方
 
@@ -175,3 +183,37 @@ Rust 側が再実装しているもの:
 - フェーズごとに小さくコミットする。`git bisect` で回帰を追える粒度を保つ
 - 各フェーズ完了時に PM (Claude) がレビューし、次フェーズを承認する
 - 判断に迷ったら「振る舞いを変えない側」に倒す
+
+## 5. 実施記録
+
+計画上の Phase 1 と Phase 3b は、レビューしやすい単位に分割して実施した。
+以下では計画との差分を明記する。
+
+| 実施フェーズ | 計画 | 実績 | 判定 |
+|---|---|---|---|
+| Phase 0.5 | build orchestration の特性を固定する | NCBI / BOLD / both の deterministic merge、strict link 抑制、post-prep 実行順、ログ、sidecar/report 出力を golden で固定した | 完了 |
+| Phase 1.5 | Python CLI を責務ごとに分割する | `taxondbbuilder/` に models、config、sources、headers、FASTA、post-prep、console、logging を分割した | 完了 |
+| Phase 1.6 | 分割後の実行経路と互換性を確認する | `cli.py`、`__main__.py`、`taxondbbuilder.py` の互換シムを整備し、内部 pipeline helper も分割した | 完了 |
+| Phase 2 | PyInstaller と sidecar 配置を package 構成へ追従させる | spec の hidden imports を package 構成に対応させ、PyInstaller 実バイナリを再ビルドして CLI smoke test を実行した | 完了 |
+| Phase 3a | Python / Rust の drift を調査し、コードは変更しない | GenBank、query filter、strict merge、CSV schema、hash、post-prep、BOLD identity の差を実測またはコード読解で `docs/Python-Rust-Drift.md` に記録した | 完了 |
+| Phase 3b-1 | Rust GUI adapter を責務ごとに分割し、drift test を追加する | `commands.rs`、`config.rs`、`progress.rs`、`state.rs`、`sidecar.rs` に分割し、sidecar 起動と progress integration test を追加した | 完了 |
+| Phase 3b-2a | GUI の build を Python sidecar に移行する | build 引数変換、sidecar の探索と起動、stdout / log の progress adapter、post-prep 引数の受け渡しを実装した | 完了 |
+| Phase 3b-2b | Rust 側の build / post-prep 二重実装を削除する | `taxondb_runner.rs` と `taxondb_post_prep.rs` を削除し、process group 単位のキャンセルを追加した。既存の Tauri command 10 個は維持した | 完了 |
+| Phase 4 | 全体検証、利用者向け文書、差分レビューを行う | Python 32 passed、Rust 5 passed、clippy、fmt、PyInstaller sidecar smoke test、互換シム確認、README / CHANGELOG / 計画・調査文書を更新した | 完了 |
+
+### 実装上の差分
+
+当初の Phase 1 は package 分割だけを想定していた。
+実際には、巨大な `build()` と post-prep、NCBI 取得、GenBank 抽出、BOLD 取得を段階的に分割し、Phase 1.5 と Phase 1.6 に相当する中間コミットを設けた。
+
+当初の Phase 3b は Rust のモジュール分割を想定していた。
+Phase 3a の結果、分割だけでは Python / Rust の二重実装を残すため、Phase 3b-2a で GUI の build 実行経路を Python sidecar に一本化し、Phase 3b-2b で不要になった Rust 実装を削除した。
+この変更は build の仕様を変更するものではなく、Python CLI を GUI の source of truth とする実行経路の変更である。
+
+### 最終状態
+
+- Python の source of truth は `taxondbbuilder/` パッケージである。
+- `taxondbbuilder.py` と `taxondb_bold.py` は既存 import / 起動方法を維持する互換シムである。
+- GUI の build と post-prep は PyInstaller sidecar を通じて Python パッケージを実行する。
+- Rust は Tauri command、設定 I/O、taxonomy 検索、sidecar 起動、progress event、キャンセルを担当する。
+- `docs/Plan.md` はこの実施記録の対象外であり、変更していない。
