@@ -12,6 +12,12 @@
 - GitHub Actions に GUI ビルドワークフロー (`.github/workflows/tauri-build.yml`) を追加。
 
 ### Changed
+- GUI の build / post-prep 実装を Python sidecar に統合し、CLI と GUI が同じ Python パッケージから同一の結果を生成するように変更。
+  GUI の出力は従来と変わるため、従来の GUI で構築した DB は再構築を推奨。
+  具体的には、`join(...)` location を持つ feature の欠落、accession version の欠落、`ORGANISM` 継続行の欠落、複数行 qualifier の途中切断、`[PDAT]` / `[MDAT]` / `[All Fields]` filter 設定の無視、duplicate report の hash 不一致を解消。
+- Python CLI を `taxondbbuilder/` パッケージへ分割。
+  既存の `python3 taxondbbuilder.py ...` による起動は互換シム経由で引き続き利用可能。
+- Python の pytest テストスイートを新設し、CLI の出力と post-prep の結果を固定。
 - Entrez 取得処理で HTTP 400 発生時のフォールバックを追加し、履歴ベース取得失敗時の取得継続性を改善。
 - `.gitignore` を更新し、Tauri GUI のローカル生成物 (`node_modules`, `dist`, `target`, sidecar バイナリ, `__pycache__`) を除外。
 - `tauri-gui/.gitignore` を追加し、GUI 開発・ビルドで生成されるローカルファイルを `tauri-gui` 配下で管理可能に。
