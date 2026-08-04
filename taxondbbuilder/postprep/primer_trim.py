@@ -585,329 +585,365 @@ def _write_primer_outputs(
     return sidecar_path
 
 
-def apply_post_prep_primer_trim(
+@dataclass
+class _PrimerTrimContext:
+    fasta_path: Path
+    forward_primers: List[str]
+    reverse_primers: List[str]
+    forward_rc: List[str]
+    reverse_rc: List[str]
+    trim_mode: str
+    max_mismatch: int
+    max_error_rate: float
+    min_overlap_bp: Optional[int]
+    min_overlap_ratio: float
+    end_max_offset: int
+    keep_retained_fasta: bool
+    iter_enable: bool
+    iter_max_rounds: int
+    iter_stop_delta: float
+    iter_target_conf: float
+    sidecar_format: str
+    recheck_tool: str
+    recheck_min_identity: float
+    recheck_min_query_cov: float
+    phylo_target_confidence: str
+    retained_path: Path
+
+
+@dataclass
+class _PrimerRoundResult:
+    records: List[Tuple[str, str]]
+    rows: List[Dict[str, Any]]
+    summary: Dict[str, Any]
+
+
+def _build_primer_trim_context(
     fasta_path: Path,
     forward_primers: List[str],
     reverse_primers: List[str],
-    options: Optional[Dict[str, Any]] = None,
-) -> Dict[str, Any]:
+    options: Optional[Dict[str, Any]],
+) -> _PrimerTrimContext:
     opts = options or {}
-    trim_mode = str(opts.get("trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH)).strip().lower()
-    max_mismatch = int(opts.get("max_mismatch", 0))
-    max_error_rate = float(opts.get("max_error_rate", 0.0))
     min_overlap_bp = opts.get("min_overlap_bp")
     if min_overlap_bp is not None:
         min_overlap_bp = int(min_overlap_bp)
-    min_overlap_ratio = float(opts.get("min_overlap_ratio", 1.0))
-    end_max_offset = int(opts.get("end_max_offset", 0))
-    keep_retained_fasta = bool(opts.get("keep_retained_fasta", True))
-    iter_enable = bool(opts.get("iter_enable", False))
-    iter_max_rounds = int(opts.get("iter_max_rounds", 3))
-    iter_stop_delta = float(opts.get("iter_stop_delta", 0.002))
-    iter_target_conf = float(opts.get("iter_target_conf", 0.98))
-    sidecar_format = str(opts.get("sidecar_format", "tsv")).strip().lower()
-    recheck_tool = str(opts.get("recheck_tool", "off")).strip().lower()
-    recheck_min_identity = float(opts.get("recheck_min_identity", 0.85))
-    recheck_min_query_cov = float(opts.get("recheck_min_query_cov", 0.7))
-    phylo_target_confidence = str(opts.get("phylo_target_confidence", "medium")).strip().lower()
+    return _PrimerTrimContext(
+        fasta_path=fasta_path,
+        forward_primers=forward_primers,
+        reverse_primers=reverse_primers,
+        forward_rc=[str(Seq(p).reverse_complement()).upper() for p in forward_primers],
+        reverse_rc=[str(Seq(p).reverse_complement()).upper() for p in reverse_primers],
+        trim_mode=str(opts.get("trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH)).strip().lower(),
+        max_mismatch=int(opts.get("max_mismatch", 0)),
+        max_error_rate=float(opts.get("max_error_rate", 0.0)),
+        min_overlap_bp=min_overlap_bp,
+        min_overlap_ratio=float(opts.get("min_overlap_ratio", 1.0)),
+        end_max_offset=int(opts.get("end_max_offset", 0)),
+        keep_retained_fasta=bool(opts.get("keep_retained_fasta", True)),
+        iter_enable=bool(opts.get("iter_enable", False)),
+        iter_max_rounds=int(opts.get("iter_max_rounds", 3)),
+        iter_stop_delta=float(opts.get("iter_stop_delta", 0.002)),
+        iter_target_conf=float(opts.get("iter_target_conf", 0.98)),
+        sidecar_format=str(opts.get("sidecar_format", "tsv")).strip().lower(),
+        recheck_tool=str(opts.get("recheck_tool", "off")).strip().lower(),
+        recheck_min_identity=float(opts.get("recheck_min_identity", 0.85)),
+        recheck_min_query_cov=float(opts.get("recheck_min_query_cov", 0.7)),
+        phylo_target_confidence=str(opts.get("phylo_target_confidence", "medium")).strip().lower(),
+        retained_path=fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.retained.fasta"),
+    )
 
-    forward_rc = [str(Seq(p).reverse_complement()).upper() for p in forward_primers]
-    reverse_rc = [str(Seq(p).reverse_complement()).upper() for p in reverse_primers]
 
-    retained_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.retained.fasta")
-    if keep_retained_fasta:
-        shutil.copyfile(fasta_path, retained_path)
+def _prepare_primer_trim(ctx: _PrimerTrimContext) -> List[Tuple[str, str]]:
+    if ctx.keep_retained_fasta:
+        shutil.copyfile(ctx.fasta_path, ctx.retained_path)
+    return _read_primer_records(ctx.fasta_path)
 
-    records = _read_primer_records(fasta_path)
 
-    before_count = len(records)
-    if before_count == 0:
-        return {
-            "before": 0,
-            "after": 0,
-            "removed": 0,
-            "trimmed_both": 0,
-            "trimmed_left_only": 0,
-            "trimmed_right_only": 0,
-            "untrimmed": 0,
-            "dropped_empty": 0,
-            "canonical_orientation": 0,
-            "reverse_orientation": 0,
-            "confidence_high": 0,
-            "confidence_medium": 0,
-            "confidence_low": 0,
-            "rounds_run": 0,
-            "best_round": 0,
-            "high_conf_rate": 0.0,
-            "sidecar_path": None,
-            "retained_path": str(retained_path) if keep_retained_fasta else None,
-            "recheck_tool": recheck_tool,
-            "phylo_target_confidence": phylo_target_confidence,
-        }
+def _empty_primer_trim_result(ctx: _PrimerTrimContext) -> Dict[str, Any]:
+    return {
+        "before": 0,
+        "after": 0,
+        "removed": 0,
+        "trimmed_both": 0,
+        "trimmed_left_only": 0,
+        "trimmed_right_only": 0,
+        "untrimmed": 0,
+        "dropped_empty": 0,
+        "canonical_orientation": 0,
+        "reverse_orientation": 0,
+        "confidence_high": 0,
+        "confidence_medium": 0,
+        "confidence_low": 0,
+        "rounds_run": 0,
+        "best_round": 0,
+        "high_conf_rate": 0.0,
+        "sidecar_path": None,
+        "retained_path": str(ctx.retained_path) if ctx.keep_retained_fasta else None,
+        "recheck_tool": ctx.recheck_tool,
+        "phylo_target_confidence": ctx.phylo_target_confidence,
+    }
 
-    round_limit = iter_max_rounds if iter_enable else 1
-    round_limit = max(1, round_limit)
-    all_round_rows: List[Dict[str, Any]] = []
-    round_summaries: List[Dict[str, Any]] = []
-    prev_high_rate: Optional[float] = None
 
-    for round_idx in range(1, round_limit + 1):
-        # Phase 2: deterministic threshold relaxation to make iterative rescue measurable.
-        relax = round_idx - 1
-        round_max_mismatch = max_mismatch + relax
-        round_overlap_ratio = max(0.5, min_overlap_ratio - (0.05 * relax))
-        round_overlap_bp = min_overlap_bp
-        if round_overlap_bp is not None:
-            round_overlap_bp = max(8, round_overlap_bp - relax)
+def _round_thresholds(
+    ctx: _PrimerTrimContext, round_idx: int
+) -> Tuple[int, float, Optional[int]]:
+    relax = round_idx - 1
+    overlap_bp = ctx.min_overlap_bp
+    if overlap_bp is not None:
+        overlap_bp = max(8, overlap_bp - relax)
+    return ctx.max_mismatch + relax, max(0.5, ctx.min_overlap_ratio - (0.05 * relax)), overlap_bp
 
-        trimmed_records: List[Tuple[str, str]] = []
-        trimmed_both = 0
-        trimmed_left_only = 0
-        trimmed_right_only = 0
-        untrimmed = 0
-        dropped_empty = 0
-        canonical_orientation = 0
-        reverse_orientation = 0
-        confidence_high = 0
-        confidence_medium = 0
-        confidence_low = 0
 
-        for header, seq in records:
-            can = OrientationScore(
-                name="canonical",
-                left=find_best_prefix_match(
-                    seq,
-                    forward_primers,
-                    round_max_mismatch,
-                    max_error_rate,
-                    round_overlap_bp,
-                    round_overlap_ratio,
-                    max_offset=end_max_offset,
-                ),
-                right=find_best_suffix_match(
-                    seq,
-                    reverse_rc,
-                    round_max_mismatch,
-                    max_error_rate,
-                    round_overlap_bp,
-                    round_overlap_ratio,
-                    max_offset=end_max_offset,
-                ),
-            )
-            rev = OrientationScore(
-                name="reverse",
-                left=find_best_prefix_match(
-                    seq,
-                    reverse_primers,
-                    round_max_mismatch,
-                    max_error_rate,
-                    round_overlap_bp,
-                    round_overlap_ratio,
-                    max_offset=end_max_offset,
-                ),
-                right=find_best_suffix_match(
-                    seq,
-                    forward_rc,
-                    round_max_mismatch,
-                    max_error_rate,
-                    round_overlap_bp,
-                    round_overlap_ratio,
-                    max_offset=end_max_offset,
-                ),
-            )
-            chosen, ambiguous_orientation = resolve_orientation(seq, can, rev)
-            confidence = confidence_label(chosen.matched_ends, chosen.mismatch_total, ambiguous_orientation)
-            if confidence == "high":
-                confidence_high += 1
-            elif confidence == "medium":
-                confidence_medium += 1
-            else:
-                confidence_low += 1
-
-            if chosen.matched_ends > 0:
-                if chosen.name == "canonical":
-                    canonical_orientation += 1
-                else:
-                    reverse_orientation += 1
-
-            do_left_trim = False
-            do_right_trim = False
-            if trim_mode == PRIMER_TRIM_MODE_ONE_OR_BOTH:
-                do_left_trim = chosen.left is not None
-                do_right_trim = chosen.right is not None
-            elif trim_mode == PRIMER_TRIM_MODE_BOTH_REQUIRED:
-                if chosen.left is not None and chosen.right is not None:
-                    do_left_trim = True
-                    do_right_trim = True
-            elif trim_mode == PRIMER_TRIM_MODE_ONE_END_MARK_ONLY:
-                do_left_trim = False
-                do_right_trim = False
-
-            left_len = chosen.left.trim_bp if (do_left_trim and chosen.left) else 0
-            right_len = chosen.right.trim_bp if (do_right_trim and chosen.right) else 0
-            ends_trimmed = (1 if left_len else 0) + (1 if right_len else 0)
-            if ends_trimmed == 0:
-                untrimmed += 1
-            elif ends_trimmed == 2:
-                trimmed_both += 1
-            elif left_len:
-                trimmed_left_only += 1
-            else:
-                trimmed_right_only += 1
-
-            right_index = len(seq) - right_len if right_len else len(seq)
-            trimmed_seq = seq[left_len:right_index]
-            if not trimmed_seq:
-                dropped_empty += 1
-                all_round_rows.append(
-                    {
-                        "record_id": header,
-                        "round": round_idx,
-                        "orientation_chosen": chosen.name,
-                        "orientation_ambiguous": int(ambiguous_orientation),
-                        "left_hit": int(chosen.left is not None),
-                        "right_hit": int(chosen.right is not None),
-                        "left_overlap_bp": chosen.left.overlap_bp if chosen.left else 0,
-                        "right_overlap_bp": chosen.right.overlap_bp if chosen.right else 0,
-                        "left_trim_bp": left_len,
-                        "right_trim_bp": right_len,
-                        "left_mismatch": chosen.left.mismatches if chosen.left else 0,
-                        "right_mismatch": chosen.right.mismatches if chosen.right else 0,
-                        "left_primer_name": chosen.left.primer if chosen.left else "",
-                        "right_primer_name": chosen.right.primer if chosen.right else "",
-                        "trim_start": left_len,
-                        "trim_end": right_index,
-                        "trim_mode": trim_mode,
-                        "confidence": confidence,
-                        "dropped_empty": 1,
-                        "recheck_tool": recheck_tool,
-                        "recheck_status": "not_run_phase2",
-                        "phylo_mismatch_flag": 0,
-                    }
-                )
-                continue
-
-            trimmed_records.append((header, trimmed_seq))
-            all_round_rows.append(
-                {
-                    "record_id": header,
-                    "round": round_idx,
-                    "orientation_chosen": chosen.name,
-                    "orientation_ambiguous": int(ambiguous_orientation),
-                    "left_hit": int(chosen.left is not None),
-                    "right_hit": int(chosen.right is not None),
-                    "left_overlap_bp": chosen.left.overlap_bp if chosen.left else 0,
-                    "right_overlap_bp": chosen.right.overlap_bp if chosen.right else 0,
-                    "left_trim_bp": left_len,
-                    "right_trim_bp": right_len,
-                    "left_mismatch": chosen.left.mismatches if chosen.left else 0,
-                    "right_mismatch": chosen.right.mismatches if chosen.right else 0,
-                    "left_primer_name": chosen.left.primer if chosen.left else "",
-                    "right_primer_name": chosen.right.primer if chosen.right else "",
-                    "trim_start": left_len,
-                    "trim_end": right_index,
-                    "trim_mode": trim_mode,
-                    "confidence": confidence,
-                    "dropped_empty": 0,
-                    "recheck_tool": recheck_tool,
-                    "recheck_status": "not_run_phase2",
-                    "phylo_mismatch_flag": 0,
-                }
-            )
-
-        after_count = len(trimmed_records)
-        high_rate = confidence_high / before_count if before_count else 0.0
-        round_summaries.append(
-            {
-                "round": round_idx,
-                "records": trimmed_records,
-                "before": before_count,
-                "after": after_count,
-                "removed": before_count - after_count,
-                "trimmed_both": trimmed_both,
-                "trimmed_left_only": trimmed_left_only,
-                "trimmed_right_only": trimmed_right_only,
-                "untrimmed": untrimmed,
-                "dropped_empty": dropped_empty,
-                "canonical_orientation": canonical_orientation,
-                "reverse_orientation": reverse_orientation,
-                "confidence_high": confidence_high,
-                "confidence_medium": confidence_medium,
-                "confidence_low": confidence_low,
-                "high_conf_rate": high_rate,
-                "round_max_mismatch": round_max_mismatch,
-                "round_min_overlap_ratio": round_overlap_ratio,
-                "round_min_overlap_bp": round_overlap_bp or 0,
-            }
-        )
-
-        if not iter_enable:
-            break
-        if high_rate >= iter_target_conf:
-            break
-        if prev_high_rate is not None and (high_rate - prev_high_rate) < iter_stop_delta:
-            break
-        prev_high_rate = high_rate
-
-    best_summary = max(
-        round_summaries,
-        key=lambda row: (
-            row["high_conf_rate"],
-            row["after"],
-            -row["dropped_empty"],
-            row["round"],
+def _find_orientation_matches(
+    ctx: _PrimerTrimContext,
+    seq: str,
+    max_mismatch: int,
+    overlap_ratio: float,
+    overlap_bp: Optional[int],
+) -> Tuple[OrientationScore, bool]:
+    canonical = OrientationScore(
+        name="canonical",
+        left=find_best_prefix_match(
+            seq, ctx.forward_primers, max_mismatch, ctx.max_error_rate,
+            overlap_bp, overlap_ratio, max_offset=ctx.end_max_offset,
+        ),
+        right=find_best_suffix_match(
+            seq, ctx.reverse_rc, max_mismatch, ctx.max_error_rate,
+            overlap_bp, overlap_ratio, max_offset=ctx.end_max_offset,
         ),
     )
-    best_round = int(best_summary["round"])
-    seq_by_header = {header: seq for header, seq in records}
-    sidecar_rows = [dict(row) for row in all_round_rows if int(row["round"]) == best_round]
+    reverse = OrientationScore(
+        name="reverse",
+        left=find_best_prefix_match(
+            seq, ctx.reverse_primers, max_mismatch, ctx.max_error_rate,
+            overlap_bp, overlap_ratio, max_offset=ctx.end_max_offset,
+        ),
+        right=find_best_suffix_match(
+            seq, ctx.forward_rc, max_mismatch, ctx.max_error_rate,
+            overlap_bp, overlap_ratio, max_offset=ctx.end_max_offset,
+        ),
+    )
+    return resolve_orientation(seq, canonical, reverse)
 
-    recheck_attempted = 0
-    recheck_rescued = 0
-    recheck_error: Optional[str] = None
-    if recheck_tool == "vsearch":
-        recheck_attempted, recheck_rescued, recheck_error = run_vsearch_endpoint_recheck(
-            sidecar_rows,
-            seq_by_header,
-            forward_primers,
-            reverse_primers,
-            forward_rc,
-            reverse_rc,
-            min_identity=recheck_min_identity,
-            min_query_cov=recheck_min_query_cov,
-        )
-        rebuilt_records, rebuilt_summary = summarize_rows_to_records(sidecar_rows, seq_by_header, trim_mode)
-        best_summary.update(rebuilt_summary)
-        best_summary["records"] = rebuilt_records
-    elif recheck_tool != "off":
-        recheck_error = f"unsupported_tool:{recheck_tool}"
 
-    sidecar_path = _write_primer_outputs(
-        fasta_path, best_summary["records"], sidecar_rows, sidecar_format
+def _build_primer_row(
+    ctx: _PrimerTrimContext,
+    header: str,
+    round_idx: int,
+    chosen: OrientationScore,
+    ambiguous_orientation: bool,
+    left_len: int,
+    right_len: int,
+    right_index: int,
+    confidence: str,
+    dropped_empty: int,
+) -> Dict[str, Any]:
+    return {
+        "record_id": header,
+        "round": round_idx,
+        "orientation_chosen": chosen.name,
+        "orientation_ambiguous": int(ambiguous_orientation),
+        "left_hit": int(chosen.left is not None),
+        "right_hit": int(chosen.right is not None),
+        "left_overlap_bp": chosen.left.overlap_bp if chosen.left else 0,
+        "right_overlap_bp": chosen.right.overlap_bp if chosen.right else 0,
+        "left_trim_bp": left_len,
+        "right_trim_bp": right_len,
+        "left_mismatch": chosen.left.mismatches if chosen.left else 0,
+        "right_mismatch": chosen.right.mismatches if chosen.right else 0,
+        "left_primer_name": chosen.left.primer if chosen.left else "",
+        "right_primer_name": chosen.right.primer if chosen.right else "",
+        "trim_start": left_len,
+        "trim_end": right_index,
+        "trim_mode": ctx.trim_mode,
+        "confidence": confidence,
+        "dropped_empty": dropped_empty,
+        "recheck_tool": ctx.recheck_tool,
+        "recheck_status": "not_run_phase2",
+        "phylo_mismatch_flag": 0,
+    }
+
+
+def _trim_record_for_round(
+    ctx: _PrimerTrimContext,
+    header: str,
+    seq: str,
+    round_idx: int,
+    max_mismatch: int,
+    overlap_ratio: float,
+    overlap_bp: Optional[int],
+) -> Tuple[Dict[str, Any], Optional[str], int, int, int, int, int, int, int, int, int]:
+    chosen, ambiguous_orientation = _find_orientation_matches(
+        ctx, seq, max_mismatch, overlap_ratio, overlap_bp
+    )
+    confidence = confidence_label(chosen.matched_ends, chosen.mismatch_total, ambiguous_orientation)
+    do_left_trim = ctx.trim_mode == PRIMER_TRIM_MODE_ONE_OR_BOTH and chosen.left is not None
+    do_right_trim = ctx.trim_mode == PRIMER_TRIM_MODE_ONE_OR_BOTH and chosen.right is not None
+    if ctx.trim_mode == PRIMER_TRIM_MODE_BOTH_REQUIRED:
+        do_left_trim = do_right_trim = chosen.left is not None and chosen.right is not None
+    left_len = chosen.left.trim_bp if do_left_trim and chosen.left else 0
+    right_len = chosen.right.trim_bp if do_right_trim and chosen.right else 0
+    right_index = len(seq) - right_len if right_len else len(seq)
+    trimmed_seq = seq[left_len:right_index]
+    row = _build_primer_row(
+        ctx, header, round_idx, chosen, ambiguous_orientation, left_len, right_len, right_index,
+        confidence, int(not trimmed_seq),
+    )
+    ends_trimmed = (1 if left_len else 0) + (1 if right_len else 0)
+    return (
+        row, trimmed_seq or None, ends_trimmed, int(chosen.name == "canonical" and chosen.matched_ends > 0),
+        int(chosen.name == "reverse" and chosen.matched_ends > 0), int(confidence == "high"),
+        int(confidence == "medium"), int(confidence == "low"), int(not trimmed_seq), left_len, right_len,
     )
 
+
+def _run_primer_trim_round(
+    ctx: _PrimerTrimContext, records: List[Tuple[str, str]], round_idx: int
+) -> _PrimerRoundResult:
+    max_mismatch, overlap_ratio, overlap_bp = _round_thresholds(ctx, round_idx)
+    trimmed_records: List[Tuple[str, str]] = []
+    rows: List[Dict[str, Any]] = []
+    counts = {"trimmed_both": 0, "trimmed_left_only": 0, "trimmed_right_only": 0,
+              "untrimmed": 0, "dropped_empty": 0, "canonical_orientation": 0,
+              "reverse_orientation": 0, "confidence_high": 0, "confidence_medium": 0,
+              "confidence_low": 0}
+    for header, seq in records:
+        row, trimmed_seq, ends_trimmed, canonical, reverse, high, medium, low, dropped, _, _ = (
+            _trim_record_for_round(ctx, header, seq, round_idx, max_mismatch, overlap_ratio, overlap_bp)
+        )
+        rows.append(row)
+        if ends_trimmed == 2:
+            counts["trimmed_both"] += 1
+        elif ends_trimmed == 1 and row["left_trim_bp"]:
+            counts["trimmed_left_only"] += 1
+        elif ends_trimmed == 1:
+            counts["trimmed_right_only"] += 1
+        else:
+            counts["untrimmed"] += 1
+        counts["canonical_orientation"] += canonical
+        counts["reverse_orientation"] += reverse
+        counts["confidence_high"] += high
+        counts["confidence_medium"] += medium
+        counts["confidence_low"] += low
+        counts["dropped_empty"] += dropped
+        if trimmed_seq is not None:
+            trimmed_records.append((header, trimmed_seq))
+    before = len(records)
+    summary = {
+        "round": round_idx,
+        "records": trimmed_records,
+        "before": before,
+        "after": len(trimmed_records),
+        "removed": before - len(trimmed_records),
+        **counts,
+        "high_conf_rate": counts["confidence_high"] / before if before else 0.0,
+        "round_max_mismatch": max_mismatch,
+        "round_min_overlap_ratio": overlap_ratio,
+        "round_min_overlap_bp": overlap_bp or 0,
+    }
+    return _PrimerRoundResult(trimmed_records, rows, summary)
+
+
+def _run_primer_trim_rounds(
+    ctx: _PrimerTrimContext, records: List[Tuple[str, str]]
+) -> Tuple[List[_PrimerRoundResult], List[Dict[str, Any]]]:
+    round_limit = max(1, ctx.iter_max_rounds if ctx.iter_enable else 1)
+    results: List[_PrimerRoundResult] = []
+    all_rows: List[Dict[str, Any]] = []
+    previous_rate: Optional[float] = None
+    for round_idx in range(1, round_limit + 1):
+        result = _run_primer_trim_round(ctx, records, round_idx)
+        results.append(result)
+        all_rows.extend(result.rows)
+        high_rate = result.summary["high_conf_rate"]
+        if not ctx.iter_enable:
+            break
+        if high_rate >= ctx.iter_target_conf:
+            break
+        if previous_rate is not None and high_rate - previous_rate < ctx.iter_stop_delta:
+            break
+        previous_rate = high_rate
+    return results, all_rows
+
+
+def _apply_primer_recheck(
+    ctx: _PrimerTrimContext,
+    best_summary: Dict[str, Any],
+    sidecar_rows: List[Dict[str, Any]],
+    records: List[Tuple[str, str]],
+) -> Tuple[int, int, Optional[str]]:
+    if ctx.recheck_tool != "vsearch":
+        return 0, 0, f"unsupported_tool:{ctx.recheck_tool}" if ctx.recheck_tool != "off" else None
+    seq_by_header = {header: seq for header, seq in records}
+    attempted, rescued, error = run_vsearch_endpoint_recheck(
+        sidecar_rows, seq_by_header, ctx.forward_primers, ctx.reverse_primers,
+        ctx.forward_rc, ctx.reverse_rc, min_identity=ctx.recheck_min_identity,
+        min_query_cov=ctx.recheck_min_query_cov,
+    )
+    rebuilt_records, rebuilt_summary = summarize_rows_to_records(
+        sidecar_rows, seq_by_header, ctx.trim_mode
+    )
+    best_summary.update(rebuilt_summary)
+    best_summary["records"] = rebuilt_records
+    return attempted, rescued, error
+
+
+def _build_primer_trim_result(
+    ctx: _PrimerTrimContext,
+    best_summary: Dict[str, Any],
+    round_results: List[_PrimerRoundResult],
+    sidecar_path: Optional[Path],
+    recheck_attempted: int,
+    recheck_rescued: int,
+    recheck_error: Optional[str],
+) -> Dict[str, Any]:
     return {
-        "before": int(best_summary["before"]),
-        "after": int(best_summary["after"]),
-        "removed": int(best_summary["removed"]),
-        "trimmed_both": int(best_summary["trimmed_both"]),
+        "before": int(best_summary["before"]), "after": int(best_summary["after"]),
+        "removed": int(best_summary["removed"]), "trimmed_both": int(best_summary["trimmed_both"]),
         "trimmed_left_only": int(best_summary["trimmed_left_only"]),
         "trimmed_right_only": int(best_summary["trimmed_right_only"]),
-        "untrimmed": int(best_summary["untrimmed"]),
-        "dropped_empty": int(best_summary["dropped_empty"]),
+        "untrimmed": int(best_summary["untrimmed"]), "dropped_empty": int(best_summary["dropped_empty"]),
         "canonical_orientation": int(best_summary["canonical_orientation"]),
         "reverse_orientation": int(best_summary["reverse_orientation"]),
         "confidence_high": int(best_summary["confidence_high"]),
         "confidence_medium": int(best_summary["confidence_medium"]),
         "confidence_low": int(best_summary["confidence_low"]),
         "high_conf_rate": float(best_summary["high_conf_rate"]),
-        "rounds_run": len(round_summaries),
-        "best_round": best_round,
+        "rounds_run": len(round_results), "best_round": int(best_summary["round"]),
         "sidecar_path": str(sidecar_path) if sidecar_path else None,
-        "retained_path": str(retained_path) if keep_retained_fasta else None,
-        "recheck_tool": recheck_tool,
-        "recheck_attempted": recheck_attempted,
-        "recheck_rescued": recheck_rescued,
-        "recheck_error": recheck_error,
-        "phylo_target_confidence": phylo_target_confidence,
+        "retained_path": str(ctx.retained_path) if ctx.keep_retained_fasta else None,
+        "recheck_tool": ctx.recheck_tool, "recheck_attempted": recheck_attempted,
+        "recheck_rescued": recheck_rescued, "recheck_error": recheck_error,
+        "phylo_target_confidence": ctx.phylo_target_confidence,
     }
+
+
+def apply_post_prep_primer_trim(
+    fasta_path: Path,
+    forward_primers: List[str],
+    reverse_primers: List[str],
+    options: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    ctx = _build_primer_trim_context(fasta_path, forward_primers, reverse_primers, options)
+    records = _prepare_primer_trim(ctx)
+    if not records:
+        return _empty_primer_trim_result(ctx)
+
+    round_results, all_round_rows = _run_primer_trim_rounds(ctx, records)
+    best_summary = max(
+        (result.summary for result in round_results),
+        key=lambda row: (row["high_conf_rate"], row["after"], -row["dropped_empty"], row["round"]),
+    )
+    best_round = int(best_summary["round"])
+    sidecar_rows = [dict(row) for row in all_round_rows if int(row["round"]) == best_round]
+    recheck_attempted, recheck_rescued, recheck_error = _apply_primer_recheck(
+        ctx, best_summary, sidecar_rows, records
+    )
+    sidecar_path = _write_primer_outputs(
+        fasta_path, best_summary["records"], sidecar_rows, ctx.sidecar_format
+    )
+    return _build_primer_trim_result(
+        ctx, best_summary, round_results, sidecar_path,
+        recheck_attempted, recheck_rescued, recheck_error,
+    )
