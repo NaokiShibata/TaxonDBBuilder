@@ -5,6 +5,7 @@ import os
 import re
 import sys
 import time
+from dataclasses import dataclass
 from datetime import date, datetime
 from http import HTTPStatus
 from http.client import HTTPException, RemoteDisconnected
@@ -334,7 +335,26 @@ def default_delay(ncbi_cfg: Dict) -> float:
     return 0.34
 
 
-def fetch_genbank(
+@dataclass
+class _GenbankFetchContext:
+    query: str
+    db: str
+    rettype: str
+    retmode: str
+    per_query: int
+    use_history: bool
+    fetch_retries: int
+    retry_delay_sec: float
+    delay_sec: float
+    start_at: int
+    resume: bool
+    count: int
+    webenv: Any
+    query_key: Any
+    cache_root: Optional[Path]
+
+
+def _create_genbank_fetch_context(
     query: str,
     ncbi_cfg: Dict,
     delay_sec: float,
@@ -342,7 +362,7 @@ def fetch_genbank(
     dump_dir: Optional[Path] = None,
     resume: bool = False,
     taxid: Optional[str] = None,
-) -> Tuple[int, Iterable[Tuple[int, str]]]:
+) -> _GenbankFetchContext:
     db = ncbi_cfg.get("db", "nucleotide")
     rettype = ncbi_cfg.get("rettype", "fasta")
     retmode = ncbi_cfg.get("retmode", "text")
@@ -353,138 +373,175 @@ def fetch_genbank(
 
     if rettype not in {"gb", "gbwithparts"}:
         raise typer.BadParameter("ncbi.rettype must be 'gb' or 'gbwithparts' for region extraction.")
-
     handle = Entrez.esearch(db=db, term=query, retmax=0, usehistory="y" if use_history else "n")
     record = Entrez.read(handle)
     count = int(record.get("Count", 0))
     webenv = record.get("WebEnv")
     query_key = record.get("QueryKey")
-
-    if count == 0:
-        return 0, []
-
     cache_root = None
     if dump_dir:
         cache_root = dump_dir / ".cache"
         cache_root.mkdir(parents=True, exist_ok=True)
+    return _GenbankFetchContext(
+        query=query,
+        db=db,
+        rettype=rettype,
+        retmode=retmode,
+        per_query=per_query,
+        use_history=use_history,
+        fetch_retries=fetch_retries,
+        retry_delay_sec=retry_delay_sec,
+        delay_sec=delay_sec,
+        start_at=start_at,
+        resume=resume,
+        count=count,
+        webenv=webenv,
+        query_key=query_key,
+        cache_root=cache_root,
+    )
 
-    def dump_path_for(start: int) -> Optional[Path]:
-        if not cache_root:
-            return None
-        return cache_root / f"start{start:09d}_count{per_query:04d}.cache"
 
-    def load_cached(start: int) -> Optional[str]:
-        path = dump_path_for(start)
-        if path and path.exists():
-            return path.read_text(encoding="utf-8", errors="ignore")
+def _genbank_cache_path(ctx: _GenbankFetchContext, start: int) -> Optional[Path]:
+    if not ctx.cache_root:
         return None
+    return ctx.cache_root / f"start{start:09d}_count{ctx.per_query:04d}.cache"
 
-    def save_cached(start: int, data: str) -> None:
-        path = dump_path_for(start)
-        if path:
-            path.write_text(data, encoding="utf-8")
 
-    def read_efetch_with_retries(start: int, **fetch_kwargs: Any) -> str:
-        retryable_http_codes = {
-            HTTPStatus.REQUEST_TIMEOUT,
-            HTTPStatus.TOO_MANY_REQUESTS,
-            HTTPStatus.BAD_GATEWAY,
-            HTTPStatus.SERVICE_UNAVAILABLE,
-            HTTPStatus.GATEWAY_TIMEOUT,
-        }
-        last_exc: Optional[Exception] = None
-        for attempt in range(1, fetch_retries + 1):
+def _load_genbank_cache(ctx: _GenbankFetchContext, start: int) -> Optional[str]:
+    path = _genbank_cache_path(ctx, start)
+    if path and path.exists():
+        return path.read_text(encoding="utf-8", errors="ignore")
+    return None
+
+
+def _save_genbank_cache(ctx: _GenbankFetchContext, start: int, data: str) -> None:
+    path = _genbank_cache_path(ctx, start)
+    if path:
+        path.write_text(data, encoding="utf-8")
+
+
+def _read_efetch_with_retries(ctx: _GenbankFetchContext, start: int, **fetch_kwargs: Any) -> str:
+    retryable_http_codes = {
+        HTTPStatus.REQUEST_TIMEOUT,
+        HTTPStatus.TOO_MANY_REQUESTS,
+        HTTPStatus.BAD_GATEWAY,
+        HTTPStatus.SERVICE_UNAVAILABLE,
+        HTTPStatus.GATEWAY_TIMEOUT,
+    }
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, ctx.fetch_retries + 1):
+        try:
+            fetch_handle = Entrez.efetch(**fetch_kwargs)
             try:
-                fetch_handle = Entrez.efetch(**fetch_kwargs)
-                try:
-                    return fetch_handle.read()
-                finally:
-                    fetch_handle.close()
-            except HTTPError as exc:
-                last_exc = exc
-                if exc.code == HTTPStatus.BAD_REQUEST:
-                    raise
-                if exc.code not in retryable_http_codes or attempt >= fetch_retries:
-                    raise
-            except (HTTPException, RemoteDisconnected, URLError, TimeoutError, OSError) as exc:
-                last_exc = exc
-                if attempt >= fetch_retries:
-                    raise
+                return fetch_handle.read()
+            finally:
+                fetch_handle.close()
+        except HTTPError as exc:
+            last_exc = exc
+            if exc.code == HTTPStatus.BAD_REQUEST:
+                raise
+            if exc.code not in retryable_http_codes or attempt >= ctx.fetch_retries:
+                raise
+        except (HTTPException, RemoteDisconnected, URLError, TimeoutError, OSError) as exc:
+            last_exc = exc
+            if attempt >= ctx.fetch_retries:
+                raise
+        wait_sec = ctx.retry_delay_sec * attempt
+        print(
+            f"# efetch retry start={start} attempt={attempt}/{ctx.fetch_retries}"
+            f" wait={wait_sec:.2f}s reason={last_exc}",
+            file=sys.stderr,
+            flush=True,
+        )
+        time.sleep(wait_sec)
+    raise RuntimeError("efetch retries exhausted")
 
-            wait_sec = retry_delay_sec * attempt
-            print(
-                f"# efetch retry start={start} attempt={attempt}/{fetch_retries}"
-                f" wait={wait_sec:.2f}s reason={last_exc}",
-                file=sys.stderr,
-                flush=True,
+
+def _fetch_genbank_chunk_by_ids(ctx: _GenbankFetchContext, start: int) -> Optional[str]:
+    search_handle = Entrez.esearch(
+        db=ctx.db,
+        term=ctx.query,
+        retstart=start,
+        retmax=ctx.per_query,
+        usehistory="n",
+    )
+    search_record = Entrez.read(search_handle)
+    ids = search_record.get("IdList", [])
+    if not ids:
+        return None
+    return _read_efetch_with_retries(
+        ctx,
+        start,
+        db=ctx.db,
+        rettype=ctx.rettype,
+        retmode=ctx.retmode,
+        id=",".join(ids),
+    )
+
+
+def _iter_genbank_history_chunks(ctx: _GenbankFetchContext) -> Iterable[Tuple[int, str]]:
+    for start in range(ctx.start_at, ctx.count, ctx.per_query):
+        cached = _load_genbank_cache(ctx, start) if ctx.resume else None
+        if cached is not None:
+            yield start, cached
+            continue
+        try:
+            data = _read_efetch_with_retries(
+                ctx,
+                start,
+                db=ctx.db,
+                rettype=ctx.rettype,
+                retmode=ctx.retmode,
+                retstart=start,
+                retmax=ctx.per_query,
+                webenv=ctx.webenv,
+                query_key=ctx.query_key,
             )
-            time.sleep(wait_sec)
-
-    def fetch_chunk_by_ids(start: int) -> Optional[str]:
-        search_handle = Entrez.esearch(
-            db=db,
-            term=query,
-            retstart=start,
-            retmax=per_query,
-            usehistory="n",
-        )
-        search_record = Entrez.read(search_handle)
-        ids = search_record.get("IdList", [])
-        if not ids:
-            return None
-        return read_efetch_with_retries(
-            start,
-            db=db,
-            rettype=rettype,
-            retmode=retmode,
-            id=",".join(ids),
-        )
-
-    def gen() -> Iterable[Tuple[int, str]]:
-        if use_history and webenv and query_key:
-            for start in range(start_at, count, per_query):
-                cached = load_cached(start) if resume else None
-                if cached is not None:
-                    yield start, cached
-                    continue
-                try:
-                    data = read_efetch_with_retries(
-                        start,
-                        db=db,
-                        rettype=rettype,
-                        retmode=retmode,
-                        retstart=start,
-                        retmax=per_query,
-                        webenv=webenv,
-                        query_key=query_key,
-                    )
-                except HTTPError as exc:
-                    if exc.code != HTTPStatus.BAD_REQUEST:
-                        raise
-                    fallback = fetch_chunk_by_ids(start)
-                    if fallback is None:
-                        continue
-                    data = fallback
-                if cache_root:
-                    save_cached(start, data)
-                yield start, data
-                time.sleep(delay_sec)
-            return
-
-        for start in range(start_at, count, per_query):
-            cached = load_cached(start) if resume else None
-            if cached is not None:
-                yield start, cached
-                continue
-            data = fetch_chunk_by_ids(start)
+        except HTTPError as exc:
+            if exc.code != HTTPStatus.BAD_REQUEST:
+                raise
+            data = _fetch_genbank_chunk_by_ids(ctx, start)
             if data is None:
                 continue
-            if cache_root:
-                save_cached(start, data)
-            yield start, data
-            time.sleep(delay_sec)
+        _save_genbank_cache(ctx, start, data)
+        yield start, data
+        time.sleep(ctx.delay_sec)
 
-    return count, gen()
+
+def _iter_genbank_direct_chunks(ctx: _GenbankFetchContext) -> Iterable[Tuple[int, str]]:
+    for start in range(ctx.start_at, ctx.count, ctx.per_query):
+        cached = _load_genbank_cache(ctx, start) if ctx.resume else None
+        if cached is not None:
+            yield start, cached
+            continue
+        data = _fetch_genbank_chunk_by_ids(ctx, start)
+        if data is None:
+            continue
+        _save_genbank_cache(ctx, start, data)
+        yield start, data
+        time.sleep(ctx.delay_sec)
+
+
+def _iter_genbank_chunks(ctx: _GenbankFetchContext) -> Iterable[Tuple[int, str]]:
+    if ctx.use_history and ctx.webenv and ctx.query_key:
+        yield from _iter_genbank_history_chunks(ctx)
+        return
+    yield from _iter_genbank_direct_chunks(ctx)
+
+
+def fetch_genbank(
+    query: str,
+    ncbi_cfg: Dict,
+    delay_sec: float,
+    start_at: int = 0,
+    dump_dir: Optional[Path] = None,
+    resume: bool = False,
+    taxid: Optional[str] = None,
+) -> Tuple[int, Iterable[Tuple[int, str]]]:
+    ctx = _create_genbank_fetch_context(query, ncbi_cfg, delay_sec, start_at, dump_dir, resume, taxid)
+    if ctx.count == 0:
+        return 0, []
+    return ctx.count, _iter_genbank_chunks(ctx)
 
 
 def iter_genbank_files(from_dir: Path, taxid: Optional[str] = None) -> Iterable[Tuple[int, str]]:
@@ -496,6 +553,5 @@ def iter_genbank_files(from_dir: Path, taxid: Optional[str] = None) -> Iterable[
     files = sorted(gb_root.glob("*.gb"))
     for idx, path in enumerate(files):
         yield idx, path.read_text(encoding="utf-8", errors="ignore")
-
 
 
