@@ -30,19 +30,6 @@ from .models import (
     DEFAULT_BOLD_HEADER_FORMAT,
 )
 
-def build_bold_download_description(
-    scientific_name: str,
-    downloaded_bytes: int,
-    content_length: Optional[int],
-) -> str:
-    if content_length:
-        return (
-            f"BOLD {scientific_name}: download "
-            f"{format_byte_count(downloaded_bytes)}/{format_byte_count(content_length)}"
-        )
-    return f"BOLD {scientific_name}: download {format_byte_count(downloaded_bytes)}"
-
-
 def process_bold_taxon_to_spool(
     resolved_taxon: ResolvedTaxon,
     prepared_query: Any,
