@@ -1,0 +1,7 @@
+[markers."12s"]
+aliases = ["12", "12s"]
+phrases = ["12S"]
+region_patterns = ["12S"]
+feature_types = ["gene"]
+feature_fields = ["gene"]
+header_format = "verbose"

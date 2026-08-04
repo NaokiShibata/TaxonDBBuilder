@@ -1,0 +1,55 @@
+# started: <TIMESTAMP>
+# config: <ROOT>/tests/fixtures/minimal_config.toml
+# source: ncbi
+# taxon input: ['999']
+# taxids: ['999']
+# scientific_names: ['999']
+# markers: ['12s']
+# output_prefix: taxondbbuilder_
+# dump_gb: <TMP>/dump
+# from_gb: <TMP>/ncbi-gb
+# resume: False
+# post_prep: False
+# workers: 1
+# query taxid=999: (txid999[Organism]) AND ((("12S"[All Fields]) OR ("rrnS"[All Fields])))
+# query count taxid=999: from-gb
+# source_merge_csv: <TMP>/ncbi.fasta.source_merge.csv
+# acc_organism_map: total=1 mapped=1 unmapped=0 unused_source_records=0 unique_accessions=1 unique_organisms=1
+# acc_organism_map_csv: <TMP>/ncbi.fasta.acc_organism.csv
+# total records: 2
+# matched records: 1
+# matched features: 1
+# kept records: 1
+# skipped duplicates (same accession+sequence): 0
+# kept duplicates (same accession, different sequence): 0
+# output: <TMP>/ncbi.fasta
+# finished: <TIMESTAMP>
+                                   │
+│ Markers │ 12s                                                                │
+│ Output  │ <TMP>/ncb │
+│         │ i.fasta                                                            │
+│ Filters │ none                                                               │
+│ From GB │ <TMP>/ncb │
+│         │ i-gb                                                               │
+│ Dump GB │ <TMP>/dum │
+│         │ p                                                                  │
+└─────────┴────────────────────────────────────────────────────────────────────┘
+                                 Result Summary                                 
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                               ┃ Value                                 ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Total records                        │ 2                                     │
+│ Matched records                      │ 1                                     │
+│ Matched features                     │ 1                                     │
+│ Kept records                         │ 1                                     │
+│ Skipped duplicates (same acc+seq)    │ 0                                     │
+│ Kept duplicates (same acc, diff seq) │ 0                                     │
+│ Output                               │ <TMP> │
+│ Log                                  │ <TMP> │
+└──────────────────────────────────────┴───────────────────────────────────────┘
+ACC-organism mapping CSV: 
+<TMP>/ncbi.fasta.acc_or
+ganism.csv
+Source merge CSV: 
+<TMP>/ncbi.fasta.source
+_merge.csv

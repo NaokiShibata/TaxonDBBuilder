@@ -1,0 +1,4 @@
+record_id	round	orientation_chosen	orientation_ambiguous	left_hit	right_hit	left_overlap_bp	right_overlap_bp	left_trim_bp	right_trim_bp	left_mismatch	right_mismatch	left_primer_name	right_primer_name	trim_start	trim_end	trim_mode	confidence	dropped_empty	recheck_tool	recheck_status	phylo_mismatch_flag
+TESTP001.1|Testus alpha other.|12s|12S|gene|5-16|1	1	canonical	0	1	1	4	4	4	4	0	0	ACGT	TGCA	4	8	one_or_both	high	0	off	not_run_phase2	0
+TESTP002.1|Testus beta other.|12s|12S|gene|5-16|1	1	canonical	0	1	1	4	4	4	4	0	0	ACGT	TGCA	4	8	one_or_both	high	0	off	not_run_phase2	0
+TESTP003.1|Testus gamma other.|12s|12S|gene|5-12|1	1	canonical	1	0	0	0	0	0	0	0	0			0	8	one_or_both	low	0	off	not_run_phase2	0

@@ -1,0 +1,18 @@
+[ncbi]
+email = "test@example.invalid"
+db = "nucleotide"
+
+[output]
+default_header_format = "{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}"
+
+[output.header_formats]
+verbose = "{acc_id}|{organism_raw}|{marker_raw}|{label_raw}|{type_raw}|{loc}|{strand}"
+
+[markers]
+file = "post_prep_markers.toml"
+
+[post_prep]
+primer_file = "minimal_primers.toml"
+primer_set = ["alpha"]
+sequence_length_min = 4
+sequence_length_max = 10

@@ -41,4 +41,5 @@ def forbid_external_network(monkeypatch):
 
     monkeypatch.setattr(builder.Entrez, "esearch", no_network)
     monkeypatch.setattr(builder.Entrez, "efetch", no_network)
+    monkeypatch.setattr(builder.Entrez, "epost", no_network)
     monkeypatch.setattr(bold, "urlopen", no_network)

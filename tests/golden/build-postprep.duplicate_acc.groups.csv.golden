@@ -1,0 +1,2 @@
+group_id,sequence_hash,sequence_length,records_in_group,unique_accessions,unique_organisms,cross_organism_duplicate,accessions,organism_names
+1,00375065763ad15e0a040210fcc6a75e14be67dc,4,2,2,2,true,TESTP001.1;TESTP002.1,Testus alpha other.;Testus beta other.

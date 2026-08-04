@@ -1,0 +1,53 @@
+# started: <TIMESTAMP>
+# config: <ROOT>/tests/fixtures/minimal_config.toml
+# source: both
+# taxon input: ['999']
+# taxids: ['999']
+# scientific_names: ['Testus alpha']
+# markers: ['12s']
+# output_prefix: taxondbbuilder_
+# dump_gb: none
+# from_gb: <TMP>/both-gb
+# resume: False
+# post_prep: False
+# workers: 1
+# query taxid=999: (txid999[Organism]) AND ((("12S"[All Fields]) OR ("rrnS"[All Fields])))
+# query count taxid=999: from-gb
+# bold query: taxon=Testus alpha normalized=Testus alpha specimens=3 format=tsv bytes=153 downloaded=2 matched=2
+# source_merge_csv: <TMP>/both.fasta.source_merge.csv
+# acc_organism_map: total=2 mapped=2 unmapped=0 unused_source_records=0 unique_accessions=2 unique_organisms=2
+# acc_organism_map_csv: <TMP>/both.fasta.acc_organism.csv
+# total records: 4
+# matched records: 3
+# matched features: 3
+# kept records: 2
+# skipped duplicates (same accession+sequence): 0
+# kept duplicates (same accession, different sequence): 0
+# output: <TMP>/both.fasta
+# finished: <TIMESTAMP>
+                                                               │
+│ Output  │ <TMP>/bot │
+│         │ h.fasta                                                            │
+│ Filters │ none                                                               │
+│ From GB │ <TMP>/bot │
+│         │ h-gb                                                               │
+└─────────┴────────────────────────────────────────────────────────────────────┘
+                                 Result Summary                                 
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                               ┃ Value                                 ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Total records                        │ 4                                     │
+│ Matched records                      │ 3                                     │
+│ Matched features                     │ 3                                     │
+│ Kept records                         │ 2                                     │
+│ Skipped duplicates (same acc+seq)    │ 0                                     │
+│ Kept duplicates (same acc, diff seq) │ 0                                     │
+│ Output                               │ <TMP> │
+│ Log                                  │ <TMP> │
+└──────────────────────────────────────┴───────────────────────────────────────┘
+ACC-organism mapping CSV: 
+<TMP>/both.fasta.acc_or
+ganism.csv
+Source merge CSV: 
+<TMP>/both.fasta.source
+_merge.csv
