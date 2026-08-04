@@ -14,6 +14,9 @@ NCBI と BOLD Data Portal から任意の分類群・任意のマーカーの配
 - Python < 3.11 の場合: tomli
 - パッケージ管理: uv (推奨)
 
+開発・sidecar ビルド用の依存は `requirements-dev.txt` に記録しています
+(pytest / pytest-cov / pyinstaller)。
+
 ### 環境構築 (uv)
 任意のフォルダにuvをインストールする例です (例: `~/tools/uv`)。
 
@@ -41,7 +44,7 @@ uv venv --python 3.11
 source .venv/bin/activate
 
 # 依存導入
-uv pip install -r requirements.txt
+uv pip install -r requirements-dev.txt
 ```
 
 ### 補足
@@ -555,10 +558,9 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 uv python install 3.11
 uv venv --python 3.11
 source .venv/bin/activate
-uv pip install -r requirements.txt
-uv pip install pyinstaller
+uv pip install -r requirements-dev.txt
 ```
-`tauri-gui/` にいる状態で実行する場合は `uv pip install -r ../requirements.txt` を使ってください。
+`tauri-gui/` にいる状態で実行する場合は `uv pip install -r ../requirements-dev.txt` を使ってください。
 
 ### 2. セットアップ
 ```bash
@@ -579,6 +581,6 @@ npm run tauri:dev
 
 ### 補足
 - sidecar は `src-tauri/bin/` に配置されます。
-- `scripts/build_sidecar.py` は `PyInstaller` が必要です（`.venv` を有効化して `uv pip install pyinstaller`）。
+- `scripts/build_sidecar.py` は `requirements-dev.txt` の `PyInstaller` が必要です。
 - 開発時は `TAXONDBBUILDER_BIN` 環境変数で sidecar の絶対パスを直接指定することもできます（ディレクトリではなく実行ファイルを指定）。
 - Linux のビルド依存関係は `tauri-gui/README.md` の `Linux build dependencies` を参照してください。
