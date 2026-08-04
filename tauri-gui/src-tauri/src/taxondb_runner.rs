@@ -90,12 +90,12 @@ pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
     }
     if params.post_prep {
         args.push("--post-prep".to_string());
-    }
-    for step in &params.post_prep_steps {
-        args.extend(["--post-prep-step".to_string(), step.clone()]);
-    }
-    for primer_set in &params.post_prep_primer_sets {
-        args.extend(["--post-prep-primer-set".to_string(), primer_set.clone()]);
+        for step in &params.post_prep_steps {
+            args.extend(["--post-prep-step".to_string(), step.clone()]);
+        }
+        for primer_set in &params.post_prep_primer_sets {
+            args.extend(["--post-prep-primer-set".to_string(), primer_set.clone()]);
+        }
     }
 
     args
@@ -3015,5 +3015,15 @@ all_fields_exclude = ["human"]
                 "beta",
             ]
         );
+
+        let mut disabled = params.clone();
+        disabled.post_prep = false;
+        let disabled_args = build_params_to_args(&disabled);
+        assert!(!disabled_args.iter().any(|arg| {
+            matches!(
+                arg.as_str(),
+                "--post-prep" | "--post-prep-step" | "--post-prep-primer-set"
+            )
+        }));
     }
 }
