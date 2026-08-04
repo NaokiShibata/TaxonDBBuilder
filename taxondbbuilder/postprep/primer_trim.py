@@ -229,85 +229,79 @@ def compute_trim_lengths_from_row(row: Dict[str, Any], trim_mode: str) -> Tuple[
     return 0, 0
 
 
+def _summarize_trim_row(
+    row: Dict[str, Any], seq: str, trim_mode: str
+) -> Tuple[Optional[Tuple[str, str]], Dict[str, int]]:
+    confidence = str(row.get("confidence", "low"))
+    counts = {
+        "confidence_high": int(confidence == "high"),
+        "confidence_medium": int(confidence == "medium"),
+        "confidence_low": int(confidence not in {"high", "medium"}),
+        "canonical_orientation": 0,
+        "reverse_orientation": 0,
+        "trimmed_both": 0,
+        "trimmed_left_only": 0,
+        "trimmed_right_only": 0,
+        "untrimmed": 0,
+        "dropped_empty": 0,
+    }
+    matched_ends = int(row.get("left_hit", 0)) + int(row.get("right_hit", 0))
+    if matched_ends > 0:
+        orientation = "canonical" if str(row.get("orientation_chosen")) == "canonical" else "reverse"
+        counts[f"{orientation}_orientation"] += 1
+
+    left_len, right_len = compute_trim_lengths_from_row(row, trim_mode)
+    ends_trimmed = (1 if left_len else 0) + (1 if right_len else 0)
+    if ends_trimmed == 0:
+        counts["untrimmed"] += 1
+    elif ends_trimmed == 2:
+        counts["trimmed_both"] += 1
+    elif left_len:
+        counts["trimmed_left_only"] += 1
+    else:
+        counts["trimmed_right_only"] += 1
+
+    right_index = len(seq) - right_len if right_len else len(seq)
+    trimmed_seq = seq[left_len:right_index]
+    row["trim_start"] = left_len
+    row["trim_end"] = right_index
+    if not trimmed_seq:
+        counts["dropped_empty"] += 1
+        row["dropped_empty"] = 1
+        return None, counts
+    row["dropped_empty"] = 0
+    return (str(row.get("record_id", "")), trimmed_seq), counts
+
+
 def summarize_rows_to_records(
     rows: List[Dict[str, Any]],
     seq_by_header: Dict[str, str],
     trim_mode: str,
 ) -> Tuple[List[Tuple[str, str]], Dict[str, Any]]:
     trimmed_records: List[Tuple[str, str]] = []
-    trimmed_both = 0
-    trimmed_left_only = 0
-    trimmed_right_only = 0
-    untrimmed = 0
-    dropped_empty = 0
-    canonical_orientation = 0
-    reverse_orientation = 0
-    confidence_high = 0
-    confidence_medium = 0
-    confidence_low = 0
-
+    counts = {key: 0 for key in (
+        "trimmed_both", "trimmed_left_only", "trimmed_right_only", "untrimmed",
+        "dropped_empty", "canonical_orientation", "reverse_orientation",
+        "confidence_high", "confidence_medium", "confidence_low",
+    )}
     for row in rows:
-        header = str(row.get("record_id", ""))
-        seq = seq_by_header.get(header, "")
+        seq = seq_by_header.get(str(row.get("record_id", "")), "")
         if not seq:
             continue
-
-        confidence = str(row.get("confidence", "low"))
-        if confidence == "high":
-            confidence_high += 1
-        elif confidence == "medium":
-            confidence_medium += 1
-        else:
-            confidence_low += 1
-
-        matched_ends = int(row.get("left_hit", 0)) + int(row.get("right_hit", 0))
-        if matched_ends > 0:
-            if str(row.get("orientation_chosen")) == "canonical":
-                canonical_orientation += 1
-            else:
-                reverse_orientation += 1
-
-        left_len, right_len = compute_trim_lengths_from_row(row, trim_mode)
-        ends_trimmed = (1 if left_len else 0) + (1 if right_len else 0)
-        if ends_trimmed == 0:
-            untrimmed += 1
-        elif ends_trimmed == 2:
-            trimmed_both += 1
-        elif left_len:
-            trimmed_left_only += 1
-        else:
-            trimmed_right_only += 1
-
-        right_index = len(seq) - right_len if right_len else len(seq)
-        trimmed_seq = seq[left_len:right_index]
-        row["trim_start"] = left_len
-        row["trim_end"] = right_index
-        if not trimmed_seq:
-            dropped_empty += 1
-            row["dropped_empty"] = 1
-            continue
-        row["dropped_empty"] = 0
-        trimmed_records.append((header, trimmed_seq))
+        trimmed_record, row_counts = _summarize_trim_row(row, seq, trim_mode)
+        for key, value in row_counts.items():
+            counts[key] += value
+        if trimmed_record is not None:
+            trimmed_records.append(trimmed_record)
 
     before = len(rows)
-    after = len(trimmed_records)
-    summary = {
+    return trimmed_records, {
         "before": before,
-        "after": after,
-        "removed": before - after,
-        "trimmed_both": trimmed_both,
-        "trimmed_left_only": trimmed_left_only,
-        "trimmed_right_only": trimmed_right_only,
-        "untrimmed": untrimmed,
-        "dropped_empty": dropped_empty,
-        "canonical_orientation": canonical_orientation,
-        "reverse_orientation": reverse_orientation,
-        "confidence_high": confidence_high,
-        "confidence_medium": confidence_medium,
-        "confidence_low": confidence_low,
-        "high_conf_rate": (confidence_high / before) if before else 0.0,
+        "after": len(trimmed_records),
+        "removed": before - len(trimmed_records),
+        **counts,
+        "high_conf_rate": counts["confidence_high"] / before if before else 0.0,
     }
-    return trimmed_records, summary
 
 
 def _collect_vsearch_candidates(
