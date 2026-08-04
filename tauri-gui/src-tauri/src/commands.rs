@@ -1,6 +1,6 @@
 use crate::config::*;
 use crate::progress::*;
-use crate::sidecar::{run_build_via_sidecar, BuildParams};
+use crate::sidecar::{run_build_via_sidecar, terminate_process_tree, BuildParams};
 use crate::state::*;
 use chrono::Local;
 use rfd::FileDialog;
@@ -173,9 +173,7 @@ pub(crate) fn cancel_run(state: State<AppState>) -> Result<(), String> {
             .lock()
             .map_err(|_| "failed to lock child process".to_string())?;
         if let Some(child) = guard.as_mut() {
-            child
-                .kill()
-                .map_err(|e| format!("failed to kill process: {e}"))?;
+            terminate_process_tree(child)?;
         }
         Ok(())
     } else {
@@ -331,7 +329,10 @@ pub(crate) fn start_run(
         };
 
         let was_cancelled = cancelled.load(Ordering::Relaxed);
-        let files = collect_files(&results_dir_for_thread, &[log_path_for_thread.clone()]);
+        let files = collect_files(
+            &results_dir_for_thread,
+            std::slice::from_ref(&log_path_for_thread),
+        );
 
         match (was_cancelled, exit_code) {
             (true, _) => emit_event(&app_for_thread, status_event("Cancelled")),

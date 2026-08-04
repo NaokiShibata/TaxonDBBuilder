@@ -14,6 +14,61 @@ use tauri::{AppHandle, Manager};
 
 const SIDECAR_NAME: &str = "taxondbbuilder";
 
+#[cfg(unix)]
+fn configure_process_group(command: &mut Command) {
+    use std::os::unix::process::CommandExt;
+
+    command.process_group(0);
+}
+
+#[cfg(windows)]
+fn configure_process_group(command: &mut Command) {
+    use std::os::windows::process::CommandExt;
+
+    const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
+    command.creation_flags(CREATE_NEW_PROCESS_GROUP);
+}
+
+pub(crate) fn terminate_process_tree(child: &mut Child) -> Result<(), String> {
+    if child
+        .try_wait()
+        .map_err(|error| format!("failed to poll sidecar: {error}"))?
+        .is_some()
+    {
+        return Ok(());
+    }
+
+    #[cfg(unix)]
+    {
+        let process_group = format!("-{}", child.id());
+        let killed = Command::new("kill")
+            .args(["-TERM", "--", &process_group])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if killed {
+            return Ok(());
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        let pid = child.id().to_string();
+        let killed = Command::new("taskkill")
+            .args(["/PID", &pid, "/T", "/F"])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false);
+        if killed {
+            return Ok(());
+        }
+    }
+
+    child
+        .kill()
+        .map_err(|error| format!("failed to terminate sidecar process tree: {error}"))
+}
+
 #[derive(Debug, Clone)]
 pub(crate) struct BuildParams {
     pub(crate) config_path: PathBuf,
@@ -193,6 +248,7 @@ pub(crate) fn run_build_via_sidecar(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    configure_process_group(&mut command);
 
     let mut child = command.spawn().map_err(|error| {
         format!(
@@ -244,9 +300,7 @@ pub(crate) fn run_build_via_sidecar(
                 .lock()
                 .map_err(|_| "failed to lock sidecar process".to_string())?;
             if let Some(child) = slot.as_mut() {
-                child
-                    .kill()
-                    .map_err(|error| format!("failed to kill sidecar: {error}"))?;
+                terminate_process_tree(child)?;
             }
         }
         thread::sleep(Duration::from_millis(100));
@@ -278,7 +332,7 @@ mod tests {
     use super::*;
     use crate::progress::progress_event;
     use std::fs;
-    use std::time::{SystemTime, UNIX_EPOCH};
+    use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
     fn repo_path(relative: &str) -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
@@ -363,5 +417,60 @@ mod tests {
         assert_eq!(terminal_event["metrics"]["matchedRecords"], 1);
 
         fs::remove_dir_all(temp_root).expect("remove integration test directory");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn terminate_process_tree_kills_process_group_descendants() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let pid_file = std::env::temp_dir().join(format!("taxondbbuilder-child-pid-{stamp}"));
+        let mut command = Command::new("sh");
+        command
+            .arg("-c")
+            .arg(format!("sleep 30 & echo $! > {}; wait", pid_file.display()));
+        configure_process_group(&mut command);
+        let mut child = command.spawn().expect("spawn process group");
+
+        for _ in 0..100 {
+            if pid_file.is_file() {
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        let descendant_pid = fs::read_to_string(&pid_file)
+            .expect("descendant pid file")
+            .trim()
+            .to_string();
+
+        terminate_process_tree(&mut child).expect("terminate process group");
+        let status = child.wait().expect("wait for process group leader");
+        assert!(!status.success());
+
+        let mut descendant_gone = false;
+        for _ in 0..50 {
+            let probe = Command::new("kill")
+                .args(["-0", &descendant_pid])
+                .status()
+                .map(|status| status.success())
+                .unwrap_or(false);
+            if !probe {
+                descendant_gone = true;
+                break;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        if !descendant_gone {
+            let _ = Command::new("kill")
+                .args(["-KILL", &descendant_pid])
+                .status();
+        }
+        let _ = fs::remove_file(&pid_file);
+        assert!(
+            descendant_gone,
+            "process-group descendant survived termination"
+        );
     }
 }
