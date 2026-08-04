@@ -320,3 +320,56 @@ sidecar 一本化で追加設計が必要な GUI 固有機能は次のとおり�
 
 これは (c) の欠点というより移行時の境界設計である。
 現行 Python 側には Rich progress と logger はあるため、Tauri が読む構造化 log または stdout protocol と cancellation signal を追加すれば対応可能だが、今回の調査範囲ではその移行実装は行っていない。
+
+## 6. Phase 3b-2b 完了記録（2026-08-04）
+
+Phase 3b-2a で build の実行経路を Python sidecar に切り替えたため、Phase 3b-2b では Rust 側の build/post-prep 二重実装を削除した。
+
+- `taxondb_runner.rs` を削除した。
+- `taxondb_post_prep.rs` を削除した。
+- `BuildParams` と `build_params_to_args` は `sidecar.rs` に移動した。
+- `start_run`、`run-event` の payload、既存の Tauri command 名と invoke 引数名は変更していない。
+- `--post-prep`、`--post-prep-step`、`--post-prep-primer-set` は sidecar へ渡す経路として残した。
+
+### 6.1 依存関係の判断
+
+`BuildParams` は `commands.rs` と `sidecar.rs` の共有型だったため、sidecar adapter の所有物として移動した。
+`taxondb_post_prep.rs` の型と関数は、削除した `run_post_prep_rust` adapter と同ファイル内のテストからしか参照されていなかった。
+`RunMetrics` は `progress.rs` 内で完結しており、post-prep 実装の型には依存していない。
+
+`search_taxonomy` は build と独立した GUI command であり、NCBI eUtils ではなく `taxonomy.db` を SQLite の read-only 接続で検索している。
+そのため sidecar 化せず、既存の Rust 実装を残した。
+`taxondb_runner.rs` にあった `resolve_taxid`、`fetch_taxonomy_scientific_name`、`eutils_*`、`ResolvedTaxon` は build 専用で、`search_taxonomy` からは参照されていなかったため削除した。
+
+### 6.2 既知の差分の解消
+
+3b-1 で記録した次の差分は、Rust 側の実装を修正して一致させたのではなく、GUI build がその実装を通らなくなったことで解消された。
+
+- GenBank の accession version、`ORGANISM` 継続行、`join` location、複数行 qualifier
+- NCBI query filter、BOLD/NCBI strict merge、record order、`source_merge.csv` schema
+- BOLD fallback の record identity、header format、retry/timeout
+- duplicate report の hash、post-prep の FASTA wrapping、primer tie-break、`rounds_run`
+
+このため、Rust runner 内にあった drift characterization/differential test も削除した。
+これらは削除した Rust semantics を記録するテストであり、Python 実装の回帰を検証するテストではないため、削除が正しい姿である。
+一方、sidecar の統合テスト `sidecar_from_gb_output_reaches_progress_events` は残し、Python sidecar の実行と `Finalize` / `100%` / `matchedRecords` の GUI adapter 契約を検証している。
+
+### 6.3 行数
+
+削除前の対象ファイルは `taxondb_runner.rs` が 3,029 行、`taxondb_post_prep.rs` が 1,728 行で、合計 4,757 行だった。
+このうち `BuildParams` と `build_params_to_args` の 75 行は `sidecar.rs` へ移動し、対象ファイルから実装として削除した行数は 4,684 行である。
+Tauri Rust `src/*.rs` 全体は 7,034 行から 2,230 行になり、今回の一連の変更による最終的な差分は 4,804 行の純減となった。
+
+### 6.4 残った GUI 固有の Rust code
+
+残った Rust code は、Python の build semantics を再実装するものではない。
+
+- `search_taxonomy`: GUI の taxon 候補入力をローカル `taxonomy.db` から検索するために残した。
+- `commands.rs`: Tauri command、設定保存、ファイル選択、job directory、sidecar 起動要求を担当する。
+- `sidecar.rs`: PyInstaller sidecar の探索・起動、stdout/stderr と log の progress adapter、キャンセルを担当する。
+- `progress.rs`: Python のログを既存 `run-event` payload に変換する。
+- `config.rs` / `state.rs`: GUI 設定、job 状態、プロセス slot を保持する。
+
+キャンセルは Unix では sidecar を新しい process group で起動し、group kill を行う。
+Windows では新しい process group を作り、`taskkill /T /F` を使う実装を追加した。
+Unix では子 process を含む group kill のテストを実行済みだが、Windows 実機での確認は未実施である。
