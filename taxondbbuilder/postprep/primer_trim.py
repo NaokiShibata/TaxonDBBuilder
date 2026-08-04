@@ -1,0 +1,866 @@
+"""Primer trimming post-prep pipeline."""
+
+import csv
+import json
+import shutil
+import subprocess
+import tempfile
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Tuple
+
+from Bio import SeqIO
+from Bio.Seq import Seq
+
+from .models import (
+    IUPAC_DNA_VALUES,
+    PRIMER_TRIM_MODE_BOTH_REQUIRED,
+    PRIMER_TRIM_MODE_ONE_OR_BOTH,
+)
+
+@dataclass
+class PrimerEndpointMatch:
+    primer: str
+    overlap_bp: int
+    mismatches: int
+    score: int
+    full_len_match: bool
+    trim_bp: int
+
+
+@dataclass
+class OrientationScore:
+    name: str
+    left: Optional[PrimerEndpointMatch]
+    right: Optional[PrimerEndpointMatch]
+
+    @property
+    def matched_ends(self) -> int:
+        return (1 if self.left else 0) + (1 if self.right else 0)
+
+    @property
+    def score_total(self) -> int:
+        left_score = self.left.score if self.left else 0
+        right_score = self.right.score if self.right else 0
+        return left_score + right_score
+
+    @property
+    def mismatch_total(self) -> int:
+        left_mm = self.left.mismatches if self.left else 0
+        right_mm = self.right.mismatches if self.right else 0
+        return left_mm + right_mm
+
+    def rank(self) -> Tuple[int, int, int]:
+        return (self.matched_ends, self.score_total, -self.mismatch_total)
+
+
+def primer_base_matches(seq_base: str, primer_base: str) -> bool:
+    values = IUPAC_DNA_VALUES.get(primer_base.upper())
+    if values is None:
+        return False
+    return seq_base.upper() in values
+
+
+def required_overlap_bp(primer_len: int, min_overlap_bp: Optional[int], min_overlap_ratio: float) -> int:
+    ratio_required = int(round(primer_len * min_overlap_ratio))
+    ratio_required = max(1, min(primer_len, ratio_required))
+    if min_overlap_bp is None:
+        return ratio_required
+    return max(1, min(primer_len, max(min_overlap_bp, ratio_required)))
+
+
+def count_mismatches(seq_segment: str, primer_segment: str) -> int:
+    return sum(1 for s, p in zip(seq_segment.upper(), primer_segment.upper()) if not primer_base_matches(s, p))
+
+
+def find_best_prefix_match(
+    seq: str,
+    primers: List[str],
+    max_mismatch: int,
+    max_error_rate: float,
+    min_overlap_bp: Optional[int],
+    min_overlap_ratio: float,
+    max_offset: int = 0,
+) -> Optional[PrimerEndpointMatch]:
+    best: Optional[PrimerEndpointMatch] = None
+    for primer in primers:
+        max_overlap = min(len(primer), len(seq))
+        required = required_overlap_bp(len(primer), min_overlap_bp, min_overlap_ratio)
+        if max_overlap < required:
+            continue
+        max_shift = min(max_offset, max(0, len(seq) - required))
+        for offset in range(max_shift + 1):
+            available = len(seq) - offset
+            if available < required:
+                continue
+            for overlap in range(min(max_overlap, available), required - 1, -1):
+                primer_seg = primer[-overlap:]
+                seq_seg = seq[offset : offset + overlap]
+                mismatches = count_mismatches(seq_seg, primer_seg)
+                if mismatches > max_mismatch:
+                    continue
+                error_rate = mismatches / overlap if overlap else 1.0
+                if error_rate > max_error_rate:
+                    continue
+                candidate = PrimerEndpointMatch(
+                    primer=primer,
+                    overlap_bp=overlap,
+                    mismatches=mismatches,
+                    score=overlap - mismatches,
+                    full_len_match=(overlap == len(primer)),
+                    trim_bp=offset + overlap,
+                )
+                if best is None:
+                    best = candidate
+                    continue
+                current_key = (
+                    candidate.overlap_bp,
+                    candidate.score,
+                    -candidate.mismatches,
+                    int(candidate.full_len_match),
+                    -offset,
+                )
+                best_key = (
+                    best.overlap_bp,
+                    best.score,
+                    -best.mismatches,
+                    int(best.full_len_match),
+                    -(best.trim_bp - best.overlap_bp),
+                )
+                if current_key > best_key:
+                    best = candidate
+    return best
+
+
+def find_best_suffix_match(
+    seq: str,
+    primers: List[str],
+    max_mismatch: int,
+    max_error_rate: float,
+    min_overlap_bp: Optional[int],
+    min_overlap_ratio: float,
+    max_offset: int = 0,
+) -> Optional[PrimerEndpointMatch]:
+    best: Optional[PrimerEndpointMatch] = None
+    for primer in primers:
+        max_overlap = min(len(primer), len(seq))
+        required = required_overlap_bp(len(primer), min_overlap_bp, min_overlap_ratio)
+        if max_overlap < required:
+            continue
+        max_shift = min(max_offset, max(0, len(seq) - required))
+        for shift in range(max_shift + 1):
+            end = len(seq) - shift
+            if end < required:
+                continue
+            for overlap in range(min(max_overlap, end), required - 1, -1):
+                start = end - overlap
+                primer_seg = primer[:overlap]
+                seq_seg = seq[start:end]
+                mismatches = count_mismatches(seq_seg, primer_seg)
+                if mismatches > max_mismatch:
+                    continue
+                error_rate = mismatches / overlap if overlap else 1.0
+                if error_rate > max_error_rate:
+                    continue
+                candidate = PrimerEndpointMatch(
+                    primer=primer,
+                    overlap_bp=overlap,
+                    mismatches=mismatches,
+                    score=overlap - mismatches,
+                    full_len_match=(overlap == len(primer)),
+                    trim_bp=len(seq) - start,
+                )
+                if best is None:
+                    best = candidate
+                    continue
+                current_key = (
+                    candidate.overlap_bp,
+                    candidate.score,
+                    -candidate.mismatches,
+                    int(candidate.full_len_match),
+                    -shift,
+                )
+                best_shift = max(0, best.trim_bp - best.overlap_bp)
+                best_key = (
+                    best.overlap_bp,
+                    best.score,
+                    -best.mismatches,
+                    int(best.full_len_match),
+                    -best_shift,
+                )
+                if current_key > best_key:
+                    best = candidate
+    return best
+
+
+def resolve_orientation(seq: str, canonical: OrientationScore, reverse: OrientationScore) -> Tuple[OrientationScore, bool]:
+    can_rank = canonical.rank()
+    rev_rank = reverse.rank()
+    if can_rank > rev_rank:
+        return canonical, False
+    if rev_rank > can_rank:
+        return reverse, False
+    return canonical, True
+
+
+def confidence_label(matched_ends: int, mismatch_total: int, ambiguous_orientation: bool) -> str:
+    if matched_ends == 2 and mismatch_total <= 1 and not ambiguous_orientation:
+        return "high"
+    if matched_ends >= 1:
+        return "medium"
+    return "low"
+
+
+def compute_trim_lengths_from_row(row: Dict[str, Any], trim_mode: str) -> Tuple[int, int]:
+    left_hit = int(row.get("left_hit", 0)) > 0
+    right_hit = int(row.get("right_hit", 0)) > 0
+    left_trim_bp = int(row.get("left_trim_bp", 0) or 0)
+    right_trim_bp = int(row.get("right_trim_bp", 0) or 0)
+    left_overlap_bp = int(row.get("left_overlap_bp", 0) or 0)
+    right_overlap_bp = int(row.get("right_overlap_bp", 0) or 0)
+    left_overlap = left_trim_bp if left_trim_bp > 0 else left_overlap_bp
+    right_overlap = right_trim_bp if right_trim_bp > 0 else right_overlap_bp
+    if trim_mode == PRIMER_TRIM_MODE_ONE_OR_BOTH:
+        return (left_overlap if left_hit else 0, right_overlap if right_hit else 0)
+    if trim_mode == PRIMER_TRIM_MODE_BOTH_REQUIRED:
+        if left_hit and right_hit:
+            return left_overlap, right_overlap
+        return 0, 0
+    return 0, 0
+
+
+def summarize_rows_to_records(
+    rows: List[Dict[str, Any]],
+    seq_by_header: Dict[str, str],
+    trim_mode: str,
+) -> Tuple[List[Tuple[str, str]], Dict[str, Any]]:
+    trimmed_records: List[Tuple[str, str]] = []
+    trimmed_both = 0
+    trimmed_left_only = 0
+    trimmed_right_only = 0
+    untrimmed = 0
+    dropped_empty = 0
+    canonical_orientation = 0
+    reverse_orientation = 0
+    confidence_high = 0
+    confidence_medium = 0
+    confidence_low = 0
+
+    for row in rows:
+        header = str(row.get("record_id", ""))
+        seq = seq_by_header.get(header, "")
+        if not seq:
+            continue
+
+        confidence = str(row.get("confidence", "low"))
+        if confidence == "high":
+            confidence_high += 1
+        elif confidence == "medium":
+            confidence_medium += 1
+        else:
+            confidence_low += 1
+
+        matched_ends = int(row.get("left_hit", 0)) + int(row.get("right_hit", 0))
+        if matched_ends > 0:
+            if str(row.get("orientation_chosen")) == "canonical":
+                canonical_orientation += 1
+            else:
+                reverse_orientation += 1
+
+        left_len, right_len = compute_trim_lengths_from_row(row, trim_mode)
+        ends_trimmed = (1 if left_len else 0) + (1 if right_len else 0)
+        if ends_trimmed == 0:
+            untrimmed += 1
+        elif ends_trimmed == 2:
+            trimmed_both += 1
+        elif left_len:
+            trimmed_left_only += 1
+        else:
+            trimmed_right_only += 1
+
+        right_index = len(seq) - right_len if right_len else len(seq)
+        trimmed_seq = seq[left_len:right_index]
+        row["trim_start"] = left_len
+        row["trim_end"] = right_index
+        if not trimmed_seq:
+            dropped_empty += 1
+            row["dropped_empty"] = 1
+            continue
+        row["dropped_empty"] = 0
+        trimmed_records.append((header, trimmed_seq))
+
+    before = len(rows)
+    after = len(trimmed_records)
+    summary = {
+        "before": before,
+        "after": after,
+        "removed": before - after,
+        "trimmed_both": trimmed_both,
+        "trimmed_left_only": trimmed_left_only,
+        "trimmed_right_only": trimmed_right_only,
+        "untrimmed": untrimmed,
+        "dropped_empty": dropped_empty,
+        "canonical_orientation": canonical_orientation,
+        "reverse_orientation": reverse_orientation,
+        "confidence_high": confidence_high,
+        "confidence_medium": confidence_medium,
+        "confidence_low": confidence_low,
+        "high_conf_rate": (confidence_high / before) if before else 0.0,
+    }
+    return trimmed_records, summary
+
+
+def run_vsearch_endpoint_recheck(
+    rows: List[Dict[str, Any]],
+    seq_by_header: Dict[str, str],
+    forward_primers: List[str],
+    reverse_primers: List[str],
+    forward_rc: List[str],
+    reverse_rc: List[str],
+    min_identity: float,
+    min_query_cov: float,
+) -> Tuple[int, int, Optional[str]]:
+    vsearch_bin = shutil.which("vsearch")
+    if not vsearch_bin:
+        return 0, 0, "vsearch_not_found"
+
+    candidates: List[Dict[str, Any]] = []
+    for idx, row in enumerate(rows):
+        if str(row.get("confidence", "")) not in {"low", "medium"}:
+            row["recheck_status"] = "not_target_confidence"
+            continue
+        if int(row.get("left_hit", 0)) and int(row.get("right_hit", 0)):
+            row["recheck_status"] = "already_both_ends"
+            continue
+        header = str(row.get("record_id", ""))
+        seq = seq_by_header.get(header, "")
+        if not seq:
+            row["recheck_status"] = "sequence_not_found"
+            continue
+        candidates.append({"idx": idx, "header": header, "seq": seq, "row": row})
+
+    if not candidates:
+        return 0, 0, None
+
+    primer_db_entries: List[Tuple[str, str]] = []
+    for i, primer in enumerate(forward_primers):
+        primer_db_entries.append((f"CL_{i}", primer))
+    for i, primer in enumerate(reverse_rc):
+        primer_db_entries.append((f"CR_{i}", primer))
+    for i, primer in enumerate(reverse_primers):
+        primer_db_entries.append((f"RL_{i}", primer))
+    for i, primer in enumerate(forward_rc):
+        primer_db_entries.append((f"RR_{i}", primer))
+
+    max_primer_len = max((len(p) for _, p in primer_db_entries), default=30)
+    window_len = max_primer_len + 8
+    if window_len < 20:
+        window_len = 20
+
+    rescued = 0
+    attempted = 0
+    with tempfile.TemporaryDirectory(prefix="taxondb-vsearch-") as tmpdir:
+        tmp = Path(tmpdir)
+        db_fa = tmp / "primers.fa"
+        q_fa = tmp / "queries.fa"
+        out_path = tmp / "hits.tsv"
+
+        with db_fa.open("w", encoding="utf-8") as f:
+            for pid, seq in primer_db_entries:
+                f.write(f">{pid}\n{seq}\n")
+
+        query_rows: List[Tuple[int, str, str]] = []
+        with q_fa.open("w", encoding="utf-8") as f:
+            for c in candidates:
+                row = c["row"]
+                seq = c["seq"]
+                if not int(row.get("left_hit", 0)):
+                    qid = f"{c['idx']}|L"
+                    segment = seq[:window_len]
+                    f.write(f">{qid}\n{segment}\n")
+                    query_rows.append((c["idx"], "L", qid))
+                    attempted += 1
+                if not int(row.get("right_hit", 0)):
+                    qid = f"{c['idx']}|R"
+                    segment = seq[-window_len:]
+                    f.write(f">{qid}\n{segment}\n")
+                    query_rows.append((c["idx"], "R", qid))
+                    attempted += 1
+
+        cmd = [
+            vsearch_bin,
+            "--usearch_global",
+            str(q_fa),
+            "--db",
+            str(db_fa),
+            "--id",
+            f"{min_identity:.4f}",
+            "--strand",
+            "plus",
+            "--blast6out",
+            str(out_path),
+            "--maxaccepts",
+            "16",
+            "--maxrejects",
+            "64",
+        ]
+        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+        if proc.returncode != 0:
+            return attempted, rescued, "vsearch_failed"
+        if not out_path.exists():
+            return attempted, rescued, None
+
+        primer_len_map = {pid: len(seq) for pid, seq in primer_db_entries}
+        best_hits: Dict[str, Dict[str, Any]] = {}
+        with out_path.open("r", encoding="utf-8") as f:
+            for line in f:
+                cols = line.strip().split("\t")
+                if len(cols) < 12:
+                    continue
+                qid, sid = cols[0], cols[1]
+                try:
+                    pident = float(cols[2]) / 100.0
+                    aln_len = int(cols[3])
+                    mismatch = int(cols[4])
+                except ValueError:
+                    continue
+                primer_len = primer_len_map.get(sid, 0)
+                if primer_len <= 0:
+                    continue
+                cov = aln_len / primer_len
+                if pident < min_identity or cov < min_query_cov:
+                    continue
+                hit = {
+                    "sid": sid,
+                    "pident": pident,
+                    "aln_len": aln_len,
+                    "mismatch": mismatch,
+                    "cov": cov,
+                }
+                prev = best_hits.get(qid)
+                if prev is None:
+                    best_hits[qid] = hit
+                    continue
+                current_key = (hit["pident"], hit["cov"], hit["aln_len"], -hit["mismatch"])
+                prev_key = (prev["pident"], prev["cov"], prev["aln_len"], -prev["mismatch"])
+                if current_key > prev_key:
+                    best_hits[qid] = hit
+
+        hit_applied: Dict[Tuple[int, str], bool] = {}
+        for idx, side, qid in query_rows:
+            hit = best_hits.get(qid)
+            row = rows[idx]
+            if hit is None:
+                continue
+            sid = hit["sid"]
+            is_left_subject = sid.startswith("CL_") or sid.startswith("RL_")
+            is_right_subject = sid.startswith("CR_") or sid.startswith("RR_")
+            if side == "L" and not is_left_subject:
+                continue
+            if side == "R" and not is_right_subject:
+                continue
+
+            row["recheck_status"] = "rescued_by_vsearch"
+            if side == "L":
+                row["left_hit"] = 1
+                row["left_overlap_bp"] = int(hit["aln_len"])
+                row["left_trim_bp"] = int(hit["aln_len"])
+                row["left_mismatch"] = int(hit["mismatch"])
+            else:
+                row["right_hit"] = 1
+                row["right_overlap_bp"] = int(hit["aln_len"])
+                row["right_trim_bp"] = int(hit["aln_len"])
+                row["right_mismatch"] = int(hit["mismatch"])
+            mism_total = int(row.get("left_mismatch", 0)) + int(row.get("right_mismatch", 0))
+            matched_ends = int(row.get("left_hit", 0)) + int(row.get("right_hit", 0))
+            row["confidence"] = confidence_label(matched_ends, mism_total, bool(int(row.get("orientation_ambiguous", 0))))
+            rescued += 1
+            hit_applied[(idx, side)] = True
+
+        for idx, side, _ in query_rows:
+            if hit_applied.get((idx, side)):
+                continue
+            row = rows[idx]
+            if str(row.get("recheck_status", "")) != "rescued_by_vsearch":
+                row["recheck_status"] = "attempted_no_hit"
+
+    return attempted, rescued, None
+
+
+def apply_post_prep_primer_trim(
+    fasta_path: Path,
+    forward_primers: List[str],
+    reverse_primers: List[str],
+    options: Optional[Dict[str, Any]] = None,
+) -> Dict[str, Any]:
+    opts = options or {}
+    trim_mode = str(opts.get("trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH)).strip().lower()
+    max_mismatch = int(opts.get("max_mismatch", 0))
+    max_error_rate = float(opts.get("max_error_rate", 0.0))
+    min_overlap_bp = opts.get("min_overlap_bp")
+    if min_overlap_bp is not None:
+        min_overlap_bp = int(min_overlap_bp)
+    min_overlap_ratio = float(opts.get("min_overlap_ratio", 1.0))
+    end_max_offset = int(opts.get("end_max_offset", 0))
+    keep_retained_fasta = bool(opts.get("keep_retained_fasta", True))
+    iter_enable = bool(opts.get("iter_enable", False))
+    iter_max_rounds = int(opts.get("iter_max_rounds", 3))
+    iter_stop_delta = float(opts.get("iter_stop_delta", 0.002))
+    iter_target_conf = float(opts.get("iter_target_conf", 0.98))
+    sidecar_format = str(opts.get("sidecar_format", "tsv")).strip().lower()
+    recheck_tool = str(opts.get("recheck_tool", "off")).strip().lower()
+    recheck_min_identity = float(opts.get("recheck_min_identity", 0.85))
+    recheck_min_query_cov = float(opts.get("recheck_min_query_cov", 0.7))
+    phylo_target_confidence = str(opts.get("phylo_target_confidence", "medium")).strip().lower()
+
+    forward_rc = [str(Seq(p).reverse_complement()).upper() for p in forward_primers]
+    reverse_rc = [str(Seq(p).reverse_complement()).upper() for p in reverse_primers]
+
+    retained_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.retained.fasta")
+    if keep_retained_fasta:
+        shutil.copyfile(fasta_path, retained_path)
+
+    records: List[Tuple[str, str]] = []
+    with fasta_path.open("r", encoding="utf-8") as in_f:
+        for record in SeqIO.parse(in_f, "fasta"):
+            records.append((record.description, str(record.seq).upper().replace("U", "T")))
+
+    before_count = len(records)
+    if before_count == 0:
+        return {
+            "before": 0,
+            "after": 0,
+            "removed": 0,
+            "trimmed_both": 0,
+            "trimmed_left_only": 0,
+            "trimmed_right_only": 0,
+            "untrimmed": 0,
+            "dropped_empty": 0,
+            "canonical_orientation": 0,
+            "reverse_orientation": 0,
+            "confidence_high": 0,
+            "confidence_medium": 0,
+            "confidence_low": 0,
+            "rounds_run": 0,
+            "best_round": 0,
+            "high_conf_rate": 0.0,
+            "sidecar_path": None,
+            "retained_path": str(retained_path) if keep_retained_fasta else None,
+            "recheck_tool": recheck_tool,
+            "phylo_target_confidence": phylo_target_confidence,
+        }
+
+    round_limit = iter_max_rounds if iter_enable else 1
+    round_limit = max(1, round_limit)
+    all_round_rows: List[Dict[str, Any]] = []
+    round_summaries: List[Dict[str, Any]] = []
+    prev_high_rate: Optional[float] = None
+
+    for round_idx in range(1, round_limit + 1):
+        # Phase 2: deterministic threshold relaxation to make iterative rescue measurable.
+        relax = round_idx - 1
+        round_max_mismatch = max_mismatch + relax
+        round_overlap_ratio = max(0.5, min_overlap_ratio - (0.05 * relax))
+        round_overlap_bp = min_overlap_bp
+        if round_overlap_bp is not None:
+            round_overlap_bp = max(8, round_overlap_bp - relax)
+
+        trimmed_records: List[Tuple[str, str]] = []
+        trimmed_both = 0
+        trimmed_left_only = 0
+        trimmed_right_only = 0
+        untrimmed = 0
+        dropped_empty = 0
+        canonical_orientation = 0
+        reverse_orientation = 0
+        confidence_high = 0
+        confidence_medium = 0
+        confidence_low = 0
+
+        for header, seq in records:
+            can = OrientationScore(
+                name="canonical",
+                left=find_best_prefix_match(
+                    seq,
+                    forward_primers,
+                    round_max_mismatch,
+                    max_error_rate,
+                    round_overlap_bp,
+                    round_overlap_ratio,
+                    max_offset=end_max_offset,
+                ),
+                right=find_best_suffix_match(
+                    seq,
+                    reverse_rc,
+                    round_max_mismatch,
+                    max_error_rate,
+                    round_overlap_bp,
+                    round_overlap_ratio,
+                    max_offset=end_max_offset,
+                ),
+            )
+            rev = OrientationScore(
+                name="reverse",
+                left=find_best_prefix_match(
+                    seq,
+                    reverse_primers,
+                    round_max_mismatch,
+                    max_error_rate,
+                    round_overlap_bp,
+                    round_overlap_ratio,
+                    max_offset=end_max_offset,
+                ),
+                right=find_best_suffix_match(
+                    seq,
+                    forward_rc,
+                    round_max_mismatch,
+                    max_error_rate,
+                    round_overlap_bp,
+                    round_overlap_ratio,
+                    max_offset=end_max_offset,
+                ),
+            )
+            chosen, ambiguous_orientation = resolve_orientation(seq, can, rev)
+            confidence = confidence_label(chosen.matched_ends, chosen.mismatch_total, ambiguous_orientation)
+            if confidence == "high":
+                confidence_high += 1
+            elif confidence == "medium":
+                confidence_medium += 1
+            else:
+                confidence_low += 1
+
+            if chosen.matched_ends > 0:
+                if chosen.name == "canonical":
+                    canonical_orientation += 1
+                else:
+                    reverse_orientation += 1
+
+            do_left_trim = False
+            do_right_trim = False
+            if trim_mode == PRIMER_TRIM_MODE_ONE_OR_BOTH:
+                do_left_trim = chosen.left is not None
+                do_right_trim = chosen.right is not None
+            elif trim_mode == PRIMER_TRIM_MODE_BOTH_REQUIRED:
+                if chosen.left is not None and chosen.right is not None:
+                    do_left_trim = True
+                    do_right_trim = True
+            elif trim_mode == PRIMER_TRIM_MODE_ONE_END_MARK_ONLY:
+                do_left_trim = False
+                do_right_trim = False
+
+            left_len = chosen.left.trim_bp if (do_left_trim and chosen.left) else 0
+            right_len = chosen.right.trim_bp if (do_right_trim and chosen.right) else 0
+            ends_trimmed = (1 if left_len else 0) + (1 if right_len else 0)
+            if ends_trimmed == 0:
+                untrimmed += 1
+            elif ends_trimmed == 2:
+                trimmed_both += 1
+            elif left_len:
+                trimmed_left_only += 1
+            else:
+                trimmed_right_only += 1
+
+            right_index = len(seq) - right_len if right_len else len(seq)
+            trimmed_seq = seq[left_len:right_index]
+            if not trimmed_seq:
+                dropped_empty += 1
+                all_round_rows.append(
+                    {
+                        "record_id": header,
+                        "round": round_idx,
+                        "orientation_chosen": chosen.name,
+                        "orientation_ambiguous": int(ambiguous_orientation),
+                        "left_hit": int(chosen.left is not None),
+                        "right_hit": int(chosen.right is not None),
+                        "left_overlap_bp": chosen.left.overlap_bp if chosen.left else 0,
+                        "right_overlap_bp": chosen.right.overlap_bp if chosen.right else 0,
+                        "left_trim_bp": left_len,
+                        "right_trim_bp": right_len,
+                        "left_mismatch": chosen.left.mismatches if chosen.left else 0,
+                        "right_mismatch": chosen.right.mismatches if chosen.right else 0,
+                        "left_primer_name": chosen.left.primer if chosen.left else "",
+                        "right_primer_name": chosen.right.primer if chosen.right else "",
+                        "trim_start": left_len,
+                        "trim_end": right_index,
+                        "trim_mode": trim_mode,
+                        "confidence": confidence,
+                        "dropped_empty": 1,
+                        "recheck_tool": recheck_tool,
+                        "recheck_status": "not_run_phase2",
+                        "phylo_mismatch_flag": 0,
+                    }
+                )
+                continue
+
+            trimmed_records.append((header, trimmed_seq))
+            all_round_rows.append(
+                {
+                    "record_id": header,
+                    "round": round_idx,
+                    "orientation_chosen": chosen.name,
+                    "orientation_ambiguous": int(ambiguous_orientation),
+                    "left_hit": int(chosen.left is not None),
+                    "right_hit": int(chosen.right is not None),
+                    "left_overlap_bp": chosen.left.overlap_bp if chosen.left else 0,
+                    "right_overlap_bp": chosen.right.overlap_bp if chosen.right else 0,
+                    "left_trim_bp": left_len,
+                    "right_trim_bp": right_len,
+                    "left_mismatch": chosen.left.mismatches if chosen.left else 0,
+                    "right_mismatch": chosen.right.mismatches if chosen.right else 0,
+                    "left_primer_name": chosen.left.primer if chosen.left else "",
+                    "right_primer_name": chosen.right.primer if chosen.right else "",
+                    "trim_start": left_len,
+                    "trim_end": right_index,
+                    "trim_mode": trim_mode,
+                    "confidence": confidence,
+                    "dropped_empty": 0,
+                    "recheck_tool": recheck_tool,
+                    "recheck_status": "not_run_phase2",
+                    "phylo_mismatch_flag": 0,
+                }
+            )
+
+        after_count = len(trimmed_records)
+        high_rate = confidence_high / before_count if before_count else 0.0
+        round_summaries.append(
+            {
+                "round": round_idx,
+                "records": trimmed_records,
+                "before": before_count,
+                "after": after_count,
+                "removed": before_count - after_count,
+                "trimmed_both": trimmed_both,
+                "trimmed_left_only": trimmed_left_only,
+                "trimmed_right_only": trimmed_right_only,
+                "untrimmed": untrimmed,
+                "dropped_empty": dropped_empty,
+                "canonical_orientation": canonical_orientation,
+                "reverse_orientation": reverse_orientation,
+                "confidence_high": confidence_high,
+                "confidence_medium": confidence_medium,
+                "confidence_low": confidence_low,
+                "high_conf_rate": high_rate,
+                "round_max_mismatch": round_max_mismatch,
+                "round_min_overlap_ratio": round_overlap_ratio,
+                "round_min_overlap_bp": round_overlap_bp or 0,
+            }
+        )
+
+        if not iter_enable:
+            break
+        if high_rate >= iter_target_conf:
+            break
+        if prev_high_rate is not None and (high_rate - prev_high_rate) < iter_stop_delta:
+            break
+        prev_high_rate = high_rate
+
+    best_summary = max(
+        round_summaries,
+        key=lambda row: (
+            row["high_conf_rate"],
+            row["after"],
+            -row["dropped_empty"],
+            row["round"],
+        ),
+    )
+    best_round = int(best_summary["round"])
+    seq_by_header = {header: seq for header, seq in records}
+    sidecar_rows = [dict(row) for row in all_round_rows if int(row["round"]) == best_round]
+
+    recheck_attempted = 0
+    recheck_rescued = 0
+    recheck_error: Optional[str] = None
+    if recheck_tool == "vsearch":
+        recheck_attempted, recheck_rescued, recheck_error = run_vsearch_endpoint_recheck(
+            sidecar_rows,
+            seq_by_header,
+            forward_primers,
+            reverse_primers,
+            forward_rc,
+            reverse_rc,
+            min_identity=recheck_min_identity,
+            min_query_cov=recheck_min_query_cov,
+        )
+        rebuilt_records, rebuilt_summary = summarize_rows_to_records(sidecar_rows, seq_by_header, trim_mode)
+        best_summary.update(rebuilt_summary)
+        best_summary["records"] = rebuilt_records
+    elif recheck_tool != "off":
+        recheck_error = f"unsupported_tool:{recheck_tool}"
+
+    tmp_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as out_f:
+            for header, seq in best_summary["records"]:
+                out_f.write(f">{header}\n")
+                out_f.write(f"{seq}\n")
+        tmp_path.replace(fasta_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+    sidecar_path = None
+    if sidecar_format == "jsonl":
+        sidecar_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.jsonl")
+        with sidecar_path.open("w", encoding="utf-8") as f:
+            for row in sidecar_rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    else:
+        sidecar_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.tsv")
+        fields = [
+            "record_id",
+            "round",
+            "orientation_chosen",
+            "orientation_ambiguous",
+            "left_hit",
+            "right_hit",
+            "left_overlap_bp",
+            "right_overlap_bp",
+            "left_trim_bp",
+            "right_trim_bp",
+            "left_mismatch",
+            "right_mismatch",
+            "left_primer_name",
+            "right_primer_name",
+            "trim_start",
+            "trim_end",
+            "trim_mode",
+            "confidence",
+            "dropped_empty",
+            "recheck_tool",
+            "recheck_status",
+            "phylo_mismatch_flag",
+        ]
+        with sidecar_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
+            writer.writeheader()
+            writer.writerows(sidecar_rows)
+
+    return {
+        "before": int(best_summary["before"]),
+        "after": int(best_summary["after"]),
+        "removed": int(best_summary["removed"]),
+        "trimmed_both": int(best_summary["trimmed_both"]),
+        "trimmed_left_only": int(best_summary["trimmed_left_only"]),
+        "trimmed_right_only": int(best_summary["trimmed_right_only"]),
+        "untrimmed": int(best_summary["untrimmed"]),
+        "dropped_empty": int(best_summary["dropped_empty"]),
+        "canonical_orientation": int(best_summary["canonical_orientation"]),
+        "reverse_orientation": int(best_summary["reverse_orientation"]),
+        "confidence_high": int(best_summary["confidence_high"]),
+        "confidence_medium": int(best_summary["confidence_medium"]),
+        "confidence_low": int(best_summary["confidence_low"]),
+        "high_conf_rate": float(best_summary["high_conf_rate"]),
+        "rounds_run": len(round_summaries),
+        "best_round": best_round,
+        "sidecar_path": str(sidecar_path) if sidecar_path else None,
+        "retained_path": str(retained_path) if keep_retained_fasta else None,
+        "recheck_tool": recheck_tool,
+        "recheck_attempted": recheck_attempted,
+        "recheck_rescued": recheck_rescued,
+        "recheck_error": recheck_error,
+        "phylo_target_confidence": phylo_target_confidence,
+    }
+
+
+
+
