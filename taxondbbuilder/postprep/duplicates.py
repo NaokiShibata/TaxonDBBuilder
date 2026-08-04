@@ -163,6 +163,15 @@ def write_acc_organism_mapping_csv(
     emitted_records: List[Dict[str, str]],
 ) -> Tuple[Path, Dict[str, int]]:
     mapping_path = fasta_path.with_suffix(fasta_path.suffix + ".acc_organism.csv")
+    mapped_rows, stats = _collect_acc_organism_mapping(fasta_path, emitted_records)
+    _write_acc_organism_mapping(mapping_path, mapped_rows)
+    return mapping_path, stats
+
+
+def _collect_acc_organism_mapping(
+    fasta_path: Path,
+    emitted_records: List[Dict[str, str]],
+) -> Tuple[List[Dict[str, str]], Dict[str, int]]:
     records_by_header: Dict[str, List[Dict[str, str]]] = {}
     for row in emitted_records:
         header = row.get("header", "")
@@ -208,27 +217,6 @@ def write_acc_organism_mapping_csv(
 
     mapped_rows.sort(key=lambda row: (row["acc_id"], row["accession"], row["organism_name"], row["header"]))
 
-    with mapping_path.open("w", newline="", encoding="utf-8") as out_f:
-        writer = csv.DictWriter(
-            out_f,
-            fieldnames=[
-                "acc_id",
-                "accession",
-                "organism_name",
-                "header",
-                "source",
-                "source_record_id",
-                "processid",
-                "sampleid",
-                "marker_key",
-                "linked_to_ncbi",
-                "emitted_to_fasta",
-                "skip_reason",
-            ],
-        )
-        writer.writeheader()
-        writer.writerows(mapped_rows)
-
     unused_records = 0
     for header, rows in records_by_header.items():
         unused_records += max(0, len(rows) - offsets.get(header, 0))
@@ -241,4 +229,20 @@ def write_acc_organism_mapping_csv(
         "unique_accessions": len(unique_accessions),
         "unique_organisms": len(unique_organisms),
     }
-    return mapping_path, stats
+    return mapped_rows, stats
+
+
+def _write_acc_organism_mapping(
+    mapping_path: Path, mapped_rows: List[Dict[str, str]]
+) -> None:
+    with mapping_path.open("w", newline="", encoding="utf-8") as out_f:
+        writer = csv.DictWriter(
+            out_f,
+            fieldnames=[
+                "acc_id", "accession", "organism_name", "header", "source",
+                "source_record_id", "processid", "sampleid", "marker_key",
+                "linked_to_ncbi", "emitted_to_fasta", "skip_reason",
+            ],
+        )
+        writer.writeheader()
+        writer.writerows(mapped_rows)
