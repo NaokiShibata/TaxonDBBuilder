@@ -198,3 +198,96 @@ pub(crate) fn run_build_via_sidecar(
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::progress::progress_event;
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn repo_path(relative: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(relative)
+    }
+
+    #[test]
+    fn sidecar_from_gb_output_reaches_progress_events() {
+        let sidecar = repo_path("dist/taxondbbuilder");
+        if !sidecar.is_file() {
+            eprintln!("skip: sidecar not found at {}", sidecar.display());
+            return;
+        }
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let temp_root = std::env::temp_dir().join(format!("taxondbbuilder-sidecar-{stamp}"));
+        let gb_dir = temp_root.join("from-gb");
+        let output = temp_root.join("output.fasta");
+        let dump_dir = temp_root.join("dump");
+        fs::create_dir_all(&gb_dir).expect("from-gb directory");
+        fs::copy(
+            repo_path("tests/fixtures/sample.gb"),
+            gb_dir.join("sample.gb"),
+        )
+        .expect("copy GenBank fixture");
+
+        let params = BuildParams {
+            config_path: repo_path("tests/fixtures/minimal_config.toml"),
+            taxids: vec!["999".to_string()],
+            markers: vec!["12s".to_string()],
+            source: "ncbi".to_string(),
+            output_file: output.clone(),
+            dump_gb_dir: dump_dir,
+            from_gb_dir: Some(gb_dir),
+            resume: false,
+            workers: 1,
+            output_prefix: "taxondbbuilder_".to_string(),
+            post_prep: false,
+            post_prep_steps: Vec::new(),
+            post_prep_primer_sets: Vec::new(),
+        };
+
+        let result = Command::new(&sidecar)
+            .args(build_params_to_args(&params))
+            .output()
+            .expect("launch sidecar");
+        assert!(
+            result.status.success(),
+            "sidecar failed: {}\n{}",
+            String::from_utf8_lossy(&result.stderr),
+            String::from_utf8_lossy(&result.stdout)
+        );
+
+        let mut parser = ProgressParser::new(1, 0);
+        let mut event_count = 0;
+        let mut events = Vec::new();
+        for line in String::from_utf8_lossy(&result.stdout)
+            .lines()
+            .chain(String::from_utf8_lossy(&result.stderr).lines())
+            .chain(
+                fs::read_to_string(output.with_extension("fasta.log"))
+                    .expect("sidecar log")
+                    .lines(),
+            )
+        {
+            if parser.consume_line(line) {
+                event_count += 1;
+                events.push(serde_json::to_value(progress_event(&parser)).expect("RunEvent JSON"));
+            }
+        }
+
+        assert!(event_count > 0, "no parser events were produced");
+        assert!(events.iter().any(|event| event["phase"] == "Fetch/Parse"));
+        let terminal_event = events.last().expect("terminal RunEvent");
+        assert_eq!(terminal_event["eventType"], "progress");
+        assert_eq!(terminal_event["phase"], "Finalize");
+        assert_eq!(terminal_event["percent"], 100.0);
+        assert_eq!(terminal_event["metrics"]["matchedRecords"], 1);
+
+        fs::remove_dir_all(temp_root).expect("remove integration test directory");
+    }
+}
