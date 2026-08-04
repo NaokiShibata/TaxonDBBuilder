@@ -18,78 +18,7 @@ from .models import (
     PRIMER_TRIM_MODES,
 )
 
-def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> Dict:
-    if not path.exists():
-        raise typer.BadParameter(f"Config file not found: {path}")
-    with path.open("rb") as f:
-        data = tomllib.load(f)
-
-    if "markers_file" in data:
-        raise typer.BadParameter("markers_file must be defined under [markers].file (top-level is not supported).")
-
-    markers_file = None
-    markers_section = data.get("markers")
-    if isinstance(markers_section, dict):
-        if "markers_file" in markers_section:
-            raise typer.BadParameter("Use [markers].file instead of [markers].markers_file.")
-        if "file" in markers_section:
-            markers_file = markers_section.get("file")
-            if not isinstance(markers_file, str):
-                raise typer.BadParameter("markers.file must be a string path.")
-
-    inline_markers: Dict[str, Dict] = {}
-    if markers_section is None:
-        markers_section = {}
-    if not isinstance(markers_section, dict):
-        raise typer.BadParameter("[markers] must be a table (dict).")
-    for key, value in markers_section.items():
-        if key in ("file", "markers_file"):
-            continue
-        if not isinstance(value, dict):
-            raise typer.BadParameter(f"markers.{key} must be a table (dict).")
-        inline_markers[key] = value
-
-    markers_from_file: Dict[str, Dict] = {}
-    if markers_file:
-        if not isinstance(markers_file, str):
-            raise typer.BadParameter("markers.file must be a string path.")
-        markers_path = Path(os.path.expandvars(os.path.expanduser(markers_file)))
-        candidates: List[Path] = []
-        if markers_path.is_absolute():
-            candidates.append(markers_path)
-        else:
-            candidates.append(path.parent / markers_path)
-            candidates.append(Path.cwd() / markers_path)
-            candidates.append(Path(__file__).resolve().parent.parent / markers_path)
-
-        markers_path = next((p for p in candidates if p.exists()), None)
-        if not markers_path:
-            tried = ", ".join(str(p) for p in candidates)
-            raise typer.BadParameter(f"Markers file not found. Tried: {tried}")
-        with markers_path.open("rb") as f:
-            markers_data = tomllib.load(f)
-        markers_from_file = markers_data.get("markers")
-        if not isinstance(markers_from_file, dict) or not markers_from_file:
-            raise typer.BadParameter("Markers file must define a non-empty [markers] section.")
-
-    merged = {}
-    merged.update(markers_from_file)
-    merged.update(inline_markers)
-    if merged:
-        data["markers"] = merged
-
-    requires_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
-    if requires_ncbi and "ncbi" not in data:
-        raise typer.BadParameter("Missing [ncbi] section in config.")
-    if "markers" not in data or not data["markers"]:
-        raise typer.BadParameter("Missing [markers] section in config.")
-    bold_cfg = data.get("bold")
-    if bold_cfg is not None and not isinstance(bold_cfg, dict):
-        raise typer.BadParameter("[bold] must be a table (dict).")
-    if source == BuildSource.BOTH and bold_cfg is None:
-        data["bold"] = {}
-
-    post_prep = data.get("post_prep")
+def _normalize_post_prep_config(post_prep: Any, path: Path) -> None:
     if post_prep is not None:
         if not isinstance(post_prep, dict):
             raise typer.BadParameter("[post_prep] must be a table (dict).")
@@ -279,6 +208,81 @@ def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> Dict:
             post_prep["_primer_file_resolved"] = str(primer_path)
             post_prep["_primer_set_candidates"] = sorted(primer_sets_data.keys())
 
+
+def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> Dict:
+    if not path.exists():
+        raise typer.BadParameter(f"Config file not found: {path}")
+    with path.open("rb") as f:
+        data = tomllib.load(f)
+
+    if "markers_file" in data:
+        raise typer.BadParameter("markers_file must be defined under [markers].file (top-level is not supported).")
+
+    markers_file = None
+    markers_section = data.get("markers")
+    if isinstance(markers_section, dict):
+        if "markers_file" in markers_section:
+            raise typer.BadParameter("Use [markers].file instead of [markers].markers_file.")
+        if "file" in markers_section:
+            markers_file = markers_section.get("file")
+            if not isinstance(markers_file, str):
+                raise typer.BadParameter("markers.file must be a string path.")
+
+    inline_markers: Dict[str, Dict] = {}
+    if markers_section is None:
+        markers_section = {}
+    if not isinstance(markers_section, dict):
+        raise typer.BadParameter("[markers] must be a table (dict).")
+    for key, value in markers_section.items():
+        if key in ("file", "markers_file"):
+            continue
+        if not isinstance(value, dict):
+            raise typer.BadParameter(f"markers.{key} must be a table (dict).")
+        inline_markers[key] = value
+
+    markers_from_file: Dict[str, Dict] = {}
+    if markers_file:
+        if not isinstance(markers_file, str):
+            raise typer.BadParameter("markers.file must be a string path.")
+        markers_path = Path(os.path.expandvars(os.path.expanduser(markers_file)))
+        candidates: List[Path] = []
+        if markers_path.is_absolute():
+            candidates.append(markers_path)
+        else:
+            candidates.append(path.parent / markers_path)
+            candidates.append(Path.cwd() / markers_path)
+            candidates.append(Path(__file__).resolve().parent.parent / markers_path)
+
+        markers_path = next((p for p in candidates if p.exists()), None)
+        if not markers_path:
+            tried = ", ".join(str(p) for p in candidates)
+            raise typer.BadParameter(f"Markers file not found. Tried: {tried}")
+        with markers_path.open("rb") as f:
+            markers_data = tomllib.load(f)
+        markers_from_file = markers_data.get("markers")
+        if not isinstance(markers_from_file, dict) or not markers_from_file:
+            raise typer.BadParameter("Markers file must define a non-empty [markers] section.")
+
+    merged = {}
+    merged.update(markers_from_file)
+    merged.update(inline_markers)
+    if merged:
+        data["markers"] = merged
+
+    requires_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
+    if requires_ncbi and "ncbi" not in data:
+        raise typer.BadParameter("Missing [ncbi] section in config.")
+    if "markers" not in data or not data["markers"]:
+        raise typer.BadParameter("Missing [markers] section in config.")
+    bold_cfg = data.get("bold")
+    if bold_cfg is not None and not isinstance(bold_cfg, dict):
+        raise typer.BadParameter("[bold] must be a table (dict).")
+    if source == BuildSource.BOTH and bold_cfg is None:
+        data["bold"] = {}
+
+    post_prep = data.get("post_prep")
+    _normalize_post_prep_config(post_prep, path)
+
     return data
 
 
@@ -359,6 +363,3 @@ def combine_primer_set_sequences(
             if p not in reverse:
                 reverse.append(p)
     return forward, reverse
-
-
-

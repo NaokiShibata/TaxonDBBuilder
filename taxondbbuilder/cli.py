@@ -81,6 +81,52 @@ def build_output_path(
 
 
 
+def _build_marker_rules(
+    marker_keys: List[str],
+    marker_map: Dict[str, Dict[str, Any]],
+    output_cfg: Dict[str, Any],
+    uses_ncbi: bool,
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    selected_header_formats: List[str] = []
+    marker_rules = []
+    for key in marker_keys:
+        cfg_m = marker_map[key]
+        header_format = resolve_header_format(cfg_m, output_cfg)
+        selected_header_formats.append(header_format)
+        if not uses_ncbi:
+            continue
+
+        region_patterns = build_region_patterns(cfg_m)
+        if not region_patterns:
+            raise typer.BadParameter(f"markers.{key} has no patterns for region extraction.")
+        compiled = compile_patterns(region_patterns)
+        if not compiled:
+            raise typer.BadParameter(f"markers.{key} patterns did not compile.")
+
+        feature_types = cfg_m.get("feature_types")
+        if feature_types is None:
+            feature_types = DEFAULT_FEATURE_TYPES
+        elif not feature_types:
+            feature_types = None
+
+        feature_fields = cfg_m.get("feature_fields")
+        if feature_fields is None:
+            feature_fields = DEFAULT_FEATURE_FIELDS
+        elif not feature_fields:
+            raise typer.BadParameter(f"markers.{key}.feature_fields cannot be empty.")
+
+        marker_rules.append(
+            {
+                "key": key,
+                "patterns": compiled,
+                "feature_types": feature_types,
+                "feature_fields": feature_fields,
+                "header_format": header_format,
+            }
+        )
+    return selected_header_formats, marker_rules
+
+
 @app.command("list-markers")
 def list_markers(
     config: Path = typer.Option(..., "--config", "-c", help="Path to TOML config file."),
@@ -213,43 +259,9 @@ def build(
     marker_keys = [resolve_marker_key(m, marker_map) for m in marker]
     marker_query = build_marker_query(marker_keys, marker_map) if uses_ncbi else ""
     output_prefix = output_prefix.strip()
-    selected_header_formats: List[str] = []
-    marker_rules = []
-    for key in marker_keys:
-        cfg_m = marker_map[key]
-        header_format = resolve_header_format(cfg_m, output_cfg)
-        selected_header_formats.append(header_format)
-        if not uses_ncbi:
-            continue
-
-        region_patterns = build_region_patterns(cfg_m)
-        if not region_patterns:
-            raise typer.BadParameter(f"markers.{key} has no patterns for region extraction.")
-        compiled = compile_patterns(region_patterns)
-        if not compiled:
-            raise typer.BadParameter(f"markers.{key} patterns did not compile.")
-
-        feature_types = cfg_m.get("feature_types")
-        if feature_types is None:
-            feature_types = DEFAULT_FEATURE_TYPES
-        elif not feature_types:
-            feature_types = None
-
-        feature_fields = cfg_m.get("feature_fields")
-        if feature_fields is None:
-            feature_fields = DEFAULT_FEATURE_FIELDS
-        elif not feature_fields:
-            raise typer.BadParameter(f"markers.{key}.feature_fields cannot be empty.")
-
-        marker_rules.append(
-            {
-                "key": key,
-                "patterns": compiled,
-                "feature_types": feature_types,
-                "feature_fields": feature_fields,
-                "header_format": header_format,
-            }
-        )
+    selected_header_formats, marker_rules = _build_marker_rules(
+        marker_keys, marker_map, output_cfg, uses_ncbi
+    )
 
     requested_post_prep_steps = [step.value for step in (post_prep_step or [])]
     requested_primer_sets: List[str] = []
@@ -756,7 +768,4 @@ def build(
                 )
     finally:
         close_run_logger(run_logger)
-
-
-
 

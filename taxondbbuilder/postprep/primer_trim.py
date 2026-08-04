@@ -487,6 +487,70 @@ def run_vsearch_endpoint_recheck(
     return attempted, rescued, None
 
 
+def _read_primer_records(fasta_path: Path) -> List[Tuple[str, str]]:
+    records: List[Tuple[str, str]] = []
+    with fasta_path.open("r", encoding="utf-8") as in_f:
+        for record in SeqIO.parse(in_f, "fasta"):
+            records.append((record.description, str(record.seq).upper().replace("U", "T")))
+    return records
+
+
+def _write_primer_outputs(
+    fasta_path: Path,
+    best_records: List[Tuple[str, str]],
+    sidecar_rows: List[Dict[str, Any]],
+    sidecar_format: str,
+) -> Optional[Path]:
+    tmp_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.tmp")
+    try:
+        with tmp_path.open("w", encoding="utf-8") as out_f:
+            for header, seq in best_records:
+                out_f.write(f">{header}\n")
+                out_f.write(f"{seq}\n")
+        tmp_path.replace(fasta_path)
+    finally:
+        if tmp_path.exists():
+            tmp_path.unlink()
+
+    sidecar_path = None
+    if sidecar_format == "jsonl":
+        sidecar_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.jsonl")
+        with sidecar_path.open("w", encoding="utf-8") as f:
+            for row in sidecar_rows:
+                f.write(json.dumps(row, ensure_ascii=False) + "\n")
+    else:
+        sidecar_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.tsv")
+        fields = [
+            "record_id",
+            "round",
+            "orientation_chosen",
+            "orientation_ambiguous",
+            "left_hit",
+            "right_hit",
+            "left_overlap_bp",
+            "right_overlap_bp",
+            "left_trim_bp",
+            "right_trim_bp",
+            "left_mismatch",
+            "right_mismatch",
+            "left_primer_name",
+            "right_primer_name",
+            "trim_start",
+            "trim_end",
+            "trim_mode",
+            "confidence",
+            "dropped_empty",
+            "recheck_tool",
+            "recheck_status",
+            "phylo_mismatch_flag",
+        ]
+        with sidecar_path.open("w", encoding="utf-8", newline="") as f:
+            writer = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
+            writer.writeheader()
+            writer.writerows(sidecar_rows)
+    return sidecar_path
+
+
 def apply_post_prep_primer_trim(
     fasta_path: Path,
     forward_primers: List[str],
@@ -520,10 +584,7 @@ def apply_post_prep_primer_trim(
     if keep_retained_fasta:
         shutil.copyfile(fasta_path, retained_path)
 
-    records: List[Tuple[str, str]] = []
-    with fasta_path.open("r", encoding="utf-8") as in_f:
-        for record in SeqIO.parse(in_f, "fasta"):
-            records.append((record.description, str(record.seq).upper().replace("U", "T")))
+    records = _read_primer_records(fasta_path)
 
     before_count = len(records)
     if before_count == 0:
@@ -787,53 +848,9 @@ def apply_post_prep_primer_trim(
     elif recheck_tool != "off":
         recheck_error = f"unsupported_tool:{recheck_tool}"
 
-    tmp_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.tmp")
-    try:
-        with tmp_path.open("w", encoding="utf-8") as out_f:
-            for header, seq in best_summary["records"]:
-                out_f.write(f">{header}\n")
-                out_f.write(f"{seq}\n")
-        tmp_path.replace(fasta_path)
-    finally:
-        if tmp_path.exists():
-            tmp_path.unlink()
-
-    sidecar_path = None
-    if sidecar_format == "jsonl":
-        sidecar_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.jsonl")
-        with sidecar_path.open("w", encoding="utf-8") as f:
-            for row in sidecar_rows:
-                f.write(json.dumps(row, ensure_ascii=False) + "\n")
-    else:
-        sidecar_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.primer.tsv")
-        fields = [
-            "record_id",
-            "round",
-            "orientation_chosen",
-            "orientation_ambiguous",
-            "left_hit",
-            "right_hit",
-            "left_overlap_bp",
-            "right_overlap_bp",
-            "left_trim_bp",
-            "right_trim_bp",
-            "left_mismatch",
-            "right_mismatch",
-            "left_primer_name",
-            "right_primer_name",
-            "trim_start",
-            "trim_end",
-            "trim_mode",
-            "confidence",
-            "dropped_empty",
-            "recheck_tool",
-            "recheck_status",
-            "phylo_mismatch_flag",
-        ]
-        with sidecar_path.open("w", encoding="utf-8", newline="") as f:
-            writer = csv.DictWriter(f, fieldnames=fields, delimiter="\t")
-            writer.writeheader()
-            writer.writerows(sidecar_rows)
+    sidecar_path = _write_primer_outputs(
+        fasta_path, best_summary["records"], sidecar_rows, sidecar_format
+    )
 
     return {
         "before": int(best_summary["before"]),
@@ -860,6 +877,3 @@ def apply_post_prep_primer_trim(
         "recheck_error": recheck_error,
         "phylo_target_confidence": phylo_target_confidence,
     }
-
-
-
