@@ -310,20 +310,9 @@ def summarize_rows_to_records(
     return trimmed_records, summary
 
 
-def run_vsearch_endpoint_recheck(
-    rows: List[Dict[str, Any]],
-    seq_by_header: Dict[str, str],
-    forward_primers: List[str],
-    reverse_primers: List[str],
-    forward_rc: List[str],
-    reverse_rc: List[str],
-    min_identity: float,
-    min_query_cov: float,
-) -> Tuple[int, int, Optional[str]]:
-    vsearch_bin = shutil.which("vsearch")
-    if not vsearch_bin:
-        return 0, 0, "vsearch_not_found"
-
+def _collect_vsearch_candidates(
+    rows: List[Dict[str, Any]], seq_by_header: Dict[str, str]
+) -> List[Dict[str, Any]]:
     candidates: List[Dict[str, Any]] = []
     for idx, row in enumerate(rows):
         if str(row.get("confidence", "")) not in {"low", "medium"}:
@@ -338,152 +327,197 @@ def run_vsearch_endpoint_recheck(
             row["recheck_status"] = "sequence_not_found"
             continue
         candidates.append({"idx": idx, "header": header, "seq": seq, "row": row})
+    return candidates
 
-    if not candidates:
-        return 0, 0, None
 
-    primer_db_entries: List[Tuple[str, str]] = []
+def _build_vsearch_primer_db(
+    forward_primers: List[str],
+    reverse_primers: List[str],
+    forward_rc: List[str],
+    reverse_rc: List[str],
+) -> List[Tuple[str, str]]:
+    entries: List[Tuple[str, str]] = []
     for i, primer in enumerate(forward_primers):
-        primer_db_entries.append((f"CL_{i}", primer))
+        entries.append((f"CL_{i}", primer))
     for i, primer in enumerate(reverse_rc):
-        primer_db_entries.append((f"CR_{i}", primer))
+        entries.append((f"CR_{i}", primer))
     for i, primer in enumerate(reverse_primers):
-        primer_db_entries.append((f"RL_{i}", primer))
+        entries.append((f"RL_{i}", primer))
     for i, primer in enumerate(forward_rc):
-        primer_db_entries.append((f"RR_{i}", primer))
+        entries.append((f"RR_{i}", primer))
+    return entries
+
+
+def _prepare_vsearch_inputs(
+    tmp: Path,
+    candidates: List[Dict[str, Any]],
+    primer_db_entries: List[Tuple[str, str]],
+) -> Tuple[Path, Path, Path, List[Tuple[int, str, str]], int]:
+    db_fa = tmp / "primers.fa"
+    q_fa = tmp / "queries.fa"
+    out_path = tmp / "hits.tsv"
+    with db_fa.open("w", encoding="utf-8") as f:
+        for pid, seq in primer_db_entries:
+            f.write(f">{pid}\n{seq}\n")
 
     max_primer_len = max((len(p) for _, p in primer_db_entries), default=30)
-    window_len = max_primer_len + 8
-    if window_len < 20:
-        window_len = 20
-
-    rescued = 0
+    window_len = max(20, max_primer_len + 8)
+    query_rows: List[Tuple[int, str, str]] = []
     attempted = 0
+    with q_fa.open("w", encoding="utf-8") as f:
+        for candidate in candidates:
+            row = candidate["row"]
+            seq = candidate["seq"]
+            if not int(row.get("left_hit", 0)):
+                qid = f"{candidate['idx']}|L"
+                f.write(f">{qid}\n{seq[:window_len]}\n")
+                query_rows.append((candidate["idx"], "L", qid))
+                attempted += 1
+            if not int(row.get("right_hit", 0)):
+                qid = f"{candidate['idx']}|R"
+                f.write(f">{qid}\n{seq[-window_len:]}\n")
+                query_rows.append((candidate["idx"], "R", qid))
+                attempted += 1
+    return db_fa, q_fa, out_path, query_rows, attempted
+
+
+def _run_vsearch_command(
+    vsearch_bin: str,
+    q_fa: Path,
+    db_fa: Path,
+    out_path: Path,
+    min_identity: float,
+) -> Optional[str]:
+    cmd = [
+        vsearch_bin,
+        "--usearch_global",
+        str(q_fa),
+        "--db",
+        str(db_fa),
+        "--id",
+        f"{min_identity:.4f}",
+        "--strand",
+        "plus",
+        "--blast6out",
+        str(out_path),
+        "--maxaccepts",
+        "16",
+        "--maxrejects",
+        "64",
+    ]
+    proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
+    if proc.returncode != 0:
+        return "vsearch_failed"
+    if not out_path.exists():
+        return "no_output"
+    return None
+
+
+def _parse_vsearch_hits(
+    out_path: Path,
+    primer_db_entries: List[Tuple[str, str]],
+    min_identity: float,
+    min_query_cov: float,
+) -> Dict[str, Dict[str, Any]]:
+    primer_len_map = {pid: len(seq) for pid, seq in primer_db_entries}
+    best_hits: Dict[str, Dict[str, Any]] = {}
+    with out_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            cols = line.strip().split("\t")
+            if len(cols) < 12:
+                continue
+            qid, sid = cols[0], cols[1]
+            try:
+                pident = float(cols[2]) / 100.0
+                aln_len = int(cols[3])
+                mismatch = int(cols[4])
+            except ValueError:
+                continue
+            primer_len = primer_len_map.get(sid, 0)
+            if primer_len <= 0:
+                continue
+            cov = aln_len / primer_len
+            if pident < min_identity or cov < min_query_cov:
+                continue
+            hit = {"sid": sid, "pident": pident, "aln_len": aln_len, "mismatch": mismatch, "cov": cov}
+            previous = best_hits.get(qid)
+            if previous is None:
+                best_hits[qid] = hit
+                continue
+            current_key = (hit["pident"], hit["cov"], hit["aln_len"], -hit["mismatch"])
+            previous_key = (previous["pident"], previous["cov"], previous["aln_len"], -previous["mismatch"])
+            if current_key > previous_key:
+                best_hits[qid] = hit
+    return best_hits
+
+
+def _merge_vsearch_hits(
+    rows: List[Dict[str, Any]],
+    query_rows: List[Tuple[int, str, str]],
+    best_hits: Dict[str, Dict[str, Any]],
+) -> int:
+    rescued = 0
+    hit_applied: Dict[Tuple[int, str], bool] = {}
+    for idx, side, qid in query_rows:
+        hit = best_hits.get(qid)
+        row = rows[idx]
+        if hit is None:
+            continue
+        sid = hit["sid"]
+        is_left_subject = sid.startswith("CL_") or sid.startswith("RL_")
+        is_right_subject = sid.startswith("CR_") or sid.startswith("RR_")
+        if side == "L" and not is_left_subject:
+            continue
+        if side == "R" and not is_right_subject:
+            continue
+        row["recheck_status"] = "rescued_by_vsearch"
+        prefix = "left" if side == "L" else "right"
+        row[f"{prefix}_hit"] = 1
+        row[f"{prefix}_overlap_bp"] = int(hit["aln_len"])
+        row[f"{prefix}_trim_bp"] = int(hit["aln_len"])
+        row[f"{prefix}_mismatch"] = int(hit["mismatch"])
+        mism_total = int(row.get("left_mismatch", 0)) + int(row.get("right_mismatch", 0))
+        matched_ends = int(row.get("left_hit", 0)) + int(row.get("right_hit", 0))
+        row["confidence"] = confidence_label(matched_ends, mism_total, bool(int(row.get("orientation_ambiguous", 0))))
+        rescued += 1
+        hit_applied[(idx, side)] = True
+    for idx, side, _ in query_rows:
+        if hit_applied.get((idx, side)):
+            continue
+        row = rows[idx]
+        if str(row.get("recheck_status", "")) != "rescued_by_vsearch":
+            row["recheck_status"] = "attempted_no_hit"
+    return rescued
+
+
+def run_vsearch_endpoint_recheck(
+    rows: List[Dict[str, Any]],
+    seq_by_header: Dict[str, str],
+    forward_primers: List[str],
+    reverse_primers: List[str],
+    forward_rc: List[str],
+    reverse_rc: List[str],
+    min_identity: float,
+    min_query_cov: float,
+) -> Tuple[int, int, Optional[str]]:
+    vsearch_bin = shutil.which("vsearch")
+    if not vsearch_bin:
+        return 0, 0, "vsearch_not_found"
+    candidates = _collect_vsearch_candidates(rows, seq_by_header)
+    if not candidates:
+        return 0, 0, None
+    primer_db_entries = _build_vsearch_primer_db(forward_primers, reverse_primers, forward_rc, reverse_rc)
     with tempfile.TemporaryDirectory(prefix="taxondb-vsearch-") as tmpdir:
-        tmp = Path(tmpdir)
-        db_fa = tmp / "primers.fa"
-        q_fa = tmp / "queries.fa"
-        out_path = tmp / "hits.tsv"
-
-        with db_fa.open("w", encoding="utf-8") as f:
-            for pid, seq in primer_db_entries:
-                f.write(f">{pid}\n{seq}\n")
-
-        query_rows: List[Tuple[int, str, str]] = []
-        with q_fa.open("w", encoding="utf-8") as f:
-            for c in candidates:
-                row = c["row"]
-                seq = c["seq"]
-                if not int(row.get("left_hit", 0)):
-                    qid = f"{c['idx']}|L"
-                    segment = seq[:window_len]
-                    f.write(f">{qid}\n{segment}\n")
-                    query_rows.append((c["idx"], "L", qid))
-                    attempted += 1
-                if not int(row.get("right_hit", 0)):
-                    qid = f"{c['idx']}|R"
-                    segment = seq[-window_len:]
-                    f.write(f">{qid}\n{segment}\n")
-                    query_rows.append((c["idx"], "R", qid))
-                    attempted += 1
-
-        cmd = [
-            vsearch_bin,
-            "--usearch_global",
-            str(q_fa),
-            "--db",
-            str(db_fa),
-            "--id",
-            f"{min_identity:.4f}",
-            "--strand",
-            "plus",
-            "--blast6out",
-            str(out_path),
-            "--maxaccepts",
-            "16",
-            "--maxrejects",
-            "64",
-        ]
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-        if proc.returncode != 0:
-            return attempted, rescued, "vsearch_failed"
-        if not out_path.exists():
-            return attempted, rescued, None
-
-        primer_len_map = {pid: len(seq) for pid, seq in primer_db_entries}
-        best_hits: Dict[str, Dict[str, Any]] = {}
-        with out_path.open("r", encoding="utf-8") as f:
-            for line in f:
-                cols = line.strip().split("\t")
-                if len(cols) < 12:
-                    continue
-                qid, sid = cols[0], cols[1]
-                try:
-                    pident = float(cols[2]) / 100.0
-                    aln_len = int(cols[3])
-                    mismatch = int(cols[4])
-                except ValueError:
-                    continue
-                primer_len = primer_len_map.get(sid, 0)
-                if primer_len <= 0:
-                    continue
-                cov = aln_len / primer_len
-                if pident < min_identity or cov < min_query_cov:
-                    continue
-                hit = {
-                    "sid": sid,
-                    "pident": pident,
-                    "aln_len": aln_len,
-                    "mismatch": mismatch,
-                    "cov": cov,
-                }
-                prev = best_hits.get(qid)
-                if prev is None:
-                    best_hits[qid] = hit
-                    continue
-                current_key = (hit["pident"], hit["cov"], hit["aln_len"], -hit["mismatch"])
-                prev_key = (prev["pident"], prev["cov"], prev["aln_len"], -prev["mismatch"])
-                if current_key > prev_key:
-                    best_hits[qid] = hit
-
-        hit_applied: Dict[Tuple[int, str], bool] = {}
-        for idx, side, qid in query_rows:
-            hit = best_hits.get(qid)
-            row = rows[idx]
-            if hit is None:
-                continue
-            sid = hit["sid"]
-            is_left_subject = sid.startswith("CL_") or sid.startswith("RL_")
-            is_right_subject = sid.startswith("CR_") or sid.startswith("RR_")
-            if side == "L" and not is_left_subject:
-                continue
-            if side == "R" and not is_right_subject:
-                continue
-
-            row["recheck_status"] = "rescued_by_vsearch"
-            if side == "L":
-                row["left_hit"] = 1
-                row["left_overlap_bp"] = int(hit["aln_len"])
-                row["left_trim_bp"] = int(hit["aln_len"])
-                row["left_mismatch"] = int(hit["mismatch"])
-            else:
-                row["right_hit"] = 1
-                row["right_overlap_bp"] = int(hit["aln_len"])
-                row["right_trim_bp"] = int(hit["aln_len"])
-                row["right_mismatch"] = int(hit["mismatch"])
-            mism_total = int(row.get("left_mismatch", 0)) + int(row.get("right_mismatch", 0))
-            matched_ends = int(row.get("left_hit", 0)) + int(row.get("right_hit", 0))
-            row["confidence"] = confidence_label(matched_ends, mism_total, bool(int(row.get("orientation_ambiguous", 0))))
-            rescued += 1
-            hit_applied[(idx, side)] = True
-
-        for idx, side, _ in query_rows:
-            if hit_applied.get((idx, side)):
-                continue
-            row = rows[idx]
-            if str(row.get("recheck_status", "")) != "rescued_by_vsearch":
-                row["recheck_status"] = "attempted_no_hit"
-
+        db_fa, q_fa, out_path, query_rows, attempted = _prepare_vsearch_inputs(
+            Path(tmpdir), candidates, primer_db_entries
+        )
+        error = _run_vsearch_command(vsearch_bin, q_fa, db_fa, out_path, min_identity)
+        if error == "vsearch_failed":
+            return attempted, 0, error
+        if error == "no_output":
+            return attempted, 0, None
+        best_hits = _parse_vsearch_hits(out_path, primer_db_entries, min_identity, min_query_cov)
+        rescued = _merge_vsearch_hits(rows, query_rows, best_hits)
     return attempted, rescued, None
 
 
