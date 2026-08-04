@@ -57,82 +57,6 @@ app = typer.Typer(
     help="TaxonDBBuilder - build a generic NCBI FASTA database by taxon and marker.",
 )
 
-def build_output_path(
-    out: Optional[Path],
-    taxids: List[str],
-    markers: List[str],
-    output_prefix: str = "",
-) -> Path:
-    run_date = datetime.now().strftime("%Y%m%d")
-    if out:
-        if out.suffix in {".fa", ".fasta", ".fas"}:
-            out.parent.mkdir(parents=True, exist_ok=True)
-            return out
-        out_dir = out
-    else:
-        out_dir = Path("Results") / "db" / run_date
-
-    out_dir.mkdir(parents=True, exist_ok=True)
-    taxon_label = f"taxid{'+'.join(taxids)}" if len(taxids) == 1 else "multi_taxon"
-    marker_label = "+".join(markers) if len(markers) == 1 else "multi_marker"
-    prefix = output_prefix
-    if prefix and not prefix.endswith("_"):
-        prefix = prefix + "_"
-    return out_dir / f"{prefix}{taxon_label}__{marker_label}.fasta"
-
-
-
-def _build_marker_rules(
-    marker_keys: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-    output_cfg: Dict[str, Any],
-    uses_ncbi: bool,
-) -> Tuple[List[str], List[Dict[str, Any]]]:
-    selected_header_formats = _collect_marker_header_formats(marker_keys, marker_map, output_cfg)
-    marker_rules = []
-    if uses_ncbi:
-        marker_rules = [
-            _build_ncbi_marker_rule(key, marker_map[key], header_format)
-            for key, header_format in zip(marker_keys, selected_header_formats)
-        ]
-    return selected_header_formats, marker_rules
-
-
-def _collect_marker_header_formats(
-    marker_keys: List[str], marker_map: Dict[str, Dict[str, Any]], output_cfg: Dict[str, Any]
-) -> List[str]:
-    return [resolve_header_format(marker_map[key], output_cfg) for key in marker_keys]
-
-
-def _build_ncbi_marker_rule(
-    key: str, cfg_m: Dict[str, Any], header_format: str
-) -> Dict[str, Any]:
-    region_patterns = build_region_patterns(cfg_m)
-    if not region_patterns:
-        raise typer.BadParameter(f"markers.{key} has no patterns for region extraction.")
-    compiled = compile_patterns(region_patterns)
-    if not compiled:
-        raise typer.BadParameter(f"markers.{key} patterns did not compile.")
-
-    feature_types = cfg_m.get("feature_types")
-    if feature_types is None:
-        feature_types = DEFAULT_FEATURE_TYPES
-    elif not feature_types:
-        feature_types = None
-    feature_fields = cfg_m.get("feature_fields")
-    if feature_fields is None:
-        feature_fields = DEFAULT_FEATURE_FIELDS
-    elif not feature_fields:
-        raise typer.BadParameter(f"markers.{key}.feature_fields cannot be empty.")
-    return {
-        "key": key,
-        "patterns": compiled,
-        "feature_types": feature_types,
-        "feature_fields": feature_fields,
-        "header_format": header_format,
-    }
-
-
 @dataclass
 class _BuildContext:
     cfg: Dict[str, Any]
@@ -189,6 +113,80 @@ class _BuildContext:
     emitted_records: List[Dict[str, str]] = field(default_factory=list)
     source_merge_rows: List[Dict[str, str]] = field(default_factory=list)
     progress: Optional[Progress] = None
+
+def build_output_path(
+    out: Optional[Path],
+    taxids: List[str],
+    markers: List[str],
+    output_prefix: str = "",
+) -> Path:
+    run_date = datetime.now().strftime("%Y%m%d")
+    if out:
+        if out.suffix in {".fa", ".fasta", ".fas"}:
+            out.parent.mkdir(parents=True, exist_ok=True)
+            return out
+        out_dir = out
+    else:
+        out_dir = Path("Results") / "db" / run_date
+
+    out_dir.mkdir(parents=True, exist_ok=True)
+    taxon_label = f"taxid{'+'.join(taxids)}" if len(taxids) == 1 else "multi_taxon"
+    marker_label = "+".join(markers) if len(markers) == 1 else "multi_marker"
+    prefix = output_prefix
+    if prefix and not prefix.endswith("_"):
+        prefix = prefix + "_"
+    return out_dir / f"{prefix}{taxon_label}__{marker_label}.fasta"
+
+
+def _build_marker_rules(
+    marker_keys: List[str],
+    marker_map: Dict[str, Dict[str, Any]],
+    output_cfg: Dict[str, Any],
+    uses_ncbi: bool,
+) -> Tuple[List[str], List[Dict[str, Any]]]:
+    selected_header_formats = _collect_marker_header_formats(marker_keys, marker_map, output_cfg)
+    marker_rules = []
+    if uses_ncbi:
+        marker_rules = [
+            _build_ncbi_marker_rule(key, marker_map[key], header_format)
+            for key, header_format in zip(marker_keys, selected_header_formats)
+        ]
+    return selected_header_formats, marker_rules
+
+
+def _collect_marker_header_formats(
+    marker_keys: List[str], marker_map: Dict[str, Dict[str, Any]], output_cfg: Dict[str, Any]
+) -> List[str]:
+    return [resolve_header_format(marker_map[key], output_cfg) for key in marker_keys]
+
+
+def _build_ncbi_marker_rule(
+    key: str, cfg_m: Dict[str, Any], header_format: str
+) -> Dict[str, Any]:
+    region_patterns = build_region_patterns(cfg_m)
+    if not region_patterns:
+        raise typer.BadParameter(f"markers.{key} has no patterns for region extraction.")
+    compiled = compile_patterns(region_patterns)
+    if not compiled:
+        raise typer.BadParameter(f"markers.{key} patterns did not compile.")
+
+    feature_types = cfg_m.get("feature_types")
+    if feature_types is None:
+        feature_types = DEFAULT_FEATURE_TYPES
+    elif not feature_types:
+        feature_types = None
+    feature_fields = cfg_m.get("feature_fields")
+    if feature_fields is None:
+        feature_fields = DEFAULT_FEATURE_FIELDS
+    elif not feature_fields:
+        raise typer.BadParameter(f"markers.{key}.feature_fields cannot be empty.")
+    return {
+        "key": key,
+        "patterns": compiled,
+        "feature_types": feature_types,
+        "feature_fields": feature_fields,
+        "header_format": header_format,
+    }
 
 
 def _show_build_plan(ctx: _BuildContext) -> bool:
@@ -691,6 +689,183 @@ def list_primer_sets(
     console.print(table)
 
 
+def _resolve_build_configuration(config: Path, source: BuildSource) -> Dict[str, Any]:
+    cfg = load_config(config, source=source)
+    ncbi_cfg = cfg.get("ncbi", {})
+    uses_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
+    uses_bold = source in {BuildSource.BOLD, BuildSource.BOTH}
+    if uses_ncbi or uses_bold:
+        setup_entrez(ncbi_cfg if isinstance(ncbi_cfg, dict) else {}, warn_if_missing=uses_ncbi)
+    return {
+        "cfg": cfg,
+        "ncbi_cfg": ncbi_cfg,
+        "filters_cfg": cfg.get("filters", {}),
+        "output_cfg": cfg.get("output", {}),
+        "taxon_noexp": bool(cfg.get("taxon", {}).get("noexp", False)),
+        "uses_ncbi": uses_ncbi,
+        "uses_bold": uses_bold,
+        "marker_map": normalize_marker_map(cfg.get("markers", {}), source=source),
+    }
+
+
+def _resolve_build_markers(
+    marker: List[str], marker_map: Dict[str, Dict[str, Any]],
+    output_cfg: Dict[str, Any], uses_ncbi: bool, output_prefix: str,
+) -> Dict[str, Any]:
+    marker_keys = [resolve_marker_key(value, marker_map) for value in marker]
+    selected_header_formats, marker_rules = _build_marker_rules(
+        marker_keys, marker_map, output_cfg, uses_ncbi
+    )
+    return {
+        "marker_keys": marker_keys,
+        "marker_query": build_marker_query(marker_keys, marker_map) if uses_ncbi else "",
+        "output_prefix": output_prefix.strip(),
+        "selected_header_formats": selected_header_formats,
+        "marker_rules": marker_rules,
+    }
+
+
+def _normalize_post_prep_requests(
+    post_prep_step: Optional[List[PostPrepStep]], post_prep_primer_set: Optional[List[str]],
+) -> Tuple[List[str], List[str]]:
+    requested_steps = [step.value for step in (post_prep_step or [])]
+    requested_sets: List[str] = []
+    for value in (post_prep_primer_set or []):
+        name = value.strip()
+        if not name:
+            raise typer.BadParameter("--post-prep-primer-set cannot include empty values.")
+        if name not in requested_sets:
+            requested_sets.append(name)
+    return requested_steps, requested_sets
+
+
+def _build_post_prep_trim_options(post_prep_cfg: Dict[str, Any], enabled: bool) -> Dict[str, Any]:
+    return {
+        "trim_mode": post_prep_cfg.get("primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH),
+        "max_mismatch": int(post_prep_cfg.get("primer_max_mismatch", 0)),
+        "max_error_rate": float(post_prep_cfg.get("primer_max_error_rate", 0.0)),
+        "min_overlap_bp": post_prep_cfg.get("primer_min_overlap_bp"),
+        "min_overlap_ratio": float(post_prep_cfg.get("primer_min_overlap_ratio", 1.0)),
+        "end_max_offset": int(post_prep_cfg.get("primer_end_max_offset", 0)),
+        "keep_retained_fasta": bool(post_prep_cfg.get("primer_keep_retained_fasta", True)),
+        "iter_enable": bool(post_prep_cfg.get("primer_iter_enable", False)),
+        "iter_max_rounds": int(post_prep_cfg.get("primer_iter_max_rounds", 3 if enabled else 1)),
+        "iter_stop_delta": float(post_prep_cfg.get("primer_iter_stop_delta", 0.002)),
+        "iter_target_conf": float(post_prep_cfg.get("primer_iter_target_conf", 0.98)),
+        "sidecar_format": post_prep_cfg.get("primer_sidecar_format", "tsv"),
+        "recheck_tool": post_prep_cfg.get("primer_recheck_tool", "off"),
+        "recheck_min_identity": float(post_prep_cfg.get("primer_recheck_min_identity", 0.85)),
+        "recheck_min_query_cov": float(post_prep_cfg.get("primer_recheck_min_query_cov", 0.7)),
+        "phylo_target_confidence": post_prep_cfg.get("primer_phylo_target_confidence", "medium"),
+    }
+
+
+def _resolve_post_prep_primers(
+    post_prep_cfg: Dict[str, Any], requested_sets: List[str], config: Path,
+) -> Tuple[List[str], List[str], Optional[str], List[str]]:
+    forward = list(post_prep_cfg.get("_primer_forward") or [])
+    reverse = list(post_prep_cfg.get("_primer_reverse") or [])
+    primer_file = post_prep_cfg.get("_primer_file_resolved") or post_prep_cfg.get("primer_file")
+    set_names = list(post_prep_cfg.get("_primer_set_names") or [])
+    if not set_names:
+        configured = post_prep_cfg.get("primer_set")
+        if isinstance(configured, str) and configured.strip():
+            set_names = [configured.strip()]
+        elif isinstance(configured, list):
+            set_names = [str(value).strip() for value in configured if str(value).strip()]
+    if requested_sets:
+        if not primer_file:
+            raise typer.BadParameter("--post-prep-primer-set requires [post_prep].primer_file in config.")
+        primer_path = resolve_support_file_path(str(primer_file), config, "Primer file")
+        forward, reverse = combine_primer_set_sequences(
+            load_primer_sets_from_file(primer_path), requested_sets
+        )
+        primer_file, set_names = str(primer_path), requested_sets
+    return forward, reverse, primer_file, set_names
+
+
+def _resolve_post_prep_options(
+    post_prep: bool, post_prep_step: Optional[List[PostPrepStep]],
+    post_prep_primer_set: Optional[List[str]], post_prep_cfg: Dict[str, Any],
+    config: Path, source: BuildSource,
+) -> Dict[str, Any]:
+    requested_steps, requested_sets = _normalize_post_prep_requests(
+        post_prep_step, post_prep_primer_set
+    )
+    if not post_prep:
+        if requested_steps or requested_sets:
+            raise typer.BadParameter("--post-prep-step/--post-prep-primer-set requires --post-prep.")
+        return {
+            "post_prep": False, "post_prep_steps_run": [], "has_length_filter": False,
+            "has_primer_trim": False, "post_min": None, "post_max": None,
+            "post_primer_forward": [], "post_primer_reverse": [], "post_primer_file": None,
+            "post_primer_set_names": [], "post_primer_trim_options": _build_post_prep_trim_options({}, False),
+        }
+
+    post_min = post_prep_cfg.get("sequence_length_min")
+    post_max = post_prep_cfg.get("sequence_length_max")
+    has_length_filter = post_min is not None or post_max is not None
+    forward, reverse, primer_file, set_names = _resolve_post_prep_primers(
+        post_prep_cfg, requested_sets, config
+    )
+    has_primer_trim = bool(forward and reverse)
+    if PostPrepStep.PRIMER_TRIM.value in requested_steps and not has_primer_trim:
+        raise typer.BadParameter(
+            "post-prep step 'primer_trim' requires post_prep.primer_file and post_prep.primer_set."
+        )
+    if PostPrepStep.LENGTH_FILTER.value in requested_steps and not has_length_filter:
+        raise typer.BadParameter(
+            "post-prep step 'length_filter' requires post_prep.sequence_length_min or sequence_length_max."
+        )
+    if requested_steps:
+        steps_run = [step for step in POST_PREP_STEP_ORDER if step in requested_steps]
+    else:
+        steps_run = []
+        if has_primer_trim:
+            steps_run.append(PostPrepStep.PRIMER_TRIM.value)
+        if has_length_filter:
+            steps_run.append(PostPrepStep.LENGTH_FILTER.value)
+        if source != BuildSource.BOTH:
+            steps_run.append(PostPrepStep.DUPLICATE_REPORT.value)
+    return {
+        "post_prep": True, "post_prep_steps_run": steps_run,
+        "has_length_filter": has_length_filter, "has_primer_trim": has_primer_trim,
+        "post_min": int(post_min) if post_min is not None else None,
+        "post_max": int(post_max) if post_max is not None else None,
+        "post_primer_forward": forward, "post_primer_reverse": reverse,
+        "post_primer_file": primer_file, "post_primer_set_names": set_names,
+        "post_primer_trim_options": _build_post_prep_trim_options(post_prep_cfg, True),
+    }
+
+
+def _resolve_build_targets(
+    config: Path, source: BuildSource, taxon: List[str], uses_bold: bool,
+    out: Optional[Path], marker_keys: List[str], output_prefix: str,
+    dump_gb: Optional[Path], from_gb: Optional[Path], resume: bool,
+) -> Dict[str, Any]:
+    resolved_taxa: List[ResolvedTaxon] = []
+    warnings: List[str] = []
+    for value in taxon:
+        resolved = resolve_taxon(value, require_scientific_name=uses_bold)
+        resolved_taxa.append(resolved)
+        if resolved.warning:
+            warnings.append(resolved.warning)
+    taxids = [item.taxid for item in resolved_taxa]
+    out_path = build_output_path(out, taxids, marker_keys, output_prefix=output_prefix)
+    if source == BuildSource.BOLD and (dump_gb or from_gb or resume):
+        raise typer.BadParameter("--dump-gb, --from-gb, and --resume are not supported with --source bold.")
+    if resume and not dump_gb and not from_gb:
+        raise typer.BadParameter("--resume requires --dump-gb or --from-gb.")
+    if from_gb and not from_gb.exists():
+        raise typer.BadParameter(f"--from-gb not found: {from_gb}")
+    if dump_gb:
+        dump_gb.mkdir(parents=True, exist_ok=True)
+    return {
+        "resolved_taxa": resolved_taxa, "taxids": taxids, "warnings": warnings,
+        "out_path": out_path, "log_path": out_path.with_suffix(out_path.suffix + ".log"),
+    }
+
+
 @app.command()
 def build(
     config: Path = typer.Option(..., "--config", "-c", help="Path to TOML config file."),
@@ -751,196 +926,22 @@ def build(
       taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --from-gb Results/gb
       taxondbbuilder.py build -c configs/db.toml -t 117570 -m coi --source ncbi
     """
-    cfg = load_config(config, source=source)
-    ncbi_cfg = cfg.get("ncbi", {})
-    filters_cfg = cfg.get("filters", {})
-    output_cfg = cfg.get("output", {})
-    post_prep_cfg = cfg.get("post_prep") or {}
-    taxon_noexp = bool(cfg.get("taxon", {}).get("noexp", False))
-    uses_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
-    uses_bold = source in {BuildSource.BOLD, BuildSource.BOTH}
-
-    needs_entrez = uses_ncbi or uses_bold
-    if needs_entrez:
-        setup_entrez(ncbi_cfg if isinstance(ncbi_cfg, dict) else {}, warn_if_missing=uses_ncbi)
-    marker_map = normalize_marker_map(cfg.get("markers", {}), source=source)
-
-    marker_keys = [resolve_marker_key(m, marker_map) for m in marker]
-    marker_query = build_marker_query(marker_keys, marker_map) if uses_ncbi else ""
-    output_prefix = output_prefix.strip()
-    selected_header_formats, marker_rules = _build_marker_rules(
-        marker_keys, marker_map, output_cfg, uses_ncbi
+    settings = _resolve_build_configuration(config, source)
+    marker_settings = _resolve_build_markers(
+        marker, settings["marker_map"], settings["output_cfg"], settings["uses_ncbi"], output_prefix
     )
-
-    requested_post_prep_steps = [step.value for step in (post_prep_step or [])]
-    requested_primer_sets: List[str] = []
-    for value in (post_prep_primer_set or []):
-        name = value.strip()
-        if not name:
-            raise typer.BadParameter("--post-prep-primer-set cannot include empty values.")
-        if name not in requested_primer_sets:
-            requested_primer_sets.append(name)
-
-    if post_prep:
-        post_min = post_prep_cfg.get("sequence_length_min")
-        post_max = post_prep_cfg.get("sequence_length_max")
-        has_length_filter = post_min is not None or post_max is not None
-        post_primer_forward = list(post_prep_cfg.get("_primer_forward") or [])
-        post_primer_reverse = list(post_prep_cfg.get("_primer_reverse") or [])
-        post_primer_file = post_prep_cfg.get("_primer_file_resolved") or post_prep_cfg.get("primer_file")
-        post_primer_set_names = list(post_prep_cfg.get("_primer_set_names") or [])
-        if not post_primer_set_names:
-            primer_set_cfg = post_prep_cfg.get("primer_set")
-            if isinstance(primer_set_cfg, str) and primer_set_cfg.strip():
-                post_primer_set_names = [primer_set_cfg.strip()]
-            elif isinstance(primer_set_cfg, list):
-                post_primer_set_names = [str(v).strip() for v in primer_set_cfg if str(v).strip()]
-
-        if requested_primer_sets:
-            if not post_primer_file:
-                raise typer.BadParameter(
-                    "--post-prep-primer-set requires [post_prep].primer_file in config."
-                )
-            primer_path = resolve_support_file_path(str(post_primer_file), config, "Primer file")
-            primer_sets_data = load_primer_sets_from_file(primer_path)
-            post_primer_forward, post_primer_reverse = combine_primer_set_sequences(
-                primer_sets_data, requested_primer_sets
-            )
-            post_primer_file = str(primer_path)
-            post_primer_set_names = requested_primer_sets
-
-        has_primer_trim = bool(post_primer_forward and post_primer_reverse)
-        post_primer_trim_options: Dict[str, Any] = {
-            "trim_mode": post_prep_cfg.get("primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH),
-            "max_mismatch": int(post_prep_cfg.get("primer_max_mismatch", 0)),
-            "max_error_rate": float(post_prep_cfg.get("primer_max_error_rate", 0.0)),
-            "min_overlap_bp": post_prep_cfg.get("primer_min_overlap_bp"),
-            "min_overlap_ratio": float(post_prep_cfg.get("primer_min_overlap_ratio", 1.0)),
-            "end_max_offset": int(post_prep_cfg.get("primer_end_max_offset", 0)),
-            "keep_retained_fasta": bool(post_prep_cfg.get("primer_keep_retained_fasta", True)),
-            "iter_enable": bool(post_prep_cfg.get("primer_iter_enable", False)),
-            "iter_max_rounds": int(post_prep_cfg.get("primer_iter_max_rounds", 3)),
-            "iter_stop_delta": float(post_prep_cfg.get("primer_iter_stop_delta", 0.002)),
-            "iter_target_conf": float(post_prep_cfg.get("primer_iter_target_conf", 0.98)),
-            "sidecar_format": post_prep_cfg.get("primer_sidecar_format", "tsv"),
-            "recheck_tool": post_prep_cfg.get("primer_recheck_tool", "off"),
-            "recheck_min_identity": float(post_prep_cfg.get("primer_recheck_min_identity", 0.85)),
-            "recheck_min_query_cov": float(post_prep_cfg.get("primer_recheck_min_query_cov", 0.7)),
-            "phylo_target_confidence": post_prep_cfg.get("primer_phylo_target_confidence", "medium"),
-        }
-
-        if PostPrepStep.PRIMER_TRIM.value in requested_post_prep_steps and not has_primer_trim:
-            raise typer.BadParameter(
-                "post-prep step 'primer_trim' requires post_prep.primer_file and post_prep.primer_set."
-            )
-        if PostPrepStep.LENGTH_FILTER.value in requested_post_prep_steps and not has_length_filter:
-            raise typer.BadParameter(
-                "post-prep step 'length_filter' requires post_prep.sequence_length_min or post_prep.sequence_length_max."
-            )
-
-        if requested_post_prep_steps:
-            post_prep_steps_run = [
-                step for step in POST_PREP_STEP_ORDER if step in requested_post_prep_steps
-            ]
-        else:
-            post_prep_steps_run = []
-            if has_primer_trim:
-                post_prep_steps_run.append(PostPrepStep.PRIMER_TRIM.value)
-            if has_length_filter:
-                post_prep_steps_run.append(PostPrepStep.LENGTH_FILTER.value)
-            if source != BuildSource.BOTH:
-                post_prep_steps_run.append(PostPrepStep.DUPLICATE_REPORT.value)
-
-        post_min = int(post_min) if post_min is not None else None
-        post_max = int(post_max) if post_max is not None else None
-    else:
-        if requested_post_prep_steps or requested_primer_sets:
-            raise typer.BadParameter("--post-prep-step/--post-prep-primer-set requires --post-prep.")
-        has_length_filter = False
-        has_primer_trim = False
-        post_prep_steps_run = []
-        post_min = None
-        post_max = None
-        post_primer_forward = []
-        post_primer_reverse = []
-        post_primer_file = None
-        post_primer_set_names = []
-        post_primer_trim_options = {
-            "trim_mode": PRIMER_TRIM_MODE_ONE_OR_BOTH,
-            "max_mismatch": 0,
-            "max_error_rate": 0.0,
-            "min_overlap_bp": None,
-            "min_overlap_ratio": 1.0,
-            "end_max_offset": 0,
-            "keep_retained_fasta": True,
-            "iter_enable": False,
-            "iter_max_rounds": 1,
-            "iter_stop_delta": 0.002,
-            "iter_target_conf": 0.98,
-            "sidecar_format": "tsv",
-            "recheck_tool": "off",
-            "recheck_min_identity": 0.85,
-            "recheck_min_query_cov": 0.7,
-            "phylo_target_confidence": "medium",
-        }
-
-    resolved_taxa: List[ResolvedTaxon] = []
-    warnings: List[str] = []
-    for t in taxon:
-        resolved = resolve_taxon(t, require_scientific_name=uses_bold)
-        resolved_taxa.append(resolved)
-        if resolved.warning:
-            warnings.append(resolved.warning)
-
-    taxids = [item.taxid for item in resolved_taxa]
-
-    out_path = build_output_path(out, taxids, marker_keys, output_prefix=output_prefix)
-    log_path = out_path.with_suffix(out_path.suffix + ".log")
-    if source == BuildSource.BOLD and (dump_gb or from_gb or resume):
-        raise typer.BadParameter("--dump-gb, --from-gb, and --resume are not supported with --source bold.")
-    if resume and not dump_gb and not from_gb:
-        raise typer.BadParameter("--resume requires --dump-gb or --from-gb.")
-    if from_gb and not from_gb.exists():
-        raise typer.BadParameter(f"--from-gb not found: {from_gb}")
-    if dump_gb:
-        dump_gb.mkdir(parents=True, exist_ok=True)
-
+    post_settings = _resolve_post_prep_options(
+        post_prep, post_prep_step, post_prep_primer_set,
+        settings["cfg"].get("post_prep") or {}, config, source,
+    )
+    target_settings = _resolve_build_targets(
+        config, source, taxon, settings["uses_bold"], out,
+        marker_settings["marker_keys"], marker_settings["output_prefix"],
+        dump_gb, from_gb, resume,
+    )
     _run_build_pipeline(
-        cfg=cfg,
-        config=config,
-        source=source,
-        taxon=taxon,
-        taxids=taxids,
-        resolved_taxa=resolved_taxa,
-        marker_keys=marker_keys,
-        marker_query=marker_query,
-        marker_rules=marker_rules,
-        marker_map=marker_map,
-        output_cfg=output_cfg,
-        selected_header_formats=selected_header_formats,
-        ncbi_cfg=ncbi_cfg,
-        filters_cfg=filters_cfg,
-        taxon_noexp=taxon_noexp,
-        output_prefix=output_prefix,
-        out_path=out_path,
-        log_path=log_path,
-        dump_gb=dump_gb,
-        from_gb=from_gb,
-        resume=resume,
-        dry_run=dry_run,
-        workers=workers,
-        uses_ncbi=uses_ncbi,
-        uses_bold=uses_bold,
-        warnings=warnings,
-        post_prep=post_prep,
-        post_prep_steps_run=post_prep_steps_run,
-        has_length_filter=has_length_filter,
-        has_primer_trim=has_primer_trim,
-        post_min=post_min,
-        post_max=post_max,
-        post_primer_forward=post_primer_forward,
-        post_primer_reverse=post_primer_reverse,
-        post_primer_file=post_primer_file,
-        post_primer_set_names=post_primer_set_names,
-        post_primer_trim_options=post_primer_trim_options,
+        **settings, config=config, source=source, taxon=taxon,
+        **marker_settings, **post_settings, **target_settings,
+        dump_gb=dump_gb, from_gb=from_gb, resume=resume,
+        dry_run=dry_run, workers=workers,
     )
