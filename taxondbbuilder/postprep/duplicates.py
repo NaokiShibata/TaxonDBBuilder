@@ -1,11 +1,15 @@
 """Duplicate and accession/organism sidecar reports."""
 
 import csv
+import hashlib
+import re
 from collections import defaultdict
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
 from Bio import SeqIO
+
+from ..headers import compile_header_extractors, extract_header_fields_from_header
 
 def write_duplicate_acc_reports_csv(
     fasta_path: Path,
@@ -226,7 +230,3 @@ def write_acc_organism_mapping_csv(
         "unique_organisms": len(unique_organisms),
     }
     return mapping_path, stats
-
-
-
-

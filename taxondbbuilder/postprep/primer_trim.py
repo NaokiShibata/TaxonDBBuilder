@@ -12,7 +12,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from Bio import SeqIO
 from Bio.Seq import Seq
 
-from .models import (
+from ..models import (
     IUPAC_DNA_VALUES,
     PRIMER_TRIM_MODE_BOTH_REQUIRED,
     PRIMER_TRIM_MODE_ONE_OR_BOTH,
@@ -860,7 +860,6 @@ def apply_post_prep_primer_trim(
         "recheck_error": recheck_error,
         "phylo_target_confidence": phylo_target_confidence,
     }
-
 
 
 

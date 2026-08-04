@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional
 import typer
 from rich.progress import Progress
 
-from taxondb_bold import (
+from .bold_api import (
     BoldApiError,
     download_documents_to_path,
     iter_document_rows_from_path,
@@ -227,7 +227,6 @@ def build_bold_canonical_record(
             "raw_row_json": json.dumps(normalized_row.get("raw_row") or {}, ensure_ascii=False),
         },
     )
-
 
 
 
