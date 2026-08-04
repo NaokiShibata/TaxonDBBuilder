@@ -350,6 +350,16 @@ impl ProgressParser {
                     .clamp(0.0, 1.0);
                 self.percent = self.percent.max(80.0 + ratio * 15.0);
             }
+
+            // Finalization must win over the generic record-ratio updates
+            // above when the terminal log lines arrive after the counters.
+            if line.starts_with("# finished:") {
+                self.phase = "Finalize".to_string();
+                self.percent = 100.0;
+            } else if line.starts_with("# output:") {
+                self.phase = "Finalize".to_string();
+                self.percent = self.percent.max(95.0);
+            }
         }
 
         changed
@@ -517,4 +527,95 @@ pub(crate) fn tail_log_once(
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn golden(name: &str) -> String {
+        let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../../tests/golden")
+            .join(name);
+        fs::read_to_string(path).expect("golden log")
+    }
+
+    fn consume_golden(parser: &mut ProgressParser, name: &str) {
+        for line in golden(name).lines() {
+            parser.consume_line(line);
+        }
+    }
+
+    #[test]
+    fn ncbi_and_postprep_goldens_match_parser_patterns() {
+        let mut ncbi = ProgressParser::new(1, 0);
+        consume_golden(&mut ncbi, "build-ncbi.log.golden");
+        assert!(ncbi.query_seen.contains("999"));
+        assert_eq!(ncbi.total_records, Some(2));
+        assert_eq!(ncbi.metrics.matched_records, Some(1));
+        assert_eq!(ncbi.phase, "Finalize");
+        assert_eq!(ncbi.percent, 100.0);
+
+        let mut postprep = ProgressParser::new(1, 3);
+        consume_golden(&mut postprep, "build-postprep.log.golden");
+        assert_eq!(postprep.metrics.kept_records_before_post_prep, Some(3));
+        assert_eq!(postprep.metrics.primer_trim_removed, Some(0));
+        assert_eq!(postprep.metrics.length_filter_removed, Some(0));
+        assert_eq!(postprep.metrics.duplicate_groups, Some(1));
+        assert_eq!(postprep.metrics.cross_organism_groups, Some(1));
+        assert_eq!(postprep.post_steps_seen.len(), 3);
+        assert_eq!(postprep.phase, "Finalize");
+        assert_eq!(postprep.percent, 100.0);
+    }
+
+    #[test]
+    fn bold_and_both_goldens_match_bold_query_pattern() {
+        let mut bold = ProgressParser::new(1, 0);
+        consume_golden(&mut bold, "build-bold.log.golden");
+        assert_eq!(
+            bold.metrics
+                .bold_specimen_count_by_taxon
+                .get("Testus alpha"),
+            Some(&3)
+        );
+        assert_eq!(
+            bold.metrics.bold_downloaded_by_taxon.get("Testus alpha"),
+            Some(&2)
+        );
+        assert_eq!(
+            bold.metrics.bold_matched_by_taxon.get("Testus alpha"),
+            Some(&1)
+        );
+
+        let mut both = ProgressParser::new(1, 0);
+        consume_golden(&mut both, "build-both.log.golden");
+        assert!(both.query_seen.contains("999"));
+        assert_eq!(
+            both.metrics.bold_matched_by_taxon.get("Testus alpha"),
+            Some(&2)
+        );
+    }
+
+    #[test]
+    fn parser_accepts_timestamp_fetch_and_bold_progress_lines() {
+        let mut parser = ProgressParser::new(1, 0);
+        assert!(
+            parser.consume_line("2026-08-04T12:00:00.000+09:00 INFO  # query count taxid=999: 4")
+        );
+        assert!(parser.consume_line("# fetch progress taxid=999: 2/4"));
+        assert_eq!(parser.metrics.fetch_count_by_taxid.get("999"), Some(&2));
+        assert!(parser.consume_line(
+            "# bold progress: taxon=Testus alpha phase=download specimens=3 downloaded=2 matched=1"
+        ));
+        assert_eq!(
+            parser
+                .metrics
+                .bold_specimen_count_by_taxon
+                .get("Testus alpha"),
+            Some(&3)
+        );
+        assert_eq!(parser.phase, "Fetch/Parse");
+    }
 }
