@@ -523,6 +523,39 @@ def _read_primer_records(fasta_path: Path) -> List[Tuple[str, str]]:
     return records
 
 
+@dataclass
+class _PrimerTrimContext:
+    fasta_path: Path
+    forward_primers: List[str]
+    reverse_primers: List[str]
+    forward_rc: List[str]
+    reverse_rc: List[str]
+    trim_mode: str
+    max_mismatch: int
+    max_error_rate: float
+    min_overlap_bp: Optional[int]
+    min_overlap_ratio: float
+    end_max_offset: int
+    keep_retained_fasta: bool
+    iter_enable: bool
+    iter_max_rounds: int
+    iter_stop_delta: float
+    iter_target_conf: float
+    sidecar_format: str
+    recheck_tool: str
+    recheck_min_identity: float
+    recheck_min_query_cov: float
+    phylo_target_confidence: str
+    retained_path: Path
+
+
+@dataclass
+class _PrimerRoundResult:
+    records: List[Tuple[str, str]]
+    rows: List[Dict[str, Any]]
+    summary: Dict[str, Any]
+
+
 def _write_primer_outputs(
     fasta_path: Path,
     best_records: List[Tuple[str, str]],
@@ -577,39 +610,6 @@ def _write_primer_outputs(
             writer.writeheader()
             writer.writerows(sidecar_rows)
     return sidecar_path
-
-
-@dataclass
-class _PrimerTrimContext:
-    fasta_path: Path
-    forward_primers: List[str]
-    reverse_primers: List[str]
-    forward_rc: List[str]
-    reverse_rc: List[str]
-    trim_mode: str
-    max_mismatch: int
-    max_error_rate: float
-    min_overlap_bp: Optional[int]
-    min_overlap_ratio: float
-    end_max_offset: int
-    keep_retained_fasta: bool
-    iter_enable: bool
-    iter_max_rounds: int
-    iter_stop_delta: float
-    iter_target_conf: float
-    sidecar_format: str
-    recheck_tool: str
-    recheck_min_identity: float
-    recheck_min_query_cov: float
-    phylo_target_confidence: str
-    retained_path: Path
-
-
-@dataclass
-class _PrimerRoundResult:
-    records: List[Tuple[str, str]]
-    rows: List[Dict[str, Any]]
-    summary: Dict[str, Any]
 
 
 def _build_primer_trim_context(
