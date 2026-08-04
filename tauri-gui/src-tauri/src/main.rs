@@ -5,7 +5,6 @@ mod config;
 mod progress;
 mod sidecar;
 mod state;
-mod taxondb_post_prep;
 mod taxondb_runner;
 
 use commands::{

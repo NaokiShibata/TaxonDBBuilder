@@ -1,7 +1,6 @@
 use chrono::Local;
 use serde::{Deserialize, Serialize};
-use std::fs::{self, OpenOptions};
-use std::io::Write;
+use std::fs;
 use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Manager};
 
@@ -271,28 +270,6 @@ pub(crate) fn toml_quote(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-pub(crate) fn append_log_line(log_path: &Path, line: &str) -> Result<(), String> {
-    append_log_with_level(log_path, "INFO", line)
-}
-
-pub(crate) fn append_log_with_level(
-    log_path: &Path,
-    level: &str,
-    line: &str,
-) -> Result<(), String> {
-    let mut f = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .map_err(|e| format!("failed to open log {}: {e}", log_path.display()))?;
-    writeln!(
-        f,
-        "{} {:<5} {line}",
-        Local::now().format("%Y-%m-%dT%H:%M:%S%.3f%:z"),
-        level
-    )
-    .map_err(|e| format!("failed to append log {}: {e}", log_path.display()))
-}
 pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<PathBuf, String> {
     fs::create_dir_all(config_dir)
         .map_err(|e| format!("failed to create {}: {e}", config_dir.display()))?;

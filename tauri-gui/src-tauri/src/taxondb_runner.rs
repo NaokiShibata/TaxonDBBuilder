@@ -1,4 +1,4 @@
-use crate::sidecar::{build_params_to_args, BuildParams};
+use crate::sidecar::BuildParams;
 use chrono::Local;
 use regex::Regex;
 use serde_json::Value as JsonValue;
@@ -2603,6 +2603,7 @@ pub fn run_build(
 #[cfg(test)]
 mod characterization_tests {
     use super::*;
+    use crate::sidecar::build_params_to_args;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn repo_path(relative: &str) -> PathBuf {
