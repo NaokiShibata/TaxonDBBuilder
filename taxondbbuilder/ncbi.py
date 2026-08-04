@@ -22,6 +22,186 @@ from .console import console
 from .headers import sanitize_header
 from .models import BuildSource, CanonicalRecord, DEFAULT_HEADER_FORMAT, ResolvedTaxon
 
+@dataclass
+class _MatchedNCBIFeature:
+    sequence: str
+    label: str
+    marker: str
+    feature_type: str
+    header_format: Optional[str]
+    start: int
+    end: int
+    strand: int
+
+
+def _dump_genbank_record(record: Any, acc: str, taxid: str, dump_gb_dir: Optional[Path], lock: Lock) -> None:
+    if not dump_gb_dir:
+        return
+    gb_root = dump_gb_dir / f"taxid{taxid}"
+    gb_root.mkdir(parents=True, exist_ok=True)
+    gb_path = gb_root / f"{sanitize_header(acc)}.gb"
+    with lock:
+        if not gb_path.exists():
+            with gb_path.open("w", encoding="utf-8") as f:
+                SeqIO.write(record, f, "genbank")
+
+
+def _match_ncbi_feature(record: Any, feature: Any, marker_rules: List[Dict]) -> Optional[_MatchedNCBIFeature]:
+    matched_label = None
+    matched_marker = None
+    header_format = None
+    for rule in marker_rules:
+        if rule["feature_types"] and feature.type not in rule["feature_types"]:
+            continue
+        matched_label = match_feature(feature, rule["patterns"], rule["feature_fields"])
+        if matched_label:
+            matched_marker = rule["key"]
+            header_format = rule["header_format"]
+            break
+    if not matched_label or not feature.location:
+        return None
+    try:
+        sequence = str(feature.extract(record.seq)).upper()
+    except Exception:
+        return None
+    if not sequence:
+        return None
+    return _MatchedNCBIFeature(
+        sequence=sequence,
+        label=str(matched_label),
+        marker=str(matched_marker or ""),
+        feature_type=str(feature.type),
+        header_format=header_format,
+        start=int(feature.location.start) + 1,
+        end=int(feature.location.end),
+        strand=feature.location.strand or 0,
+    )
+
+
+def _build_ncbi_canonical_record(
+    acc: str,
+    organism: str,
+    organism_safe: str,
+    matched: _MatchedNCBIFeature,
+    dup_index: Optional[int],
+    source: BuildSource,
+) -> CanonicalRecord:
+    acc_id = f"{acc}_dup{dup_index}" if dup_index else acc
+    dup_tag = f"dup{dup_index}" if dup_index else ""
+    label_safe = sanitize_header(matched.label)
+    marker_safe = sanitize_header(matched.marker or "marker")
+    type_safe = sanitize_header(matched.feature_type)
+    loc = f"{matched.start}-{matched.end}"
+    header_values = {
+        "acc": acc,
+        "acc_id": acc_id,
+        "db": "gb",
+        "organism": organism_safe,
+        "organism_raw": organism,
+        "marker": marker_safe,
+        "marker_raw": matched.marker,
+        "label": label_safe,
+        "label_raw": matched.label,
+        "type": type_safe,
+        "type_raw": matched.feature_type,
+        "start": str(matched.start),
+        "end": str(matched.end),
+        "loc": loc,
+        "strand": str(matched.strand),
+        "dup": dup_tag,
+        "source": source.value,
+        "source_id": acc,
+    }
+    return CanonicalRecord(
+        source=source.value,
+        source_record_id=acc,
+        accession=acc,
+        processid=None,
+        sampleid=None,
+        taxon_name=organism,
+        marker_key=matched.marker,
+        marker_label=matched.label,
+        sequence=matched.sequence,
+        header_values=header_values,
+        metadata={
+            "organism_name": organism,
+            "matched_type": matched.feature_type,
+            "header_format": matched.header_format or DEFAULT_HEADER_FORMAT,
+        },
+    )
+
+
+def _append_ncbi_feature_record(
+    acc: str,
+    organism: str,
+    organism_safe: str,
+    matched: _MatchedNCBIFeature,
+    source: BuildSource,
+    acc_to_seqs: Dict[str, set],
+    counters: Dict[str, int],
+    dup_accessions: Dict[str, int],
+    lock: Lock,
+    extracted_records: List[CanonicalRecord],
+) -> None:
+    with lock:
+        counters["matched_features"] += 1
+        seqs = acc_to_seqs.setdefault(acc, set())
+        if matched.sequence in seqs:
+            counters["skipped_same"] += 1
+            return
+        dup_index = None
+        if seqs:
+            dup_index = len(seqs) + 1
+            counters["duplicated_diff"] += 1
+            dup_accessions[acc] = dup_accessions.get(acc, 1) + 1
+        seqs.add(matched.sequence)
+        extracted_records.append(
+            _build_ncbi_canonical_record(acc, organism, organism_safe, matched, dup_index, source)
+        )
+
+
+def _extract_ncbi_record(
+    record: Any,
+    marker_rules: List[Dict],
+    acc_to_seqs: Dict[str, set],
+    counters: Dict[str, int],
+    dup_accessions: Dict[str, int],
+    lock: Lock,
+    taxid: str,
+    dump_gb_dir: Optional[Path],
+    source: BuildSource,
+) -> List[CanonicalRecord]:
+    if not record.seq:
+        return []
+    acc = record.id
+    organism = str(record.annotations.get("organism", "unknown"))
+    organism_safe = sanitize_header(organism)
+    _dump_genbank_record(record, acc, taxid, dump_gb_dir, lock)
+    extracted_records: List[CanonicalRecord] = []
+    record_matched = False
+    for feature in record.features:
+        matched = _match_ncbi_feature(record, feature, marker_rules)
+        if matched is None:
+            continue
+        record_matched = True
+        _append_ncbi_feature_record(
+            acc,
+            organism,
+            organism_safe,
+            matched,
+            source,
+            acc_to_seqs,
+            counters,
+            dup_accessions,
+            lock,
+            extracted_records,
+        )
+    if record_matched:
+        with lock:
+            counters["matched_records"] += 1
+    return extracted_records
+
+
 def extract_ncbi_records_from_genbank_chunk(
     chunk: str,
     marker_rules: List[Dict],
@@ -41,125 +221,19 @@ def extract_ncbi_records_from_genbank_chunk(
         with lock:
             counters["total_records"] += 1
         progress.update(task_id, advance=1)
-
-        if not record.seq:
-            continue
-
-        acc = record.id
-        organism = record.annotations.get("organism", "unknown")
-        organism_safe = sanitize_header(str(organism))
-        record_matched = False
-
-        if dump_gb_dir:
-            gb_root = dump_gb_dir / f"taxid{taxid}"
-            gb_root.mkdir(parents=True, exist_ok=True)
-            acc_safe = sanitize_header(acc)
-            gb_path = gb_root / f"{acc_safe}.gb"
-            with lock:
-                if not gb_path.exists():
-                    with gb_path.open("w", encoding="utf-8") as f:
-                        SeqIO.write(record, f, "genbank")
-
-        for feature in record.features:
-            matched_label = None
-            matched_marker = None
-            matched_type = feature.type
-
-            header_format = None
-            for rule in marker_rules:
-                if rule["feature_types"] and feature.type not in rule["feature_types"]:
-                    continue
-                matched_label = match_feature(
-                    feature,
-                    rule["patterns"],
-                    rule["feature_fields"],
-                )
-                if matched_label:
-                    matched_marker = rule["key"]
-                    header_format = rule["header_format"]
-                    break
-
-            if not matched_label or not feature.location:
-                continue
-
-            try:
-                seq = str(feature.extract(record.seq)).upper()
-            except Exception:
-                continue
-
-            if not seq:
-                continue
-
-            start = int(feature.location.start) + 1
-            end = int(feature.location.end)
-            strand = feature.location.strand or 0
-
-            label_safe = sanitize_header(str(matched_label))
-            marker_safe = sanitize_header(str(matched_marker or "marker"))
-            type_safe = sanitize_header(str(matched_type))
-            loc = f"{start}-{end}"
-
-            with lock:
-                counters["matched_features"] += 1
-                record_matched = True
-
-                seqs = acc_to_seqs.setdefault(acc, set())
-                if seq in seqs:
-                    counters["skipped_same"] += 1
-                    continue
-
-                dup_index = None
-                if seqs:
-                    dup_index = len(seqs) + 1
-                    counters["duplicated_diff"] += 1
-                    dup_accessions[acc] = dup_accessions.get(acc, 1) + 1
-
-                seqs.add(seq)
-
-                acc_id = f"{acc}_dup{dup_index}" if dup_index else acc
-                dup_tag = f"dup{dup_index}" if dup_index else ""
-                header_values = {
-                    "acc": acc,
-                    "acc_id": acc_id,
-                    "db": "gb",
-                    "organism": organism_safe,
-                    "organism_raw": str(organism),
-                    "marker": marker_safe,
-                    "marker_raw": str(matched_marker or ""),
-                    "label": label_safe,
-                    "label_raw": str(matched_label),
-                    "type": type_safe,
-                    "type_raw": str(matched_type),
-                    "start": str(start),
-                    "end": str(end),
-                    "loc": loc,
-                    "strand": str(strand),
-                    "dup": dup_tag,
-                    "source": source.value,
-                    "source_id": acc,
-                }
-                extracted_records.append(
-                    CanonicalRecord(
-                        source=source.value,
-                        source_record_id=acc,
-                        accession=acc,
-                        processid=None,
-                        sampleid=None,
-                        taxon_name=str(organism),
-                        marker_key=str(matched_marker or ""),
-                        marker_label=str(matched_label),
-                        sequence=seq,
-                        header_values=header_values,
-                        metadata={
-                            "organism_name": str(organism),
-                            "matched_type": str(matched_type),
-                            "header_format": header_format or DEFAULT_HEADER_FORMAT,
-                        },
-                    )
-                )
-        if record_matched:
-            with lock:
-                counters["matched_records"] += 1
+        extracted_records.extend(
+            _extract_ncbi_record(
+                record,
+                marker_rules,
+                acc_to_seqs,
+                counters,
+                dup_accessions,
+                lock,
+                taxid,
+                dump_gb_dir,
+                source,
+            )
+        )
     return extracted_records
 
 
@@ -553,5 +627,4 @@ def iter_genbank_files(from_dir: Path, taxid: Optional[str] = None) -> Iterable[
     files = sorted(gb_root.glob("*.gb"))
     for idx, path in enumerate(files):
         yield idx, path.read_text(encoding="utf-8", errors="ignore")
-
 
