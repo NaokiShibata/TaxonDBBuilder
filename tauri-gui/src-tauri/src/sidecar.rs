@@ -158,10 +158,7 @@ fn sidecar_candidates(app: &AppHandle) -> Vec<PathBuf> {
     }
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        add_candidate(
-            &mut candidates,
-            resource_dir.join("binaries").join(SIDECAR_NAME),
-        );
+        add_candidate(&mut candidates, resource_dir.join("bin").join(SIDECAR_NAME));
         add_candidate(&mut candidates, resource_dir.join(SIDECAR_NAME));
     }
 
@@ -169,19 +166,16 @@ fn sidecar_candidates(app: &AppHandle) -> Vec<PathBuf> {
     if let Some(repo_dir) = manifest_dir.parent().and_then(Path::parent) {
         add_candidate(&mut candidates, repo_dir.join("dist").join(SIDECAR_NAME));
     }
-    add_candidate(
-        &mut candidates,
-        manifest_dir.join("binaries").join(SIDECAR_NAME),
-    );
+    add_candidate(&mut candidates, manifest_dir.join("bin").join(SIDECAR_NAME));
 
     if let Ok(cwd) = env::current_dir() {
         add_candidate(&mut candidates, cwd.join("dist").join(SIDECAR_NAME));
-        add_candidate(&mut candidates, cwd.join("binaries").join(SIDECAR_NAME));
+        add_candidate(&mut candidates, cwd.join("bin").join(SIDECAR_NAME));
     }
 
     if let Ok(exe) = env::current_exe() {
         if let Some(exe_dir) = exe.parent() {
-            add_candidate(&mut candidates, exe_dir.join("binaries").join(SIDECAR_NAME));
+            add_candidate(&mut candidates, exe_dir.join("bin").join(SIDECAR_NAME));
             add_candidate(&mut candidates, exe_dir.join(SIDECAR_NAME));
         }
     }

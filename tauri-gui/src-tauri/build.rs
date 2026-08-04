@@ -2,7 +2,7 @@ fn main() {
     let manifest_dir = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     let target = std::env::var("TARGET").expect("TARGET is set by Cargo");
     let sidecar = manifest_dir
-        .join("binaries")
+        .join("bin")
         .join(format!("taxondbbuilder-{target}"));
 
     // tauri-build validates externalBin during every cargo build. Keep the
