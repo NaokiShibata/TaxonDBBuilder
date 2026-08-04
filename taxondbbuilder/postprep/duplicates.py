@@ -15,16 +15,34 @@ def write_duplicate_acc_reports_csv(
     fasta_path: Path,
     header_formats: Iterable[str],
 ) -> Tuple[Optional[Path], Optional[Path], Dict[str, int], Optional[str]]:
+    extractors, error = _validate_duplicate_report_headers(header_formats)
+    if error:
+        return None, None, {}, error
+    seq_groups, input_stats = _read_duplicate_sequence_groups(fasta_path, extractors)
+    records_path = fasta_path.with_suffix(fasta_path.suffix + ".duplicate_acc.records.csv")
+    groups_path = fasta_path.with_suffix(fasta_path.suffix + ".duplicate_acc.groups.csv")
+    output_stats = _write_duplicate_report_csvs(records_path, groups_path, seq_groups)
+    return records_path, groups_path, {**input_stats, **output_stats}, None
+
+
+def _validate_duplicate_report_headers(
+    header_formats: Iterable[str],
+) -> Tuple[List[Any], Optional[str]]:
     extractors, has_acc_id_template, has_organism_template = compile_header_extractors(header_formats)
     if not has_acc_id_template:
-        return None, None, {}, "selected header format does not include {acc_id}"
+        return [], "selected header format does not include {acc_id}"
     if not has_organism_template:
-        return None, None, {}, "selected header format does not include {organism_raw} or {organism}"
+        return [], "selected header format does not include {organism_raw} or {organism}"
     if not extractors:
-        return None, None, {}, "could not compile header extractor"
+        return [], "could not compile header extractor"
     if not any(extractor.captures_organism for extractor in extractors):
-        return None, None, {}, "selected header format does not include {organism_raw} or {organism} alongside {acc_id}"
+        return [], "selected header format does not include {organism_raw} or {organism} alongside {acc_id}"
+    return extractors, None
 
+
+def _read_duplicate_sequence_groups(
+    fasta_path: Path, extractors: List[Any]
+) -> Tuple[Dict[str, List[Dict[str, str]]], Dict[str, int]]:
     seq_groups: Dict[str, List[Dict[str, str]]] = {}
     total_records = 0
     parsed_records = 0
@@ -48,48 +66,47 @@ def write_duplicate_acc_reports_csv(
                     "header": header,
                 }
             )
+    return seq_groups, {
+        "total_records": total_records,
+        "parsed_records": parsed_records,
+        "unparsed_records": unparsed_records,
+    }
 
-    records_path = fasta_path.with_suffix(fasta_path.suffix + ".duplicate_acc.records.csv")
-    groups_path = fasta_path.with_suffix(fasta_path.suffix + ".duplicate_acc.groups.csv")
+
+def _duplicate_report_writers(records_f: Any, groups_f: Any) -> Tuple[csv.DictWriter, csv.DictWriter]:
+    records_writer = csv.DictWriter(
+        records_f,
+        fieldnames=[
+            "group_id", "sequence_hash", "sequence_length", "records_in_group",
+            "unique_accessions", "unique_organisms", "cross_organism_duplicate",
+            "acc_id", "accession", "organism_name", "header",
+        ],
+    )
+    groups_writer = csv.DictWriter(
+        groups_f,
+        fieldnames=[
+            "group_id", "sequence_hash", "sequence_length", "records_in_group",
+            "unique_accessions", "unique_organisms", "cross_organism_duplicate",
+            "accessions", "organism_names",
+        ],
+    )
+    records_writer.writeheader()
+    groups_writer.writeheader()
+    return records_writer, groups_writer
+
+
+def _write_duplicate_report_csvs(
+    records_path: Path,
+    groups_path: Path,
+    seq_groups: Dict[str, List[Dict[str, str]]],
+) -> Dict[str, int]:
     duplicate_groups = 0
     duplicate_records = 0
     cross_organism_groups = 0
     with records_path.open("w", newline="", encoding="utf-8") as records_f, groups_path.open(
         "w", newline="", encoding="utf-8"
     ) as groups_f:
-        records_writer = csv.DictWriter(
-            records_f,
-            fieldnames=[
-                "group_id",
-                "sequence_hash",
-                "sequence_length",
-                "records_in_group",
-                "unique_accessions",
-                "unique_organisms",
-                "cross_organism_duplicate",
-                "acc_id",
-                "accession",
-                "organism_name",
-                "header",
-            ],
-        )
-        records_writer.writeheader()
-        groups_writer = csv.DictWriter(
-            groups_f,
-            fieldnames=[
-                "group_id",
-                "sequence_hash",
-                "sequence_length",
-                "records_in_group",
-                "unique_accessions",
-                "unique_organisms",
-                "cross_organism_duplicate",
-                "accessions",
-                "organism_names",
-            ],
-        )
-        groups_writer.writeheader()
-
+        records_writer, groups_writer = _duplicate_report_writers(records_f, groups_f)
         group_id = 0
         for seq, entries in sorted(seq_groups.items(), key=lambda item: len(item[1]), reverse=True):
             if len(entries) < 2:
@@ -134,16 +151,11 @@ def write_duplicate_acc_reports_csv(
                         "header": item["header"],
                     }
                 )
-
-    stats = {
-        "total_records": total_records,
-        "parsed_records": parsed_records,
-        "unparsed_records": unparsed_records,
+    return {
         "duplicate_groups": duplicate_groups,
         "duplicate_records": duplicate_records,
         "cross_organism_groups": cross_organism_groups,
     }
-    return records_path, groups_path, stats, None
 
 
 def write_acc_organism_mapping_csv(
