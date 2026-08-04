@@ -493,6 +493,8 @@ pub(crate) fn start_run(
     let resume_for_thread = req.resume && source_uses_ncbi(&build_source);
     let source_for_thread = build_source.clone();
     let taxid_total = req.taxids.len();
+    let workers_for_thread = req.workers;
+    let output_prefix_for_thread = req.output_prefix.clone();
     let post_steps_total = if req.post_prep.enable {
         req.post_prep.steps.len().max(1)
     } else {
@@ -514,7 +516,13 @@ pub(crate) fn start_run(
                 source: source_for_thread,
                 output_file: output_file_for_worker,
                 dump_gb_dir: gb_dir_for_thread,
+                from_gb_dir: None,
                 resume: resume_for_thread,
+                workers: workers_for_thread,
+                output_prefix: output_prefix_for_thread,
+                post_prep: false,
+                post_prep_steps: Vec::new(),
+                post_prep_primer_sets: Vec::new(),
             };
             let _ = done_tx.send(run_build(
                 &build_params,

@@ -34,7 +34,63 @@ pub struct BuildParams {
     pub source: String,
     pub output_file: PathBuf,
     pub dump_gb_dir: PathBuf,
+    pub from_gb_dir: Option<PathBuf>,
     pub resume: bool,
+    pub workers: u32,
+    pub output_prefix: String,
+    pub post_prep: bool,
+    pub post_prep_steps: Vec<String>,
+    pub post_prep_primer_sets: Vec<String>,
+}
+
+/// Convert the GUI's build parameters to the Python `build` command arguments.
+///
+/// Configuration values such as filters, NCBI settings, and post-prep detail
+/// options are written to `config_path`; only the Python CLI's command-line
+/// controls belong in this vector.
+pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
+    let mut args = vec!["build".to_string()];
+    args.extend([
+        "--config".to_string(),
+        params.config_path.display().to_string(),
+    ]);
+
+    for taxid in &params.taxids {
+        args.extend(["--taxon".to_string(), taxid.clone()]);
+    }
+    for marker in &params.markers {
+        args.extend(["--marker".to_string(), marker.clone()]);
+    }
+
+    args.extend(["--source".to_string(), params.source.clone()]);
+    args.extend([
+        "--out".to_string(),
+        params.output_file.display().to_string(),
+        "--dump-gb".to_string(),
+        params.dump_gb_dir.display().to_string(),
+        "--workers".to_string(),
+        params.workers.to_string(),
+        "--output-prefix".to_string(),
+        params.output_prefix.clone(),
+    ]);
+
+    if let Some(from_gb_dir) = &params.from_gb_dir {
+        args.extend(["--from-gb".to_string(), from_gb_dir.display().to_string()]);
+    }
+    if params.resume {
+        args.push("--resume".to_string());
+    }
+    if params.post_prep {
+        args.push("--post-prep".to_string());
+    }
+    for step in &params.post_prep_steps {
+        args.extend(["--post-prep-step".to_string(), step.clone()]);
+    }
+    for primer_set in &params.post_prep_primer_sets {
+        args.extend(["--post-prep-primer-set".to_string(), primer_set.clone()]);
+    }
+
+    args
 }
 
 #[derive(Debug, Default, Clone)]
@@ -2893,5 +2949,63 @@ all_fields_exclude = ["human"]
         let _ = fs::remove_file(&fasta);
         let _ = fs::remove_file(format!("{}.acc_organism.csv", fasta.display()));
         let _ = fs::remove_file(source_path);
+    }
+
+    #[test]
+    fn build_params_to_args_matches_python_build_cli() {
+        let params = BuildParams {
+            config_path: PathBuf::from("job/config/db.toml"),
+            taxids: vec!["9606".to_string(), "10090".to_string()],
+            markers: vec!["12s".to_string(), "coi".to_string()],
+            source: "ncbi".to_string(),
+            output_file: PathBuf::from("job/Results/output.fasta"),
+            dump_gb_dir: PathBuf::from("job/gb"),
+            from_gb_dir: Some(PathBuf::from("tests/fixtures/sample.gb")),
+            resume: true,
+            workers: 4,
+            output_prefix: "gui_".to_string(),
+            post_prep: true,
+            post_prep_steps: vec!["primer_trim".to_string(), "length_filter".to_string()],
+            post_prep_primer_sets: vec!["alpha".to_string(), "beta".to_string()],
+        };
+
+        assert_eq!(
+            build_params_to_args(&params),
+            vec![
+                "build",
+                "--config",
+                "job/config/db.toml",
+                "--taxon",
+                "9606",
+                "--taxon",
+                "10090",
+                "--marker",
+                "12s",
+                "--marker",
+                "coi",
+                "--source",
+                "ncbi",
+                "--out",
+                "job/Results/output.fasta",
+                "--dump-gb",
+                "job/gb",
+                "--workers",
+                "4",
+                "--output-prefix",
+                "gui_",
+                "--from-gb",
+                "tests/fixtures/sample.gb",
+                "--resume",
+                "--post-prep",
+                "--post-prep-step",
+                "primer_trim",
+                "--post-prep-step",
+                "length_filter",
+                "--post-prep-primer-set",
+                "alpha",
+                "--post-prep-primer-set",
+                "beta",
+            ]
+        );
     }
 }
