@@ -88,44 +88,49 @@ def _build_marker_rules(
     output_cfg: Dict[str, Any],
     uses_ncbi: bool,
 ) -> Tuple[List[str], List[Dict[str, Any]]]:
-    selected_header_formats: List[str] = []
+    selected_header_formats = _collect_marker_header_formats(marker_keys, marker_map, output_cfg)
     marker_rules = []
-    for key in marker_keys:
-        cfg_m = marker_map[key]
-        header_format = resolve_header_format(cfg_m, output_cfg)
-        selected_header_formats.append(header_format)
-        if not uses_ncbi:
-            continue
-
-        region_patterns = build_region_patterns(cfg_m)
-        if not region_patterns:
-            raise typer.BadParameter(f"markers.{key} has no patterns for region extraction.")
-        compiled = compile_patterns(region_patterns)
-        if not compiled:
-            raise typer.BadParameter(f"markers.{key} patterns did not compile.")
-
-        feature_types = cfg_m.get("feature_types")
-        if feature_types is None:
-            feature_types = DEFAULT_FEATURE_TYPES
-        elif not feature_types:
-            feature_types = None
-
-        feature_fields = cfg_m.get("feature_fields")
-        if feature_fields is None:
-            feature_fields = DEFAULT_FEATURE_FIELDS
-        elif not feature_fields:
-            raise typer.BadParameter(f"markers.{key}.feature_fields cannot be empty.")
-
-        marker_rules.append(
-            {
-                "key": key,
-                "patterns": compiled,
-                "feature_types": feature_types,
-                "feature_fields": feature_fields,
-                "header_format": header_format,
-            }
-        )
+    if uses_ncbi:
+        marker_rules = [
+            _build_ncbi_marker_rule(key, marker_map[key], header_format)
+            for key, header_format in zip(marker_keys, selected_header_formats)
+        ]
     return selected_header_formats, marker_rules
+
+
+def _collect_marker_header_formats(
+    marker_keys: List[str], marker_map: Dict[str, Dict[str, Any]], output_cfg: Dict[str, Any]
+) -> List[str]:
+    return [resolve_header_format(marker_map[key], output_cfg) for key in marker_keys]
+
+
+def _build_ncbi_marker_rule(
+    key: str, cfg_m: Dict[str, Any], header_format: str
+) -> Dict[str, Any]:
+    region_patterns = build_region_patterns(cfg_m)
+    if not region_patterns:
+        raise typer.BadParameter(f"markers.{key} has no patterns for region extraction.")
+    compiled = compile_patterns(region_patterns)
+    if not compiled:
+        raise typer.BadParameter(f"markers.{key} patterns did not compile.")
+
+    feature_types = cfg_m.get("feature_types")
+    if feature_types is None:
+        feature_types = DEFAULT_FEATURE_TYPES
+    elif not feature_types:
+        feature_types = None
+    feature_fields = cfg_m.get("feature_fields")
+    if feature_fields is None:
+        feature_fields = DEFAULT_FEATURE_FIELDS
+    elif not feature_fields:
+        raise typer.BadParameter(f"markers.{key}.feature_fields cannot be empty.")
+    return {
+        "key": key,
+        "patterns": compiled,
+        "feature_types": feature_types,
+        "feature_fields": feature_fields,
+        "header_format": header_format,
+    }
 
 
 @dataclass
