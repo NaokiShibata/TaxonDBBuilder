@@ -18,195 +18,207 @@ from .models import (
     PRIMER_TRIM_MODES,
 )
 
+def _parse_int_option(name: str, raw: Any, min_value: Optional[int] = None) -> int:
+    try:
+        value = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter(f"{name} must be an integer.") from exc
+    if min_value is not None and value < min_value:
+        raise typer.BadParameter(f"{name} must be >= {min_value}.")
+    return value
+
+
+def _parse_float_option(
+    name: str,
+    raw: Any,
+    min_value: Optional[float] = None,
+    max_value: Optional[float] = None,
+) -> float:
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter(f"{name} must be a number.") from exc
+    if min_value is not None and value < min_value:
+        raise typer.BadParameter(f"{name} must be >= {min_value}.")
+    if max_value is not None and value > max_value:
+        raise typer.BadParameter(f"{name} must be <= {max_value}.")
+    return value
+
+
+def _parse_bool_option(name: str, raw: Any) -> bool:
+    if isinstance(raw, bool):
+        return raw
+    if isinstance(raw, str):
+        value = raw.strip().lower()
+        if value in {"1", "true", "yes", "on"}:
+            return True
+        if value in {"0", "false", "no", "off"}:
+            return False
+    raise typer.BadParameter(f"{name} must be a boolean.")
+
+
+def _normalize_length_filter_config(post_prep: Dict[str, Any]) -> None:
+    min_len = post_prep.get("sequence_length_min")
+    max_len = post_prep.get("sequence_length_max")
+    if min_len is not None:
+        min_len = _parse_int_option("post_prep.sequence_length_min", min_len)
+        post_prep["sequence_length_min"] = min_len
+    if max_len is not None:
+        max_len = _parse_int_option("post_prep.sequence_length_max", max_len)
+        post_prep["sequence_length_max"] = max_len
+    if min_len is not None and max_len is not None and min_len > max_len:
+        raise typer.BadParameter("post_prep.sequence_length_min must be <= post_prep.sequence_length_max.")
+
+
+def _normalize_primer_selection(post_prep: Dict[str, Any]) -> Tuple[Optional[str], Optional[List[str]]]:
+    primer_file = post_prep.get("primer_file")
+    primer_set_raw = post_prep.get("primer_set")
+    primer_set_list: Optional[List[str]] = None
+    if primer_file is not None:
+        if not isinstance(primer_file, str) or not primer_file.strip():
+            raise typer.BadParameter("post_prep.primer_file must be a non-empty string path.")
+        primer_file = primer_file.strip()
+        post_prep["primer_file"] = primer_file
+    if primer_set_raw is not None:
+        if isinstance(primer_set_raw, str):
+            primer_set_list = [primer_set_raw]
+        elif isinstance(primer_set_raw, list) and all(isinstance(v, str) for v in primer_set_raw):
+            primer_set_list = list(primer_set_raw)
+        else:
+            raise typer.BadParameter("post_prep.primer_set must be a string or list of strings.")
+        normalized_sets: List[str] = []
+        for value in primer_set_list:
+            name = value.strip()
+            if not name:
+                raise typer.BadParameter("post_prep.primer_set cannot contain empty values.")
+            if name not in normalized_sets:
+                normalized_sets.append(name)
+        primer_set_list = normalized_sets
+        post_prep["primer_set"] = primer_set_list
+    if primer_set_list is not None and primer_file is None:
+        raise typer.BadParameter("post_prep.primer_set requires post_prep.primer_file.")
+    return primer_file, primer_set_list
+
+
+def _parse_primer_numeric_options(post_prep: Dict[str, Any]) -> Dict[str, Any]:
+    options = {
+        "max_mismatch": _parse_int_option(
+            "post_prep.primer_max_mismatch", post_prep.get("primer_max_mismatch", 0), 0
+        ),
+        "max_error_rate": _parse_float_option(
+            "post_prep.primer_max_error_rate", post_prep.get("primer_max_error_rate", 0.0), 0.0, 1.0
+        ),
+    }
+    min_overlap_raw = post_prep.get("primer_min_overlap_bp")
+    options["min_overlap_bp"] = (
+        _parse_int_option("post_prep.primer_min_overlap_bp", min_overlap_raw, 1)
+        if min_overlap_raw is not None
+        else None
+    )
+    options["min_overlap_ratio"] = _parse_float_option(
+        "post_prep.primer_min_overlap_ratio", post_prep.get("primer_min_overlap_ratio", 1.0), 0.0, 1.0
+    )
+    options["end_max_offset"] = _parse_int_option(
+        "post_prep.primer_end_max_offset", post_prep.get("primer_end_max_offset", 0), 0
+    )
+    return options
+
+
+def _parse_primer_mode_options(post_prep: Dict[str, Any]) -> Dict[str, Any]:
+    mode_raw = post_prep.get("primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH)
+    if not isinstance(mode_raw, str):
+        raise typer.BadParameter("post_prep.primer_trim_mode must be a string.")
+    mode = mode_raw.strip().lower()
+    if mode not in PRIMER_TRIM_MODES:
+        modes = ", ".join(sorted(PRIMER_TRIM_MODES))
+        raise typer.BadParameter(f"post_prep.primer_trim_mode must be one of: {modes}")
+    return {
+        "trim_mode": mode,
+        "keep_retained_fasta": _parse_bool_option(
+            "post_prep.primer_keep_retained_fasta", post_prep.get("primer_keep_retained_fasta", True)
+        ),
+        "iter_enable": _parse_bool_option(
+            "post_prep.primer_iter_enable", post_prep.get("primer_iter_enable", False)
+        ),
+        "iter_max_rounds": _parse_int_option(
+            "post_prep.primer_iter_max_rounds", post_prep.get("primer_iter_max_rounds", 3), 1
+        ),
+        "iter_stop_delta": _parse_float_option(
+            "post_prep.primer_iter_stop_delta", post_prep.get("primer_iter_stop_delta", 0.002), 0.0
+        ),
+        "iter_target_conf": _parse_float_option(
+            "post_prep.primer_iter_target_conf", post_prep.get("primer_iter_target_conf", 0.98), 0.0, 1.0
+        ),
+    }
+
+
+def _parse_primer_recheck_options(post_prep: Dict[str, Any]) -> Dict[str, Any]:
+    tool_raw = post_prep.get("primer_recheck_tool", "off")
+    if not isinstance(tool_raw, str):
+        raise typer.BadParameter("post_prep.primer_recheck_tool must be a string.")
+    tool = tool_raw.strip().lower()
+    if tool not in {"off", "vsearch", "blast"}:
+        raise typer.BadParameter("post_prep.primer_recheck_tool must be one of: off, vsearch, blast")
+    return {
+        "recheck_tool": tool,
+        "recheck_min_identity": _parse_float_option(
+            "post_prep.primer_recheck_min_identity", post_prep.get("primer_recheck_min_identity", 0.85), 0.0, 1.0
+        ),
+        "recheck_min_query_cov": _parse_float_option(
+            "post_prep.primer_recheck_min_query_cov", post_prep.get("primer_recheck_min_query_cov", 0.7), 0.0, 1.0
+        ),
+    }
+
+
+def _parse_primer_reporting_options(post_prep: Dict[str, Any]) -> Dict[str, str]:
+    phylo_raw = post_prep.get("primer_phylo_check", "off")
+    if not isinstance(phylo_raw, str):
+        raise typer.BadParameter("post_prep.primer_phylo_check must be a string.")
+    phylo = phylo_raw.strip().lower()
+    if phylo not in {"off", "flag_only"}:
+        raise typer.BadParameter("post_prep.primer_phylo_check must be one of: off, flag_only")
+    target_raw = post_prep.get("primer_phylo_target_confidence", "medium")
+    if not isinstance(target_raw, str):
+        raise typer.BadParameter("post_prep.primer_phylo_target_confidence must be a string.")
+    target = target_raw.strip().lower()
+    if target not in {"low", "medium"}:
+        raise typer.BadParameter("post_prep.primer_phylo_target_confidence must be one of: low, medium")
+    sidecar_raw = post_prep.get("primer_sidecar_format", "tsv")
+    if not isinstance(sidecar_raw, str):
+        raise typer.BadParameter("post_prep.primer_sidecar_format must be a string.")
+    sidecar = sidecar_raw.strip().lower()
+    if sidecar not in {"tsv", "jsonl"}:
+        raise typer.BadParameter("post_prep.primer_sidecar_format must be one of: tsv, jsonl")
+    return {"phylo_check": phylo, "phylo_target_confidence": target, "sidecar_format": sidecar}
+
+
+def _normalize_primer_trim_config(post_prep: Dict[str, Any], path: Path) -> None:
+    primer_file, primer_sets = _normalize_primer_selection(post_prep)
+    options = _parse_primer_numeric_options(post_prep)
+    options.update(_parse_primer_mode_options(post_prep))
+    options.update(_parse_primer_recheck_options(post_prep))
+    options.update(_parse_primer_reporting_options(post_prep))
+    post_prep.update({f"primer_{key}": value for key, value in options.items()})
+    if primer_file is None:
+        return
+    primer_path = resolve_support_file_path(primer_file, path, "Primer file")
+    primer_sets_data = load_primer_sets_from_file(primer_path)
+    post_prep["_primer_file_resolved"] = str(primer_path)
+    post_prep["_primer_set_candidates"] = sorted(primer_sets_data.keys())
+    if primer_sets:
+        forward, reverse = combine_primer_set_sequences(primer_sets_data, primer_sets)
+        post_prep["_primer_forward"] = forward
+        post_prep["_primer_reverse"] = reverse
+        post_prep["_primer_set_names"] = primer_sets
+
+
 def _normalize_post_prep_config(post_prep: Any, path: Path) -> None:
-    if post_prep is not None:
-        if not isinstance(post_prep, dict):
-            raise typer.BadParameter("[post_prep] must be a table (dict).")
-
-        def parse_int_option(name: str, raw: Any, min_value: Optional[int] = None) -> int:
-            try:
-                value = int(raw)
-            except (TypeError, ValueError) as exc:
-                raise typer.BadParameter(f"{name} must be an integer.") from exc
-            if min_value is not None and value < min_value:
-                raise typer.BadParameter(f"{name} must be >= {min_value}.")
-            return value
-
-        def parse_float_option(
-            name: str,
-            raw: Any,
-            min_value: Optional[float] = None,
-            max_value: Optional[float] = None,
-        ) -> float:
-            try:
-                value = float(raw)
-            except (TypeError, ValueError) as exc:
-                raise typer.BadParameter(f"{name} must be a number.") from exc
-            if min_value is not None and value < min_value:
-                raise typer.BadParameter(f"{name} must be >= {min_value}.")
-            if max_value is not None and value > max_value:
-                raise typer.BadParameter(f"{name} must be <= {max_value}.")
-            return value
-
-        def parse_bool_option(name: str, raw: Any) -> bool:
-            if isinstance(raw, bool):
-                return raw
-            if isinstance(raw, str):
-                value = raw.strip().lower()
-                if value in {"1", "true", "yes", "on"}:
-                    return True
-                if value in {"0", "false", "no", "off"}:
-                    return False
-            raise typer.BadParameter(f"{name} must be a boolean.")
-
-        min_len = post_prep.get("sequence_length_min")
-        max_len = post_prep.get("sequence_length_max")
-        if min_len is not None:
-            min_len = parse_int_option("post_prep.sequence_length_min", min_len)
-            post_prep["sequence_length_min"] = min_len
-        if max_len is not None:
-            max_len = parse_int_option("post_prep.sequence_length_max", max_len)
-            post_prep["sequence_length_max"] = max_len
-        if min_len is not None and max_len is not None and min_len > max_len:
-            raise typer.BadParameter("post_prep.sequence_length_min must be <= post_prep.sequence_length_max.")
-
-        primer_file = post_prep.get("primer_file")
-        primer_set_raw = post_prep.get("primer_set")
-        primer_set_list: Optional[List[str]] = None
-        if primer_file is not None:
-            if not isinstance(primer_file, str) or not primer_file.strip():
-                raise typer.BadParameter("post_prep.primer_file must be a non-empty string path.")
-            primer_file = primer_file.strip()
-            post_prep["primer_file"] = primer_file
-        if primer_set_raw is not None:
-            if isinstance(primer_set_raw, str):
-                primer_set_list = [primer_set_raw]
-            elif isinstance(primer_set_raw, list) and all(isinstance(v, str) for v in primer_set_raw):
-                primer_set_list = list(primer_set_raw)
-            else:
-                raise typer.BadParameter("post_prep.primer_set must be a string or list of strings.")
-
-            normalized_sets: List[str] = []
-            for value in primer_set_list:
-                name = value.strip()
-                if not name:
-                    raise typer.BadParameter("post_prep.primer_set cannot contain empty values.")
-                if name not in normalized_sets:
-                    normalized_sets.append(name)
-            primer_set_list = normalized_sets
-            post_prep["primer_set"] = primer_set_list
-
-        if primer_set_list is not None and primer_file is None:
-            raise typer.BadParameter("post_prep.primer_set requires post_prep.primer_file.")
-
-        primer_max_mismatch_raw = post_prep.get("primer_max_mismatch", 0)
-        primer_max_error_rate_raw = post_prep.get("primer_max_error_rate", 0.0)
-        primer_min_overlap_bp_raw = post_prep.get("primer_min_overlap_bp")
-        primer_min_overlap_ratio_raw = post_prep.get("primer_min_overlap_ratio", 1.0)
-        primer_end_max_offset_raw = post_prep.get("primer_end_max_offset", 0)
-        primer_trim_mode_raw = post_prep.get("primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH)
-        primer_keep_retained_raw = post_prep.get("primer_keep_retained_fasta", True)
-        primer_iter_enable_raw = post_prep.get("primer_iter_enable", False)
-        primer_iter_max_rounds_raw = post_prep.get("primer_iter_max_rounds", 3)
-        primer_iter_stop_delta_raw = post_prep.get("primer_iter_stop_delta", 0.002)
-        primer_iter_target_conf_raw = post_prep.get("primer_iter_target_conf", 0.98)
-        primer_recheck_tool_raw = post_prep.get("primer_recheck_tool", "off")
-        primer_recheck_min_identity_raw = post_prep.get("primer_recheck_min_identity", 0.85)
-        primer_recheck_min_query_cov_raw = post_prep.get("primer_recheck_min_query_cov", 0.7)
-        primer_phylo_check_raw = post_prep.get("primer_phylo_check", "off")
-        primer_phylo_target_raw = post_prep.get("primer_phylo_target_confidence", "medium")
-        primer_sidecar_format_raw = post_prep.get("primer_sidecar_format", "tsv")
-
-        primer_max_mismatch = parse_int_option("post_prep.primer_max_mismatch", primer_max_mismatch_raw, 0)
-        primer_max_error_rate = parse_float_option(
-            "post_prep.primer_max_error_rate", primer_max_error_rate_raw, 0.0, 1.0
-        )
-        primer_min_overlap_bp = None
-        if primer_min_overlap_bp_raw is not None:
-            primer_min_overlap_bp = parse_int_option("post_prep.primer_min_overlap_bp", primer_min_overlap_bp_raw, 1)
-        primer_min_overlap_ratio = parse_float_option(
-            "post_prep.primer_min_overlap_ratio", primer_min_overlap_ratio_raw, 0.0, 1.0
-        )
-        primer_end_max_offset = parse_int_option("post_prep.primer_end_max_offset", primer_end_max_offset_raw, 0)
-
-        if not isinstance(primer_trim_mode_raw, str):
-            raise typer.BadParameter("post_prep.primer_trim_mode must be a string.")
-        primer_trim_mode = primer_trim_mode_raw.strip().lower()
-        if primer_trim_mode not in PRIMER_TRIM_MODES:
-            modes = ", ".join(sorted(PRIMER_TRIM_MODES))
-            raise typer.BadParameter(f"post_prep.primer_trim_mode must be one of: {modes}")
-
-        primer_keep_retained_fasta = parse_bool_option("post_prep.primer_keep_retained_fasta", primer_keep_retained_raw)
-        primer_iter_enable = parse_bool_option("post_prep.primer_iter_enable", primer_iter_enable_raw)
-        primer_iter_max_rounds = parse_int_option("post_prep.primer_iter_max_rounds", primer_iter_max_rounds_raw, 1)
-        primer_iter_stop_delta = parse_float_option("post_prep.primer_iter_stop_delta", primer_iter_stop_delta_raw, 0.0)
-        primer_iter_target_conf = parse_float_option(
-            "post_prep.primer_iter_target_conf", primer_iter_target_conf_raw, 0.0, 1.0
-        )
-
-        if not isinstance(primer_recheck_tool_raw, str):
-            raise typer.BadParameter("post_prep.primer_recheck_tool must be a string.")
-        primer_recheck_tool = primer_recheck_tool_raw.strip().lower()
-        if primer_recheck_tool not in {"off", "vsearch", "blast"}:
-            raise typer.BadParameter("post_prep.primer_recheck_tool must be one of: off, vsearch, blast")
-        primer_recheck_min_identity = parse_float_option(
-            "post_prep.primer_recheck_min_identity", primer_recheck_min_identity_raw, 0.0, 1.0
-        )
-        primer_recheck_min_query_cov = parse_float_option(
-            "post_prep.primer_recheck_min_query_cov", primer_recheck_min_query_cov_raw, 0.0, 1.0
-        )
-
-        if not isinstance(primer_phylo_check_raw, str):
-            raise typer.BadParameter("post_prep.primer_phylo_check must be a string.")
-        primer_phylo_check = primer_phylo_check_raw.strip().lower()
-        if primer_phylo_check not in {"off", "flag_only"}:
-            raise typer.BadParameter("post_prep.primer_phylo_check must be one of: off, flag_only")
-
-        if not isinstance(primer_phylo_target_raw, str):
-            raise typer.BadParameter("post_prep.primer_phylo_target_confidence must be a string.")
-        primer_phylo_target = primer_phylo_target_raw.strip().lower()
-        if primer_phylo_target not in {"low", "medium"}:
-            raise typer.BadParameter("post_prep.primer_phylo_target_confidence must be one of: low, medium")
-
-        if not isinstance(primer_sidecar_format_raw, str):
-            raise typer.BadParameter("post_prep.primer_sidecar_format must be a string.")
-        primer_sidecar_format = primer_sidecar_format_raw.strip().lower()
-        if primer_sidecar_format not in {"tsv", "jsonl"}:
-            raise typer.BadParameter("post_prep.primer_sidecar_format must be one of: tsv, jsonl")
-
-        post_prep["primer_max_mismatch"] = primer_max_mismatch
-        post_prep["primer_max_error_rate"] = primer_max_error_rate
-        post_prep["primer_min_overlap_bp"] = primer_min_overlap_bp
-        post_prep["primer_min_overlap_ratio"] = primer_min_overlap_ratio
-        post_prep["primer_end_max_offset"] = primer_end_max_offset
-        post_prep["primer_trim_mode"] = primer_trim_mode
-        post_prep["primer_keep_retained_fasta"] = primer_keep_retained_fasta
-        post_prep["primer_iter_enable"] = primer_iter_enable
-        post_prep["primer_iter_max_rounds"] = primer_iter_max_rounds
-        post_prep["primer_iter_stop_delta"] = primer_iter_stop_delta
-        post_prep["primer_iter_target_conf"] = primer_iter_target_conf
-        post_prep["primer_recheck_tool"] = primer_recheck_tool
-        post_prep["primer_recheck_min_identity"] = primer_recheck_min_identity
-        post_prep["primer_recheck_min_query_cov"] = primer_recheck_min_query_cov
-        post_prep["primer_phylo_check"] = primer_phylo_check
-        post_prep["primer_phylo_target_confidence"] = primer_phylo_target
-        post_prep["primer_sidecar_format"] = primer_sidecar_format
-
-        if primer_file and primer_set_list:
-            primer_path = resolve_support_file_path(primer_file, path, "Primer file")
-            primer_sets_data = load_primer_sets_from_file(primer_path)
-            forward, reverse = combine_primer_set_sequences(primer_sets_data, primer_set_list)
-
-            post_prep["_primer_forward"] = forward
-            post_prep["_primer_reverse"] = reverse
-            post_prep["_primer_file_resolved"] = str(primer_path)
-            post_prep["_primer_set_names"] = primer_set_list
-            post_prep["_primer_set_candidates"] = sorted(primer_sets_data.keys())
-        elif primer_file:
-            primer_path = resolve_support_file_path(primer_file, path, "Primer file")
-            primer_sets_data = load_primer_sets_from_file(primer_path)
-            post_prep["_primer_file_resolved"] = str(primer_path)
-            post_prep["_primer_set_candidates"] = sorted(primer_sets_data.keys())
+    if post_prep is None:
+        return
+    if not isinstance(post_prep, dict):
+        raise typer.BadParameter("[post_prep] must be a table (dict).")
+    _normalize_length_filter_config(post_prep)
+    _normalize_primer_trim_config(post_prep, path)
 
 
 def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> Dict:
