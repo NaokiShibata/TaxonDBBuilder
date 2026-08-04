@@ -1,12 +1,52 @@
 # -*- mode: python ; coding: utf-8 -*-
 
+from pathlib import Path
+
+from PyInstaller.utils.hooks import collect_submodules
+
+
+project_root = Path(SPECPATH)
+
+# The compatibility shim imports the package through a wildcard import. Keep
+# every package module in the archive so the spec remains correct when a
+# module is only reached through that compatibility surface.
+package_hiddenimports = collect_submodules("taxondbbuilder")
+
+# Biopython's format registry and data modules are used through lazy imports
+# during GenBank parsing. These imports are required by the --from-gb path.
+biopython_hiddenimports = [
+    "Bio.Data.IUPACData",
+    "Bio.Entrez",
+    "Bio.GenBank",
+    "Bio.Seq",
+    "Bio.SeqFeature",
+    "Bio.SeqIO.FastaIO",
+    "Bio.SeqIO.InsdcIO",
+    "Bio.SeqRecord",
+]
+typer_rich_hiddenimports = [
+    "typer",
+    "typer.core",
+    "typer.main",
+    "typer.rich_utils",
+    "rich.console",
+    "rich.panel",
+    "rich.progress",
+    "rich.table",
+]
+
+# Config files, marker definitions, and primer files are selected at runtime
+# by the GUI/CLI, so they must remain external rather than being bundled.
+datas = []
+hiddenimports = package_hiddenimports + biopython_hiddenimports
+hiddenimports += typer_rich_hiddenimports
 
 a = Analysis(
-    ['taxondbbuilder.py'],
-    pathex=[],
+    [str(project_root / 'taxondbbuilder.py')],
+    pathex=[str(project_root)],
     binaries=[],
-    datas=[],
-    hiddenimports=[],
+    datas=datas,
+    hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
