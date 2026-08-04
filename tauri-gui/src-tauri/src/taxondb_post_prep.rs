@@ -1647,4 +1647,80 @@ mod tests {
 
         let _ = fs::remove_file(&path);
     }
+
+    #[test]
+    fn primer_tie_break_and_rounding_preserve_rust_behavior() {
+        let primers = vec!["AAAA".to_string(), "AAA".to_string()];
+        let match_result =
+            best_prefix_match("AAA", &primers, 0, 0.0, None, 0.5, 0).expect("prefix match");
+        assert_eq!(match_result.primer, "AAAA");
+        assert_eq!(match_result.overlap_bp, 3);
+        // Known drift: Python's tie-break includes full_len_match and chooses AAA here.
+        assert_eq!(required_overlap_bp(5, None, 0.5), 3);
+        // Known drift: Python round(2.5) is 2, while Rust f64::round() yields 3.
+    }
+
+    #[test]
+    fn length_filter_keeps_unwrapped_fasta_lines() {
+        let path = tmp_path("wrapping");
+        let sequence = "A".repeat(90);
+        fs::write(&path, format!(">long\n{sequence}\n")).expect("write FASTA");
+        let stats = apply_length_filter(&path, Some(1), Some(100)).expect("length filter");
+        assert_eq!(stats.after, 1);
+        assert_eq!(
+            fs::read_to_string(&path).expect("read FASTA"),
+            format!(">long\n{sequence}\n")
+        );
+        // Known drift: Python SeqIO wraps long FASTA sequences; Rust writes one line.
+        let _ = fs::remove_file(&path);
+    }
+
+    #[test]
+    fn duplicate_hash_uses_default_hasher_not_python_sha1() {
+        let path = tmp_path("hash");
+        fs::write(
+            &path,
+            ">gb|ACC1|Species A\nACGT\n>gb|ACC2|Species B\nACGT\n",
+        )
+        .expect("write FASTA");
+        let formats = vec!["gb|{acc_id}|{organism}".to_string()];
+        let (_, groups_csv, _, _) =
+            write_duplicate_acc_reports_csv(&path, &formats).expect("duplicate report");
+        let groups_path = groups_csv.expect("groups CSV");
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        use std::hash::{Hash, Hasher};
+        "ACGT".hash(&mut hasher);
+        let rust_hash = format!("{:016x}", hasher.finish());
+        let groups = fs::read_to_string(&groups_path).expect("groups output");
+        assert!(groups.contains(&rust_hash));
+        assert!(!groups.contains("58061aa544398a798e33181a443b15b7746fab16"));
+        // Known drift: Python hashes uppercase sequence with SHA-1.
+        let _ = fs::remove_file(&path);
+        let _ = fs::remove_file(groups_path);
+        let records_path = PathBuf::from(format!(
+            "{}.duplicate_acc.records.csv",
+            path.to_string_lossy()
+        ));
+        let _ = fs::remove_file(records_path);
+    }
+
+    #[test]
+    fn iterative_primer_stats_report_configured_round_limit_after_early_stop() {
+        let path = tmp_path("rounds");
+        fs::write(&path, ">x\nAAATTTTAAA\n").expect("write FASTA");
+        let mut options = PrimerTrimOptions::default();
+        options.keep_retained_fasta = false;
+        options.iter_enable = true;
+        options.iter_max_rounds = 3;
+        options.iter_target_conf = 1.0;
+        let stats = apply_primer_trim(&path, &["AAA".to_string()], &["TTT".to_string()], &options)
+            .expect("primer trim");
+        assert_eq!(stats.best_round, 1);
+        assert_eq!(stats.rounds_run, 3);
+        // Known drift: Python reports len(round_results), i.e. one round after early stop.
+        if let Some(sidecar) = stats.sidecar_path {
+            let _ = fs::remove_file(sidecar);
+        }
+        let _ = fs::remove_file(&path);
+    }
 }

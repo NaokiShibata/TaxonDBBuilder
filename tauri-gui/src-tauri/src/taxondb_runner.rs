@@ -773,6 +773,18 @@ fn parse_accession_tokens(raw_value: &str) -> Vec<String> {
     tokens
 }
 
+fn bold_accession_links_to_ncbi(
+    source: &str,
+    accession: &str,
+    ncbi_accessions: &HashSet<String>,
+) -> bool {
+    source == "both"
+        && !accession.is_empty()
+        && parse_accession_tokens(accession)
+            .iter()
+            .any(|token| ncbi_accessions.contains(token))
+}
+
 fn normalize_marker_text(value: &str) -> String {
     value
         .chars()
@@ -2499,13 +2511,11 @@ pub fn run_build(
 
             let ncbi_accessions = acc_to_seqs.keys().cloned().collect::<HashSet<_>>();
             for record in bold_records {
-                let accession_tokens = parse_accession_tokens(&record.accession);
-                if source == "both"
-                    && !accession_tokens.is_empty()
-                    && accession_tokens
-                        .iter()
-                        .any(|token| ncbi_accessions.contains(token))
-                {
+                if bold_accession_links_to_ncbi(
+                    source.as_str(),
+                    &record.accession,
+                    &ncbi_accessions,
+                ) {
                     source_merge_rows.push(EmittedRecord {
                         acc_id: format!("BOLD_{}", sanitize_header(&record.source_record_id)),
                         accession: record.accession.clone(),
@@ -2598,4 +2608,290 @@ pub fn run_build(
     let _ = append_log_line(log_path, &format!("# elapsed_sec: {elapsed_sec:.3}"));
 
     run_result
+}
+
+#[cfg(test)]
+mod characterization_tests {
+    use super::*;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn repo_path(relative: &str) -> PathBuf {
+        PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("../..")
+            .join(relative)
+    }
+
+    fn temp_fasta(name: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        std::env::temp_dir().join(format!("taxondb-runner-{name}-{stamp}.fasta"))
+    }
+
+    fn minimal_markers() -> toml::map::Map<String, TomlValue> {
+        let text = fs::read_to_string(repo_path("tests/fixtures/minimal_markers.toml"))
+            .expect("minimal marker fixture");
+        text.parse::<TomlValue>()
+            .expect("minimal marker TOML")
+            .get("markers")
+            .and_then(TomlValue::as_table)
+            .cloned()
+            .expect("markers table")
+    }
+
+    fn emitted_row() -> EmittedRecord {
+        EmittedRecord {
+            acc_id: "ACC\"1".to_string(),
+            accession: "ACC1.1".to_string(),
+            organism_name: "Testus alpha, other".to_string(),
+            header: "ACC\"1|Testus alpha, other".to_string(),
+            source: "ncbi".to_string(),
+            source_record_id: "ACC1.1".to_string(),
+            processid: String::new(),
+            sampleid: String::new(),
+            marker_key: "12s".to_string(),
+            linked_to_ncbi: false,
+            emitted_to_fasta: true,
+            skip_reason: String::new(),
+        }
+    }
+
+    #[test]
+    fn split_and_parse_sample_genbank_fixture() {
+        let text = fs::read_to_string(repo_path("tests/fixtures/sample.gb")).expect("sample.gb");
+        let records = split_genbank_records(&text);
+        assert_eq!(records.len(), 2);
+        assert!(records.iter().all(|record| !record.contains("//")));
+
+        let first = parse_genbank_record(&records[0]).expect("first record");
+        let second = parse_genbank_record(&records[1]).expect("second record");
+        assert_eq!(first.accession, "TEST0001");
+        assert_eq!(first.organism, "Testus alpha");
+        assert_eq!(first.sequence.len(), 60);
+        assert_eq!(first.features.len(), 3);
+        assert_eq!(first.features[1].feature_type, "gene");
+        assert_eq!(first.features[1].location_raw, "5..20");
+        assert_eq!(first.features[1].qualifiers["gene"], ["12S"]);
+        assert_eq!(second.accession, "TEST0002");
+        assert_eq!(second.organism, "Testus beta");
+
+        // Known drift: VERSION and ORGANISM continuation lines are ignored by Rust.
+        // The Python golden keeps TEST0001.1 and "Testus alpha other.".
+    }
+
+    #[test]
+    fn sample_fixture_is_differentially_checked_against_python_golden() {
+        let text = fs::read_to_string(repo_path("tests/fixtures/sample.gb")).expect("sample.gb");
+        let rust_record = parse_genbank_record(&split_genbank_records(&text)[0]).expect("record");
+        let python_golden: JsonValue = serde_json::from_str(
+            &fs::read_to_string(repo_path("tests/golden/genbank-records.json"))
+                .expect("Python golden"),
+        )
+        .expect("Python golden JSON");
+        let python_record = &python_golden["records"][0];
+
+        assert_eq!(rust_record.sequence, "A".repeat(60));
+        assert_eq!(rust_record.features[1].qualifiers["gene"], ["12S"]);
+        assert_eq!(python_record["accession"], "TEST0001.1");
+        assert_eq!(
+            python_record["metadata"]["organism_name"],
+            "Testus alpha other."
+        );
+        assert_ne!(rust_record.accession, python_record["accession"]);
+        assert_ne!(
+            rust_record.organism,
+            python_record["metadata"]["organism_name"]
+        );
+    }
+
+    #[test]
+    fn parse_genbank_join_and_multiline_qualifier_drift_is_explicit() {
+        let synthetic = r#"ACCESSION   SYNTH1
+FEATURES             Location/Qualifiers
+     gene            join(1..5,10..15)
+                     /gene="COI"
+                     /note="first line
+                     second line"
+                     /translation="MPEPTIDE"
+     gene            <2..>8
+                     /gene="12S"
+ORIGIN
+        1 aaaaat aaaaaa
+//
+"#;
+        let record = parse_genbank_record(&split_genbank_records(synthetic)[0]).expect("record");
+        assert_eq!(record.features.len(), 2);
+        assert_eq!(record.features[0].location_raw, "join(1..5,10..15)");
+        assert_eq!(record.features[0].qualifiers["note"], ["first line"]);
+        assert!(!record.features[0].qualifiers.contains_key("translation"));
+        assert_eq!(parse_location(&record.features[0].location_raw), None);
+        assert_eq!(
+            parse_location(&record.features[1].location_raw),
+            Some((2, 8, 1))
+        );
+
+        // Known bug: join(...) is skipped and qualifier continuation is lost.
+        // Phase 3b-2's sidecar unification is expected to remove this divergence.
+    }
+
+    #[test]
+    fn parse_location_accepts_only_current_supported_patterns() {
+        assert_eq!(parse_location("1..5"), Some((1, 5, 1)));
+        assert_eq!(parse_location("<1..>5"), Some((1, 5, 1)));
+        assert_eq!(parse_location("complement(2..8)"), Some((2, 8, -1)));
+        assert_eq!(parse_location("complement(<2..>8)"), Some((2, 8, -1)));
+        assert_eq!(parse_location("0..5"), None);
+        assert_eq!(parse_location("5..2"), None);
+        assert_eq!(parse_location("1"), None);
+        assert_eq!(parse_location("join(1..5,10..15)"), None);
+        assert_eq!(parse_location("complement(join(1..5,10..15))"), None);
+        assert_eq!(parse_location("J00194.1:100..200"), None);
+    }
+
+    #[test]
+    fn marker_resolution_query_terms_and_regions_are_fixed() {
+        let markers = minimal_markers();
+        assert_eq!(resolve_marker_key("12", &markers).expect("12 alias"), "12s");
+        assert_eq!(
+            resolve_marker_key("CO1", &markers).expect("CO1 alias"),
+            "coi"
+        );
+        assert!(resolve_marker_key("missing", &markers).is_err());
+
+        let twelve = markers["12s"].as_table().expect("12s table");
+        assert_eq!(
+            marker_query_terms(twelve),
+            vec!["\"12S\"[All Fields]", "\"rrnS\"[All Fields]"]
+        );
+        assert_eq!(region_patterns(twelve), vec!["12S", "rrnS"]);
+        let custom: TomlValue = "terms = [\"gene\"]\nphrases = [\"COI\", \"raw[All Fields]\"]"
+            .parse()
+            .expect("custom terms");
+        let custom = custom.as_table().expect("custom table");
+        assert_eq!(
+            marker_query_terms(custom),
+            vec!["gene", "\"COI\"[All Fields]", "raw[All Fields]"]
+        );
+        assert_eq!(region_patterns(custom), vec!["gene", "COI", "raw"]);
+    }
+
+    #[test]
+    fn header_sanitization_and_build_are_fixed() {
+        assert_eq!(
+            sanitize_header(" Testus  alpha/other "),
+            "Testus_alpha_other"
+        );
+        let mut values = HashMap::new();
+        values.insert("acc_id", "TEST0001.1".to_string());
+        values.insert("marker", "12s".to_string());
+        assert_eq!(
+            build_header("{acc_id}|{marker}|{missing}", &values),
+            "TEST0001.1|12s|{missing}"
+        );
+    }
+
+    #[test]
+    fn query_and_filter_terms_preserve_ignored_filter_drift() {
+        let filters: TomlValue = r#"
+filter = ["mitochondrion"]
+properties = ["biomol_genomic"]
+sequence_length_min = 100
+sequence_length_max = 200
+publication_date_from = "2020/01/01"
+publication_date_to = "2020/12/31"
+modification_date_from = "2021/01/01"
+modification_date_to = "2021/12/31"
+all_fields_include = ["fish"]
+all_fields_exclude = ["human"]
+"#
+        .parse()
+        .expect("filters");
+        let terms = build_filter_terms(filters.as_table()).expect("filter terms");
+        assert_eq!(
+            terms,
+            vec![
+                "mitochondrion[filter]",
+                "biomol_genomic[prop]",
+                "100[SLEN] : 200[SLEN]",
+            ]
+        );
+        // Known drift: publication/modification dates and All Fields include/exclude are ignored.
+        assert_eq!(build_query("9606", "\"COI\"[All Fields]", &terms, false), "(txid9606[Organism]) AND (\"COI\"[All Fields]) AND (mitochondrion[filter]) AND (biomol_genomic[prop]) AND (100[SLEN] : 200[SLEN])");
+        assert_eq!(
+            build_query("9606", "term", &[], true),
+            "(txid9606[Organism:noexp]) AND (term)"
+        );
+    }
+
+    #[test]
+    fn bold_normalization_tokens_and_strict_merge_are_fixed() {
+        let markers = minimal_markers();
+        let row = serde_json::json!({
+            "marker_code": "COI-5P",
+            "nucleotides": "acgt-123n",
+            "processid": "P1",
+            "species": "Testus alpha"
+        });
+        let marker_keys = vec!["coi".to_string()];
+        let matched = bold_marker_match("COI-5P", &marker_keys, &markers).expect("BOLD marker");
+        assert_eq!(matched, ("coi".to_string(), "COI-5P".to_string()));
+        let normalized = normalize_bold_row(&row, &marker_keys, &markers, None).expect("BOLD row");
+        assert_eq!(normalized.marker_key, "coi");
+        assert_eq!(normalized.marker_label, "COI-5P");
+        assert_eq!(normalized.sequence, "ACGTN");
+        assert_eq!(normalized.source_record_id, "P1");
+        assert_eq!(
+            parse_accession_tokens("A.1, B;A.1|C/D"),
+            vec!["A.1", "B", "C", "D"]
+        );
+
+        let fallback = serde_json::json!({
+            "marker_code": "COI",
+            "nucleotides": "acgt",
+            "species": "Testus alpha"
+        });
+        let fallback =
+            normalize_bold_row(&fallback, &marker_keys, &markers, None).expect("fallback row");
+        assert_eq!(fallback.source_record_id, "bold_Testus_alpha_coi_4");
+        // Known drift: Python uses a SHA-1 based bold_1127aee819b31baf fallback ID.
+
+        let mut unversioned = HashSet::new();
+        unversioned.insert("TEST0001".to_string());
+        assert!(!bold_accession_links_to_ncbi(
+            "both",
+            "TEST0001.1",
+            &unversioned
+        ));
+        unversioned.insert("TEST0001.1".to_string());
+        assert!(bold_accession_links_to_ncbi(
+            "both",
+            "TEST0001.1",
+            &unversioned
+        ));
+        assert!(!bold_accession_links_to_ncbi(
+            "ncbi",
+            "TEST0001.1",
+            &unversioned
+        ));
+        // Known drift: Python's VERSION-aware accession links; Rust's ACCESSION-only value does not.
+    }
+
+    #[test]
+    fn csv_columns_and_always_quote_behavior_are_fixed() {
+        let fasta = temp_fasta("csv");
+        let row = emitted_row();
+        write_acc_organism_csv(&fasta, std::slice::from_ref(&row)).expect("mapping CSV");
+        let source_path =
+            write_source_merge_csv(&fasta, std::slice::from_ref(&row)).expect("merge CSV");
+        let mapping = fs::read_to_string(format!("{}.acc_organism.csv", fasta.display()))
+            .expect("mapping output");
+        let merge = fs::read_to_string(&source_path).expect("merge output");
+        assert_eq!(mapping, "acc_id,accession,organism_name,header,source,source_record_id,processid,sampleid,marker_key,linked_to_ncbi,emitted_to_fasta,skip_reason\n\"ACC\"\"1\",\"ACC1.1\",\"Testus alpha, other\",\"ACC\"\"1|Testus alpha, other\",\"ncbi\",\"ACC1.1\",\"\",\"\",\"12s\",\"false\",\"true\",\"\"\n");
+        assert_eq!(merge, "source,source_record_id,accession,processid,sampleid,organism_name,marker_key,acc_id,linked_to_ncbi,emitted_to_fasta,skip_reason,header\n\"ncbi\",\"ACC1.1\",\"ACC1.1\",\"\",\"\",\"Testus alpha, other\",\"12s\",\"ACC\"\"1\",\"false\",\"true\",\"\",\"ACC\"\"1|Testus alpha, other\"\n");
+        // Known drift: source_merge has 12 Rust columns, while Python has 13 and marker_label.
+        let _ = fs::remove_file(&fasta);
+        let _ = fs::remove_file(format!("{}.acc_organism.csv", fasta.display()));
+        let _ = fs::remove_file(source_path);
+    }
 }
