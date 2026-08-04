@@ -4,7 +4,10 @@ NCBI と BOLD Data Portal から任意の分類群・任意のマーカーの配
 
 もとにあったMiFish プライマー用のDB作成リポジトリから、「汎用DB FASTA生成」へ方針変更しています。解析 (抽出・フィルタリング・分類付与など)は対象外で、**DB用FASTAの生成が目的**です。
 
-スクリプト実行が基本ですが、GUIも作成して見ました。使用はこちらの[README](tauri-gui/README.md)を参照ください。
+CLI は `taxondbbuilder/` パッケージを実行します。
+リポジトリ直下の `taxondbbuilder.py` は既存の起動方法を維持する互換シムです。
+GUI は Tauri アプリから Python sidecar を起動し、CLI と同じ Python パッケージで build と post-prep を実行します。
+GUI の詳細は[こちらの README](tauri-gui/README.md)を参照してください。
 
 ![](tauri-gui/figures/TaxonDBBuilderGUI.drawio.png)
 
@@ -16,6 +19,23 @@ NCBI と BOLD Data Portal から任意の分類群・任意のマーカーの配
 
 開発・sidecar ビルド用の依存は `requirements-dev.txt` に記録しています
 (pytest / pytest-cov / pyinstaller)。
+
+### 開発時の検証
+
+Python のテストはリポジトリ直下で実行します。
+
+```bash
+.venv/bin/python -m pytest --cov=taxondbbuilder --cov=taxondb_bold --cov-report=term
+```
+
+Rust 側の GUI adapter は `tauri-gui/src-tauri` で検証します。
+
+```bash
+cd tauri-gui/src-tauri
+cargo test
+cargo clippy --all-targets -- -D warnings
+cargo fmt --check
+```
 
 ### 環境構築 (uv)
 任意のフォルダにuvをインストールする例です (例: `~/tools/uv`)。
@@ -64,22 +84,22 @@ uv pip install -r requirements.txt
 # configs/db.toml を編集
 
 # 3) 実行（NCBI / GenBank キャッシュ保存）
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --source ncbi --dump-gb Results/gb
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --source ncbi --dump-gb Results/gb
 ```
 
 再実行時にキャッシュを優先して使う場合:
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --source ncbi --dump-gb Results/gb --resume
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --source ncbi --dump-gb Results/gb --resume
 ```
 
 BOLD のみ取得する場合:
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t "Salmo salar" -m coi --source bold
+python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m coi --source bold
 ```
 
 NCBI と BOLD を統合する場合:
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t "Salmo salar" -m coi --source both
+python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m coi --source both
 ```
 
 ## Source の選択
@@ -188,7 +208,7 @@ file = "configs/markers_mitogenome.toml"
   1) 絶対パス
   2) `db.toml` のある場所からの相対
   3) 実行ディレクトリからの相対
-  4) `taxondbbuilder.py` のある場所からの相対
+  4) `taxondbbuilder` パッケージのある場所からの相対
 - `db.toml` 側に書いた `[markers.<id>]` は外部ファイル定義を**上書き**します。
 
 ### taxon.noexp について
@@ -370,49 +390,49 @@ region_patterns = ["12S", "rrnS"]
 
 実行例:
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s
 ```
 
 ファイル名にプレフィックスを付けたい場合:
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --output-prefix "mifish"
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --output-prefix "mifish"
 ```
 
 GenBankを保存しつつ実行 (acc_idごとに `.gb` を保存):
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --dump-gb Results/gb
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dump-gb Results/gb
 ```
 
 保存済みGenBankから再抽出:
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --from-gb Results/gb
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --from-gb Results/gb
 ```
 
 中断後の再開 (キャッシュ利用):
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --dump-gb Results/gb --resume
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dump-gb Results/gb --resume
 ```
 
 生成されるNCBIクエリだけを確認 (`--dry-run`):
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --dry-run
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dry-run
 ```
 
 post-prep を有効化 (primer trim + 長さフィルタ + 重複ACCレポート):
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --post-prep
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --post-prep
 ```
 
 post-prep のカテゴリを明示指定 (primer trim + 重複ACCレポートのみ):
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --post-prep \
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --post-prep \
   --post-prep-step primer_trim \
   --post-prep-step duplicate_report
 ```
 
 primer_set を複数指定して primer_trim を実行 (config の primer_set を上書き):
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --post-prep \
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --post-prep \
   --post-prep-primer-set mifish_12s \
   --post-prep-primer-set mifish_ev2 \
   --post-prep-step primer_trim
@@ -420,34 +440,34 @@ python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --post-prep 
 
 primer_set の候補を一覧表示:
 ```bash
-python3 taxondbbuilder.py list-primer-sets -c configs/db.toml
+python3 -m taxondbbuilder list-primer-sets -c configs/db.toml
 ```
 
 キャッシュは `Results/gb/.cache/` に保存されます。
 
 ### taxid指定
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 32443 -m 12s
+python3 -m taxondbbuilder build -c configs/db.toml -t 32443 -m 12s
 ```
 
 ### 学名指定
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t "Salmo salar" -m 12s
+python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m 12s
 ```
 
 ### 複数 taxon / marker
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 32443 -t 7777 -m 12 -m coi
+python3 -m taxondbbuilder build -c configs/db.toml -t 32443 -t 7777 -m 12 -m coi
 ```
 
 ### マーカー一覧の確認
 ```bash
-python3 taxondbbuilder.py list-markers -c configs/db.toml
+python3 -m taxondbbuilder list-markers -c configs/db.toml
 ```
 
 ### 並列抽出 (ダウンロードと変換の並列化)
 ```bash
-python3 taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --workers 2
+python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
 ```
 
 ## 抽出ロジック
@@ -541,7 +561,9 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 - `raw`: 生クエリ文字列 (配列も可) をそのまま追加
 
 ## Legacy
-旧パイプラインは削除済みです。現行方針では**DB用FASTA生成のみ**を対象とします。
+旧パイプラインは削除済みです。
+現行方針では**DB用FASTA生成のみ**を対象とします。
+リポジトリ直下の `taxondbbuilder.py` は互換シムとして残しているため、既存の `python3 taxondbbuilder.py ...` も利用できます。
 
 ## 補助スクリプト (GUI向け)
 - `tauri-gui/scripts/build_sidecar.py`: Tauri GUI 用の sidecar バイナリを作成/配置するスクリプトです。
@@ -550,7 +572,9 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 - 詳細手順は `tauri-gui/README.md` を参照してください。
 
 ## tauri-gui の実行方法
-`tauri-gui` は GUI から `taxondbbuilder build` を実行するための Tauri アプリです。
+`tauri-gui` は Python sidecar の `taxondbbuilder build` を実行する Tauri アプリです。
+Rust 側は Tauri command、設定 I/O、sidecar の起動、進捗イベントへの変換、キャンセルを担当します。
+build と post-prep の処理は sidecar 内の Python パッケージが担当するため、CLI と GUI は同じ実装を共有します。
 
 ### 1. Python実行環境を作成 (uv)
 リポジトリルートで実行します。
@@ -569,7 +593,15 @@ npm install
 ```
 
 ### 3. sidecar バイナリを作成
-`tauri-gui/` から実行します。
+まずリポジトリ直下で PyInstaller の sidecar バイナリを作成します。
+
+```bash
+.venv/bin/python -m PyInstaller taxondbbuilder.spec
+dist/taxondbbuilder --help
+```
+
+Tauri 用の名前と配置先にコピーする場合は、`tauri-gui/` から補助スクリプトを実行します。
+
 ```bash
 python3 scripts/build_sidecar.py --repo-root .. --tauri-root .
 ```
