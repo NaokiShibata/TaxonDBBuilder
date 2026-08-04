@@ -1,7 +1,6 @@
 use crate::progress::{
     emit_event, format_monitor_log_line, log_event, progress_event, tail_log_once, ProgressParser,
 };
-use crate::taxondb_runner::{build_params_to_args, BuildParams};
 use std::env;
 use std::io::{BufRead, BufReader};
 use std::path::{Path, PathBuf};
@@ -14,6 +13,81 @@ use std::time::Duration;
 use tauri::{AppHandle, Manager};
 
 const SIDECAR_NAME: &str = "taxondbbuilder";
+
+#[derive(Debug, Clone)]
+pub(crate) struct BuildParams {
+    pub(crate) config_path: PathBuf,
+    pub(crate) taxids: Vec<String>,
+    pub(crate) markers: Vec<String>,
+    pub(crate) source: String,
+    pub(crate) output_file: PathBuf,
+    pub(crate) dump_gb_dir: PathBuf,
+    pub(crate) from_gb_dir: Option<PathBuf>,
+    pub(crate) resume: bool,
+    pub(crate) workers: u32,
+    pub(crate) output_prefix: String,
+    pub(crate) post_prep: bool,
+    pub(crate) post_prep_steps: Vec<String>,
+    pub(crate) post_prep_primer_sets: Vec<String>,
+}
+
+/// Convert the GUI's build parameters to the Python `build` command arguments.
+///
+/// Configuration values such as filters, NCBI settings, and post-prep detail
+/// options are written to `config_path`; only the Python CLI's command-line
+/// controls belong in this vector.
+pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
+    let mut args = vec!["build".to_string()];
+    args.extend([
+        "--config".to_string(),
+        params.config_path.display().to_string(),
+    ]);
+
+    for taxid in &params.taxids {
+        args.extend(["--taxon".to_string(), taxid.clone()]);
+    }
+    for marker in &params.markers {
+        args.extend(["--marker".to_string(), marker.clone()]);
+    }
+
+    args.extend(["--source".to_string(), params.source.clone()]);
+    args.extend([
+        "--out".to_string(),
+        params.output_file.display().to_string(),
+    ]);
+    if !params.source.eq_ignore_ascii_case("bold") {
+        args.extend([
+            "--dump-gb".to_string(),
+            params.dump_gb_dir.display().to_string(),
+        ]);
+    }
+    args.extend([
+        "--workers".to_string(),
+        params.workers.to_string(),
+        "--output-prefix".to_string(),
+        params.output_prefix.clone(),
+    ]);
+
+    if let Some(from_gb_dir) = &params.from_gb_dir {
+        if !params.source.eq_ignore_ascii_case("bold") {
+            args.extend(["--from-gb".to_string(), from_gb_dir.display().to_string()]);
+        }
+    }
+    if params.resume && !params.source.eq_ignore_ascii_case("bold") {
+        args.push("--resume".to_string());
+    }
+    if params.post_prep {
+        args.push("--post-prep".to_string());
+        for step in &params.post_prep_steps {
+            args.extend(["--post-prep-step".to_string(), step.clone()]);
+        }
+        for primer_set in &params.post_prep_primer_sets {
+            args.extend(["--post-prep-primer-set".to_string(), primer_set.clone()]);
+        }
+    }
+
+    args
+}
 
 fn add_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
     if !candidates.contains(&path) {

@@ -1,3 +1,4 @@
+use crate::sidecar::{build_params_to_args, BuildParams};
 use chrono::Local;
 use regex::Regex;
 use serde_json::Value as JsonValue;
@@ -25,81 +26,6 @@ const BOLD_DEFAULT_DOWNLOAD_CHUNK_SIZE: usize = 64 * 1024;
 const BOLD_DEFAULT_USER_AGENT: &str =
     "TaxonDBBuilderGUI/0.1 (+https://github.com/NaokiShibata/TaxonDBBuilder)";
 const BOLD_MAX_DOCUMENT_COUNT: u64 = 1_000_000;
-
-#[derive(Debug, Clone)]
-pub struct BuildParams {
-    pub config_path: PathBuf,
-    pub taxids: Vec<String>,
-    pub markers: Vec<String>,
-    pub source: String,
-    pub output_file: PathBuf,
-    pub dump_gb_dir: PathBuf,
-    pub from_gb_dir: Option<PathBuf>,
-    pub resume: bool,
-    pub workers: u32,
-    pub output_prefix: String,
-    pub post_prep: bool,
-    pub post_prep_steps: Vec<String>,
-    pub post_prep_primer_sets: Vec<String>,
-}
-
-/// Convert the GUI's build parameters to the Python `build` command arguments.
-///
-/// Configuration values such as filters, NCBI settings, and post-prep detail
-/// options are written to `config_path`; only the Python CLI's command-line
-/// controls belong in this vector.
-pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
-    let mut args = vec!["build".to_string()];
-    args.extend([
-        "--config".to_string(),
-        params.config_path.display().to_string(),
-    ]);
-
-    for taxid in &params.taxids {
-        args.extend(["--taxon".to_string(), taxid.clone()]);
-    }
-    for marker in &params.markers {
-        args.extend(["--marker".to_string(), marker.clone()]);
-    }
-
-    args.extend(["--source".to_string(), params.source.clone()]);
-    args.extend([
-        "--out".to_string(),
-        params.output_file.display().to_string(),
-    ]);
-    if !params.source.eq_ignore_ascii_case("bold") {
-        args.extend([
-            "--dump-gb".to_string(),
-            params.dump_gb_dir.display().to_string(),
-        ]);
-    }
-    args.extend([
-        "--workers".to_string(),
-        params.workers.to_string(),
-        "--output-prefix".to_string(),
-        params.output_prefix.clone(),
-    ]);
-
-    if let Some(from_gb_dir) = &params.from_gb_dir {
-        if !params.source.eq_ignore_ascii_case("bold") {
-            args.extend(["--from-gb".to_string(), from_gb_dir.display().to_string()]);
-        }
-    }
-    if params.resume && !params.source.eq_ignore_ascii_case("bold") {
-        args.push("--resume".to_string());
-    }
-    if params.post_prep {
-        args.push("--post-prep".to_string());
-        for step in &params.post_prep_steps {
-            args.extend(["--post-prep-step".to_string(), step.clone()]);
-        }
-        for primer_set in &params.post_prep_primer_sets {
-            args.extend(["--post-prep-primer-set".to_string(), primer_set.clone()]);
-        }
-    }
-
-    args
-}
 
 #[derive(Debug, Default, Clone)]
 struct Counters {

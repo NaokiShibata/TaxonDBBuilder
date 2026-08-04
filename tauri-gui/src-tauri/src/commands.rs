@@ -1,12 +1,11 @@
 use crate::config::*;
 use crate::progress::*;
-use crate::sidecar::run_build_via_sidecar;
+use crate::sidecar::{run_build_via_sidecar, BuildParams};
 use crate::state::*;
 use crate::taxondb_post_prep::{
     apply_length_filter, apply_primer_trim, combine_primer_sets, count_fasta_records,
     load_primer_sets, write_duplicate_acc_reports_csv, PrimerTrimOptions,
 };
-use crate::taxondb_runner::BuildParams;
 use chrono::Local;
 use rfd::FileDialog;
 use rusqlite::{params, Connection, OpenFlags};
