@@ -1708,11 +1708,13 @@ mod tests {
     fn iterative_primer_stats_report_configured_round_limit_after_early_stop() {
         let path = tmp_path("rounds");
         fs::write(&path, ">x\nAAATTTTAAA\n").expect("write FASTA");
-        let mut options = PrimerTrimOptions::default();
-        options.keep_retained_fasta = false;
-        options.iter_enable = true;
-        options.iter_max_rounds = 3;
-        options.iter_target_conf = 1.0;
+        let options = PrimerTrimOptions {
+            keep_retained_fasta: false,
+            iter_enable: true,
+            iter_max_rounds: 3,
+            iter_target_conf: 1.0,
+            ..PrimerTrimOptions::default()
+        };
         let stats = apply_primer_trim(&path, &["AAA".to_string()], &["TTT".to_string()], &options)
             .expect("primer trim");
         assert_eq!(stats.best_round, 1);
