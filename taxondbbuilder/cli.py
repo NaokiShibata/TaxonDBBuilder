@@ -57,6 +57,7 @@ app = typer.Typer(
     help="TaxonDBBuilder - build a generic NCBI FASTA database by taxon and marker.",
 )
 
+
 @dataclass
 class _BuildContext:
     cfg: Dict[str, Any]
@@ -114,6 +115,7 @@ class _BuildContext:
     source_merge_rows: List[Dict[str, str]] = field(default_factory=list)
     progress: Optional[Progress] = None
 
+
 def build_output_path(
     out: Optional[Path],
     taxids: List[str],
@@ -144,7 +146,9 @@ def _build_marker_rules(
     output_cfg: Dict[str, Any],
     uses_ncbi: bool,
 ) -> Tuple[List[str], List[Dict[str, Any]]]:
-    selected_header_formats = _collect_marker_header_formats(marker_keys, marker_map, output_cfg)
+    selected_header_formats = _collect_marker_header_formats(
+        marker_keys, marker_map, output_cfg
+    )
     marker_rules = []
     if uses_ncbi:
         marker_rules = [
@@ -155,7 +159,9 @@ def _build_marker_rules(
 
 
 def _collect_marker_header_formats(
-    marker_keys: List[str], marker_map: Dict[str, Dict[str, Any]], output_cfg: Dict[str, Any]
+    marker_keys: List[str],
+    marker_map: Dict[str, Dict[str, Any]],
+    output_cfg: Dict[str, Any],
 ) -> List[str]:
     return [resolve_header_format(marker_map[key], output_cfg) for key in marker_keys]
 
@@ -165,7 +171,9 @@ def _build_ncbi_marker_rule(
 ) -> Dict[str, Any]:
     region_patterns = build_region_patterns(cfg_m)
     if not region_patterns:
-        raise typer.BadParameter(f"markers.{key} has no patterns for region extraction.")
+        raise typer.BadParameter(
+            f"markers.{key} has no patterns for region extraction."
+        )
     compiled = compile_patterns(region_patterns)
     if not compiled:
         raise typer.BadParameter(f"markers.{key} patterns did not compile.")
@@ -208,7 +216,9 @@ def _show_build_plan(ctx: _BuildContext) -> bool:
         return False
     if ctx.uses_ncbi:
         for taxid in ctx.taxids:
-            query = build_query(taxid, ctx.marker_query, ctx.filters_cfg, ctx.taxon_noexp)
+            query = build_query(
+                taxid, ctx.marker_query, ctx.filters_cfg, ctx.taxon_noexp
+            )
             console.print(query)
     if ctx.uses_bold:
         for item in ctx.resolved_taxa:
@@ -223,7 +233,9 @@ def _log_build_inputs(ctx: _BuildContext) -> None:
     logger.info(f"# source: {ctx.source.value}")
     logger.info(f"# taxon input: {ctx.taxon}")
     logger.info(f"# taxids: {ctx.taxids}")
-    logger.info(f"# scientific_names: {[item.scientific_name for item in ctx.resolved_taxa]}")
+    logger.info(
+        f"# scientific_names: {[item.scientific_name for item in ctx.resolved_taxa]}"
+    )
     logger.info(f"# markers: {ctx.marker_keys}")
     logger.info(f"# output_prefix: {ctx.output_prefix}")
     logger.info(f"# dump_gb: {ctx.dump_gb}" if ctx.dump_gb else "# dump_gb: none")
@@ -231,7 +243,9 @@ def _log_build_inputs(ctx: _BuildContext) -> None:
     logger.info(f"# resume: {ctx.resume}")
     logger.info(f"# post_prep: {ctx.post_prep}")
     if ctx.post_prep:
-        steps_text = ", ".join(ctx.post_prep_steps_run) if ctx.post_prep_steps_run else "none"
+        steps_text = (
+            ", ".join(ctx.post_prep_steps_run) if ctx.post_prep_steps_run else "none"
+        )
         logger.info(f"# post_prep.steps: {steps_text}")
     if ctx.post_prep and ctx.has_length_filter:
         if ctx.post_min is not None:
@@ -259,8 +273,12 @@ def _log_primer_inputs(ctx: _BuildContext) -> None:
     logger.info(f"# post_prep.primer_iter_max_rounds: {options['iter_max_rounds']}")
     logger.info(f"# post_prep.primer_sidecar_format: {options['sidecar_format']}")
     logger.info(f"# post_prep.primer_recheck_tool: {options['recheck_tool']}")
-    logger.info(f"# post_prep.primer_recheck_min_identity: {options['recheck_min_identity']}")
-    logger.info(f"# post_prep.primer_recheck_min_query_cov: {options['recheck_min_query_cov']}")
+    logger.info(
+        f"# post_prep.primer_recheck_min_identity: {options['recheck_min_identity']}"
+    )
+    logger.info(
+        f"# post_prep.primer_recheck_min_query_cov: {options['recheck_min_query_cov']}"
+    )
 
 
 def _initialize_build_runtime(ctx: _BuildContext) -> None:
@@ -374,13 +392,36 @@ def _run_ncbi_stage(ctx: _BuildContext, spool_f: Any) -> None:
         _process_ncbi_chunks(ctx, taxid, count, data_iter, spool_f, task_id)
 
 
-def _run_bold_stage(ctx: _BuildContext, spool_f: Any, spool_dir: Path) -> None:
+def _run_bold_stage(ctx: _BUildContext, spool_f: Any, spool_dir: Path) -> None:
     if not ctx.uses_bold:
         return
+
     ncbi_accessions = set(ctx.acc_to_seqs.keys())
+
     for resolved_taxon in ctx.resolved_taxa:
+        scientific_name = resolved_taxon.scientific_name
+
         try:
-            prepared_query = prepare_bold_query(resolved_taxon.scientific_name, ctx.cfg.get("bold"))
+            # Notify the GUI of the start of BOLD query preprocessing.
+            ctx.run_lopgger.info(
+                f"# bold progress: taxon={scientific_name} phase=preprocess"
+            )
+
+            prepared_query = prepare_bold_query(scientific_name, ctx.cfg.get("bold"))
+
+            specimen_count = prepared_query.specimen_count or 0
+
+            # Notify the GUI that the number of search target items has been determined.
+            ctx.run_logger.info(
+                f"# bold progerss: taxon={scientific_name}"
+                f"phase=summary speciments={specimen_count}"
+            )
+
+            if specimen_count > 0:
+                # Notify the transition to the BOLD document query.
+                ctx.run_logger.info(
+                    f"# bold progerss: taxon={scientific_name}phase=query"
+                )
             process_bold_taxon_to_spool(
                 resolved_taxon,
                 prepared_query,
@@ -401,7 +442,9 @@ def _run_bold_stage(ctx: _BuildContext, spool_f: Any, spool_dir: Path) -> None:
             raise typer.BadParameter(str(exc)) from exc
 
 
-def _merge_source_records(ctx: _BuildContext, ncbi_spool_path: Path, bold_spool_path: Path) -> None:
+def _merge_source_records(
+    ctx: _BuildContext, ncbi_spool_path: Path, bold_spool_path: Path
+) -> None:
     ncbi_records = load_records_from_spool(ncbi_spool_path)
     bold_records = load_records_from_spool(bold_spool_path)
     ncbi_records.sort(key=canonical_record_sort_key)
@@ -430,9 +473,11 @@ def _merge_source_records(ctx: _BuildContext, ncbi_spool_path: Path, bold_spool_
 def _run_source_stages(ctx: _BuildContext, spool_dir: Path) -> None:
     ncbi_spool_path = spool_dir / "ncbi_records.jsonl"
     bold_spool_path = spool_dir / "bold_records.jsonl"
-    with ncbi_spool_path.open("w", encoding="utf-8") as ncbi_spool_f, bold_spool_path.open(
-        "w", encoding="utf-8"
-    ) as bold_spool_f, ctx.progress:
+    with (
+        ncbi_spool_path.open("w", encoding="utf-8") as ncbi_spool_f,
+        bold_spool_path.open("w", encoding="utf-8") as bold_spool_f,
+        ctx.progress,
+    ):
         _run_ncbi_stage(ctx, ncbi_spool_f)
         _run_bold_stage(ctx, bold_spool_f, spool_dir)
     _merge_source_records(ctx, ncbi_spool_path, bold_spool_path)
@@ -462,7 +507,9 @@ def _run_primer_post_prep(ctx: _BuildContext) -> None:
     if stats.get("sidecar_path"):
         ctx.run_logger.info(f"# post_prep primer sidecar: {stats['sidecar_path']}")
     if stats.get("retained_path"):
-        ctx.run_logger.info(f"# post_prep primer retained_fasta: {stats['retained_path']}")
+        ctx.run_logger.info(
+            f"# post_prep primer retained_fasta: {stats['retained_path']}"
+        )
     ctx.run_logger.info(
         "# post_prep primer recheck:"
         f" tool={stats.get('recheck_tool', 'off')} attempted={stats.get('recheck_attempted', 0)}"
@@ -490,7 +537,9 @@ def _run_duplicate_post_prep(ctx: _BuildContext) -> None:
     )
     if reason:
         ctx.run_logger.info(f"# post_prep duplicate_acc_report: skipped ({reason})")
-        console.print(f"[yellow]post_prep:[/yellow] duplicate ACC report skipped ({reason}).")
+        console.print(
+            f"[yellow]post_prep:[/yellow] duplicate ACC report skipped ({reason})."
+        )
         return
     ctx.run_logger.info(
         "# post_prep duplicate_acc_report:"
@@ -517,7 +566,9 @@ def _run_post_prep(ctx: _BuildContext) -> None:
 
 
 def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
-    acc_species_map_path, stats = write_acc_organism_mapping_csv(ctx.out_path, ctx.emitted_records)
+    acc_species_map_path, stats = write_acc_organism_mapping_csv(
+        ctx.out_path, ctx.emitted_records
+    )
     ctx.run_logger.info(
         "# acc_organism_map:"
         f" total={stats['total_records']} mapped={stats['mapped_records']}"
@@ -605,17 +656,44 @@ def _run_build_pipeline(
 ) -> None:
     run_logger = setup_run_logger(log_path)
     ctx = _BuildContext(
-        cfg=cfg, config=config, source=source, taxon=taxon, taxids=taxids, resolved_taxa=resolved_taxa,
-        marker_keys=marker_keys, marker_query=marker_query, marker_rules=marker_rules, marker_map=marker_map,
-        output_cfg=output_cfg, selected_header_formats=selected_header_formats, ncbi_cfg=ncbi_cfg,
-        filters_cfg=filters_cfg, taxon_noexp=taxon_noexp, output_prefix=output_prefix, out_path=out_path,
-        log_path=log_path, dump_gb=dump_gb, from_gb=from_gb, resume=resume, dry_run=dry_run, workers=workers,
-        uses_ncbi=uses_ncbi, uses_bold=uses_bold, warnings=warnings, post_prep=post_prep,
-        post_prep_steps_run=post_prep_steps_run, has_length_filter=has_length_filter,
-        has_primer_trim=has_primer_trim, post_min=post_min, post_max=post_max,
-        post_primer_forward=post_primer_forward, post_primer_reverse=post_primer_reverse,
-        post_primer_file=post_primer_file, post_primer_set_names=post_primer_set_names,
-        post_primer_trim_options=post_primer_trim_options, run_logger=run_logger,
+        cfg=cfg,
+        config=config,
+        source=source,
+        taxon=taxon,
+        taxids=taxids,
+        resolved_taxa=resolved_taxa,
+        marker_keys=marker_keys,
+        marker_query=marker_query,
+        marker_rules=marker_rules,
+        marker_map=marker_map,
+        output_cfg=output_cfg,
+        selected_header_formats=selected_header_formats,
+        ncbi_cfg=ncbi_cfg,
+        filters_cfg=filters_cfg,
+        taxon_noexp=taxon_noexp,
+        output_prefix=output_prefix,
+        out_path=out_path,
+        log_path=log_path,
+        dump_gb=dump_gb,
+        from_gb=from_gb,
+        resume=resume,
+        dry_run=dry_run,
+        workers=workers,
+        uses_ncbi=uses_ncbi,
+        uses_bold=uses_bold,
+        warnings=warnings,
+        post_prep=post_prep,
+        post_prep_steps_run=post_prep_steps_run,
+        has_length_filter=has_length_filter,
+        has_primer_trim=has_primer_trim,
+        post_min=post_min,
+        post_max=post_max,
+        post_primer_forward=post_primer_forward,
+        post_primer_reverse=post_primer_reverse,
+        post_primer_file=post_primer_file,
+        post_primer_set_names=post_primer_set_names,
+        post_primer_trim_options=post_primer_trim_options,
+        run_logger=run_logger,
     )
     try:
         with tee_console_output(log_path):
@@ -623,10 +701,14 @@ def _run_build_pipeline(
                 return
             _initialize_build_runtime(ctx)
 
-            with tempfile.TemporaryDirectory(prefix="taxondbbuilder_spool_") as spool_dir_name:
+            with tempfile.TemporaryDirectory(
+                prefix="taxondbbuilder_spool_"
+            ) as spool_dir_name:
                 spool_dir = Path(spool_dir_name)
                 _run_source_stages(ctx, spool_dir)
-            source_merge_path = write_source_merge_csv(ctx.out_path, ctx.source_merge_rows)
+            source_merge_path = write_source_merge_csv(
+                ctx.out_path, ctx.source_merge_rows
+            )
             ctx.run_logger.info(f"# source_merge_csv: {source_merge_path}")
             _run_post_prep(ctx)
             _show_build_result(ctx, source_merge_path)
@@ -636,7 +718,9 @@ def _run_build_pipeline(
 
 @app.command("list-markers")
 def list_markers(
-    config: Path = typer.Option(..., "--config", "-c", help="Path to TOML config file."),
+    config: Path = typer.Option(
+        ..., "--config", "-c", help="Path to TOML config file."
+    ),
 ) -> None:
     """
     List marker IDs and aliases from the config (including markers.file).
@@ -658,7 +742,9 @@ def list_markers(
 
 @app.command("list-primer-sets")
 def list_primer_sets(
-    config: Path = typer.Option(..., "--config", "-c", help="Path to TOML config file."),
+    config: Path = typer.Option(
+        ..., "--config", "-c", help="Path to TOML config file."
+    ),
 ) -> None:
     """
     List primer set IDs from [post_prep].primer_file.
@@ -679,7 +765,9 @@ def list_primer_sets(
     primer_path = resolve_support_file_path(str(primer_file), config, "Primer file")
     primer_sets = load_primer_sets_from_file(primer_path)
 
-    table = Table(title=f"Primer Sets ({primer_path})", show_header=True, header_style="bold")
+    table = Table(
+        title=f"Primer Sets ({primer_path})", show_header=True, header_style="bold"
+    )
     table.add_column("Primer Set")
     table.add_column("Forward")
     table.add_column("Reverse")
@@ -695,7 +783,9 @@ def _resolve_build_configuration(config: Path, source: BuildSource) -> Dict[str,
     uses_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
     uses_bold = source in {BuildSource.BOLD, BuildSource.BOTH}
     if uses_ncbi or uses_bold:
-        setup_entrez(ncbi_cfg if isinstance(ncbi_cfg, dict) else {}, warn_if_missing=uses_ncbi)
+        setup_entrez(
+            ncbi_cfg if isinstance(ncbi_cfg, dict) else {}, warn_if_missing=uses_ncbi
+        )
     return {
         "cfg": cfg,
         "ncbi_cfg": ncbi_cfg,
@@ -709,8 +799,11 @@ def _resolve_build_configuration(config: Path, source: BuildSource) -> Dict[str,
 
 
 def _resolve_build_markers(
-    marker: List[str], marker_map: Dict[str, Dict[str, Any]],
-    output_cfg: Dict[str, Any], uses_ncbi: bool, output_prefix: str,
+    marker: List[str],
+    marker_map: Dict[str, Dict[str, Any]],
+    output_cfg: Dict[str, Any],
+    uses_ncbi: bool,
+    output_prefix: str,
 ) -> Dict[str, Any]:
     marker_keys = [resolve_marker_key(value, marker_map) for value in marker]
     selected_header_formats, marker_rules = _build_marker_rules(
@@ -718,7 +811,9 @@ def _resolve_build_markers(
     )
     return {
         "marker_keys": marker_keys,
-        "marker_query": build_marker_query(marker_keys, marker_map) if uses_ncbi else "",
+        "marker_query": build_marker_query(marker_keys, marker_map)
+        if uses_ncbi
+        else "",
         "output_prefix": output_prefix.strip(),
         "selected_header_formats": selected_header_formats,
         "marker_rules": marker_rules,
@@ -726,56 +821,81 @@ def _resolve_build_markers(
 
 
 def _normalize_post_prep_requests(
-    post_prep_step: Optional[List[PostPrepStep]], post_prep_primer_set: Optional[List[str]],
+    post_prep_step: Optional[List[PostPrepStep]],
+    post_prep_primer_set: Optional[List[str]],
 ) -> Tuple[List[str], List[str]]:
     requested_steps = [step.value for step in (post_prep_step or [])]
     requested_sets: List[str] = []
-    for value in (post_prep_primer_set or []):
+    for value in post_prep_primer_set or []:
         name = value.strip()
         if not name:
-            raise typer.BadParameter("--post-prep-primer-set cannot include empty values.")
+            raise typer.BadParameter(
+                "--post-prep-primer-set cannot include empty values."
+            )
         if name not in requested_sets:
             requested_sets.append(name)
     return requested_steps, requested_sets
 
 
-def _build_post_prep_trim_options(post_prep_cfg: Dict[str, Any], enabled: bool) -> Dict[str, Any]:
+def _build_post_prep_trim_options(
+    post_prep_cfg: Dict[str, Any], enabled: bool
+) -> Dict[str, Any]:
     return {
-        "trim_mode": post_prep_cfg.get("primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH),
+        "trim_mode": post_prep_cfg.get(
+            "primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH
+        ),
         "max_mismatch": int(post_prep_cfg.get("primer_max_mismatch", 0)),
         "max_error_rate": float(post_prep_cfg.get("primer_max_error_rate", 0.0)),
         "min_overlap_bp": post_prep_cfg.get("primer_min_overlap_bp"),
         "min_overlap_ratio": float(post_prep_cfg.get("primer_min_overlap_ratio", 1.0)),
         "end_max_offset": int(post_prep_cfg.get("primer_end_max_offset", 0)),
-        "keep_retained_fasta": bool(post_prep_cfg.get("primer_keep_retained_fasta", True)),
+        "keep_retained_fasta": bool(
+            post_prep_cfg.get("primer_keep_retained_fasta", True)
+        ),
         "iter_enable": bool(post_prep_cfg.get("primer_iter_enable", False)),
-        "iter_max_rounds": int(post_prep_cfg.get("primer_iter_max_rounds", 3 if enabled else 1)),
+        "iter_max_rounds": int(
+            post_prep_cfg.get("primer_iter_max_rounds", 3 if enabled else 1)
+        ),
         "iter_stop_delta": float(post_prep_cfg.get("primer_iter_stop_delta", 0.002)),
         "iter_target_conf": float(post_prep_cfg.get("primer_iter_target_conf", 0.98)),
         "sidecar_format": post_prep_cfg.get("primer_sidecar_format", "tsv"),
         "recheck_tool": post_prep_cfg.get("primer_recheck_tool", "off"),
-        "recheck_min_identity": float(post_prep_cfg.get("primer_recheck_min_identity", 0.85)),
-        "recheck_min_query_cov": float(post_prep_cfg.get("primer_recheck_min_query_cov", 0.7)),
-        "phylo_target_confidence": post_prep_cfg.get("primer_phylo_target_confidence", "medium"),
+        "recheck_min_identity": float(
+            post_prep_cfg.get("primer_recheck_min_identity", 0.85)
+        ),
+        "recheck_min_query_cov": float(
+            post_prep_cfg.get("primer_recheck_min_query_cov", 0.7)
+        ),
+        "phylo_target_confidence": post_prep_cfg.get(
+            "primer_phylo_target_confidence", "medium"
+        ),
     }
 
 
 def _resolve_post_prep_primers(
-    post_prep_cfg: Dict[str, Any], requested_sets: List[str], config: Path,
+    post_prep_cfg: Dict[str, Any],
+    requested_sets: List[str],
+    config: Path,
 ) -> Tuple[List[str], List[str], Optional[str], List[str]]:
     forward = list(post_prep_cfg.get("_primer_forward") or [])
     reverse = list(post_prep_cfg.get("_primer_reverse") or [])
-    primer_file = post_prep_cfg.get("_primer_file_resolved") or post_prep_cfg.get("primer_file")
+    primer_file = post_prep_cfg.get("_primer_file_resolved") or post_prep_cfg.get(
+        "primer_file"
+    )
     set_names = list(post_prep_cfg.get("_primer_set_names") or [])
     if not set_names:
         configured = post_prep_cfg.get("primer_set")
         if isinstance(configured, str) and configured.strip():
             set_names = [configured.strip()]
         elif isinstance(configured, list):
-            set_names = [str(value).strip() for value in configured if str(value).strip()]
+            set_names = [
+                str(value).strip() for value in configured if str(value).strip()
+            ]
     if requested_sets:
         if not primer_file:
-            raise typer.BadParameter("--post-prep-primer-set requires [post_prep].primer_file in config.")
+            raise typer.BadParameter(
+                "--post-prep-primer-set requires [post_prep].primer_file in config."
+            )
         primer_path = resolve_support_file_path(str(primer_file), config, "Primer file")
         forward, reverse = combine_primer_set_sequences(
             load_primer_sets_from_file(primer_path), requested_sets
@@ -785,21 +905,33 @@ def _resolve_post_prep_primers(
 
 
 def _resolve_post_prep_options(
-    post_prep: bool, post_prep_step: Optional[List[PostPrepStep]],
-    post_prep_primer_set: Optional[List[str]], post_prep_cfg: Dict[str, Any],
-    config: Path, source: BuildSource,
+    post_prep: bool,
+    post_prep_step: Optional[List[PostPrepStep]],
+    post_prep_primer_set: Optional[List[str]],
+    post_prep_cfg: Dict[str, Any],
+    config: Path,
+    source: BuildSource,
 ) -> Dict[str, Any]:
     requested_steps, requested_sets = _normalize_post_prep_requests(
         post_prep_step, post_prep_primer_set
     )
     if not post_prep:
         if requested_steps or requested_sets:
-            raise typer.BadParameter("--post-prep-step/--post-prep-primer-set requires --post-prep.")
+            raise typer.BadParameter(
+                "--post-prep-step/--post-prep-primer-set requires --post-prep."
+            )
         return {
-            "post_prep": False, "post_prep_steps_run": [], "has_length_filter": False,
-            "has_primer_trim": False, "post_min": None, "post_max": None,
-            "post_primer_forward": [], "post_primer_reverse": [], "post_primer_file": None,
-            "post_primer_set_names": [], "post_primer_trim_options": _build_post_prep_trim_options({}, False),
+            "post_prep": False,
+            "post_prep_steps_run": [],
+            "has_length_filter": False,
+            "has_primer_trim": False,
+            "post_min": None,
+            "post_max": None,
+            "post_primer_forward": [],
+            "post_primer_reverse": [],
+            "post_primer_file": None,
+            "post_primer_set_names": [],
+            "post_primer_trim_options": _build_post_prep_trim_options({}, False),
         }
 
     post_min = post_prep_cfg.get("sequence_length_min")
@@ -828,20 +960,31 @@ def _resolve_post_prep_options(
         if source != BuildSource.BOTH:
             steps_run.append(PostPrepStep.DUPLICATE_REPORT.value)
     return {
-        "post_prep": True, "post_prep_steps_run": steps_run,
-        "has_length_filter": has_length_filter, "has_primer_trim": has_primer_trim,
+        "post_prep": True,
+        "post_prep_steps_run": steps_run,
+        "has_length_filter": has_length_filter,
+        "has_primer_trim": has_primer_trim,
         "post_min": int(post_min) if post_min is not None else None,
         "post_max": int(post_max) if post_max is not None else None,
-        "post_primer_forward": forward, "post_primer_reverse": reverse,
-        "post_primer_file": primer_file, "post_primer_set_names": set_names,
+        "post_primer_forward": forward,
+        "post_primer_reverse": reverse,
+        "post_primer_file": primer_file,
+        "post_primer_set_names": set_names,
         "post_primer_trim_options": _build_post_prep_trim_options(post_prep_cfg, True),
     }
 
 
 def _resolve_build_targets(
-    config: Path, source: BuildSource, taxon: List[str], uses_bold: bool,
-    out: Optional[Path], marker_keys: List[str], output_prefix: str,
-    dump_gb: Optional[Path], from_gb: Optional[Path], resume: bool,
+    config: Path,
+    source: BuildSource,
+    taxon: List[str],
+    uses_bold: bool,
+    out: Optional[Path],
+    marker_keys: List[str],
+    output_prefix: str,
+    dump_gb: Optional[Path],
+    from_gb: Optional[Path],
+    resume: bool,
 ) -> Dict[str, Any]:
     resolved_taxa: List[ResolvedTaxon] = []
     warnings: List[str] = []
@@ -853,7 +996,9 @@ def _resolve_build_targets(
     taxids = [item.taxid for item in resolved_taxa]
     out_path = build_output_path(out, taxids, marker_keys, output_prefix=output_prefix)
     if source == BuildSource.BOLD and (dump_gb or from_gb or resume):
-        raise typer.BadParameter("--dump-gb, --from-gb, and --resume are not supported with --source bold.")
+        raise typer.BadParameter(
+            "--dump-gb, --from-gb, and --resume are not supported with --source bold."
+        )
     if resume and not dump_gb and not from_gb:
         raise typer.BadParameter("--resume requires --dump-gb or --from-gb.")
     if from_gb and not from_gb.exists():
@@ -861,22 +1006,33 @@ def _resolve_build_targets(
     if dump_gb:
         dump_gb.mkdir(parents=True, exist_ok=True)
     return {
-        "resolved_taxa": resolved_taxa, "taxids": taxids, "warnings": warnings,
-        "out_path": out_path, "log_path": out_path.with_suffix(out_path.suffix + ".log"),
+        "resolved_taxa": resolved_taxa,
+        "taxids": taxids,
+        "warnings": warnings,
+        "out_path": out_path,
+        "log_path": out_path.with_suffix(out_path.suffix + ".log"),
     }
 
 
 @app.command()
 def build(
-    config: Path = typer.Option(..., "--config", "-c", help="Path to TOML config file."),
-    taxon: List[str] = typer.Option(..., "--taxon", "-t", help="Taxon (taxid or scientific name)."),
-    marker: List[str] = typer.Option(..., "--marker", "-m", help="Marker key or prefix."),
+    config: Path = typer.Option(
+        ..., "--config", "-c", help="Path to TOML config file."
+    ),
+    taxon: List[str] = typer.Option(
+        ..., "--taxon", "-t", help="Taxon (taxid or scientific name)."
+    ),
+    marker: List[str] = typer.Option(
+        ..., "--marker", "-m", help="Marker key or prefix."
+    ),
     source: BuildSource = typer.Option(
         BuildSource.NCBI,
         "--source",
         help="Sequence source: ncbi, bold, or both.",
     ),
-    out: Optional[Path] = typer.Option(None, "--out", "-o", help="Output file or directory."),
+    out: Optional[Path] = typer.Option(
+        None, "--out", "-o", help="Output file or directory."
+    ),
     dump_gb: Optional[Path] = typer.Option(
         None,
         "--dump-gb",
@@ -887,9 +1043,13 @@ def build(
         "--from-gb",
         help="Directory of GenBank chunks to extract without downloading.",
     ),
-    resume: bool = typer.Option(False, "--resume", help="Resume using cached GenBank chunks."),
+    resume: bool = typer.Option(
+        False, "--resume", help="Resume using cached GenBank chunks."
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Print query and exit."),
-    workers: int = typer.Option(2, "--workers", "-w", help="Number of extraction workers."),
+    workers: int = typer.Option(
+        2, "--workers", "-w", help="Number of extraction workers."
+    ),
     output_prefix: str = typer.Option(
         "taxondbbuilder_",
         "--output-prefix",
@@ -928,20 +1088,43 @@ def build(
     """
     settings = _resolve_build_configuration(config, source)
     marker_settings = _resolve_build_markers(
-        marker, settings["marker_map"], settings["output_cfg"], settings["uses_ncbi"], output_prefix
+        marker,
+        settings["marker_map"],
+        settings["output_cfg"],
+        settings["uses_ncbi"],
+        output_prefix,
     )
     post_settings = _resolve_post_prep_options(
-        post_prep, post_prep_step, post_prep_primer_set,
-        settings["cfg"].get("post_prep") or {}, config, source,
+        post_prep,
+        post_prep_step,
+        post_prep_primer_set,
+        settings["cfg"].get("post_prep") or {},
+        config,
+        source,
     )
     target_settings = _resolve_build_targets(
-        config, source, taxon, settings["uses_bold"], out,
-        marker_settings["marker_keys"], marker_settings["output_prefix"],
-        dump_gb, from_gb, resume,
+        config,
+        source,
+        taxon,
+        settings["uses_bold"],
+        out,
+        marker_settings["marker_keys"],
+        marker_settings["output_prefix"],
+        dump_gb,
+        from_gb,
+        resume,
     )
     _run_build_pipeline(
-        **settings, config=config, source=source, taxon=taxon,
-        **marker_settings, **post_settings, **target_settings,
-        dump_gb=dump_gb, from_gb=from_gb, resume=resume,
-        dry_run=dry_run, workers=workers,
+        **settings,
+        config=config,
+        source=source,
+        taxon=taxon,
+        **marker_settings,
+        **post_settings,
+        **target_settings,
+        dump_gb=dump_gb,
+        from_gb=from_gb,
+        resume=resume,
+        dry_run=dry_run,
+        workers=workers,
     )

@@ -30,6 +30,7 @@ from .models import (
     DEFAULT_BOLD_HEADER_FORMAT,
 )
 
+
 def process_bold_taxon_to_spool(
     resolved_taxon: ResolvedTaxon,
     prepared_query: Any,
@@ -72,9 +73,19 @@ def process_bold_taxon_to_spool(
     )
     last_download_report = {"bytes": 0}
 
-    def on_bold_download_progress(downloaded_bytes: int, content_length: Optional[int]) -> None:
+    # Notify the GUI that the download has started.
+    run_logger.info(
+        f"# bold progress: taxon={resolved_taxon.scientific_name}phase=download"
+    )
+
+    def on_bold_download_progress(
+        downloaded_bytes: int, content_length: Optional[int]
+    ) -> None:
         threshold = 1024 * 1024
-        if downloaded_bytes - last_download_report["bytes"] < threshold and downloaded_bytes != 0:
+        if (
+            downloaded_bytes - last_download_report["bytes"] < threshold
+            and downloaded_bytes != 0
+        ):
             return
         last_download_report["bytes"] = downloaded_bytes
         progress.update(
@@ -84,6 +95,15 @@ def process_bold_taxon_to_spool(
                 downloaded_bytes,
                 content_length,
             ),
+        )
+        # Log the download progress every 1MiB
+        detail = f"byte={downloaded_bytes}"
+        if content_length is not None:
+            detail += f" total_bytes={content_length}"
+
+        run_logger.info(
+            f"# bold progress: taxon={resolved_taxon.scientific_name} "
+            f"phase=download {detail}"
         )
 
     try:
@@ -104,7 +124,17 @@ def process_bold_taxon_to_spool(
             total=specimen_count,
             completed=0,
         )
-        for row in iter_document_rows_from_path(download_path, prepared_query.download_format):
+
+        run_logger.info(
+            f"# bold progress: taxon={resolved_taxon.scientific_name}"
+            f"phase=filter downloaded=0 matched=0"
+        )
+
+        filter_report_interval = 1000
+
+        for row in iter_document_rows_from_path(
+            download_path, prepared_query.download_format
+        ):
             downloaded_rows += 1
             counters["total_records"] += 1
             if specimen_count is not None and downloaded_rows > specimen_count:
@@ -112,17 +142,28 @@ def process_bold_taxon_to_spool(
             progress.update(task_id, advance=1)
 
             normalized = normalize_bold_row(row, marker_keys, marker_map)
+
+            if normalized:
+                matched_rows += 1
+                counters["matched_records"] += 1
+                counters["matched_features"] += 1
+
+            if downloaded_rows % filter_report_interval == 0:
+                run_logger.info(
+                    f"# bold progressL taxon={resolved_taxon.scientific_name}"
+                    f"phase=filter downloaded={downloaded_rows}"
+                    f"matched={matched_rows}"
+                )
+
             if not normalized:
                 continue
 
-            matched_rows += 1
-            counters["matched_records"] += 1
-            counters["matched_features"] += 1
-
             record = build_bold_canonical_record(normalized, marker_map, output_cfg)
             accession_tokens = parse_accession_tokens(record.accession)
-            if source == BuildSource.BOTH and accession_tokens and any(
-                token in ncbi_accessions for token in accession_tokens
+            if (
+                source == BuildSource.BOTH
+                and accession_tokens
+                and any(token in ncbi_accessions for token in accession_tokens)
             ):
                 record.linked_to_ncbi = True
                 record.emitted_to_fasta = False
@@ -137,6 +178,11 @@ def process_bold_taxon_to_spool(
 
         if buffered_records:
             append_records_to_spool(buffered_records, bold_spool_f, lock)
+        run_logger.info(
+            f"# bold progress: taxon={resolved_taxon.scientific_name} "
+            f"phase=filter downloaded={downloaded_rows} "
+            f"matched={matched_rows}"
+        )
 
         run_logger.info(
             "# bold query:"
@@ -151,8 +197,6 @@ def process_bold_taxon_to_spool(
     finally:
         progress.remove_task(task_id)
         download_path.unlink(missing_ok=True)
-
-
 
 
 def build_bold_canonical_record(
@@ -211,9 +255,8 @@ def build_bold_canonical_record(
         header_values=header_values,
         metadata={
             "header_format": header_format,
-            "raw_row_json": json.dumps(normalized_row.get("raw_row") or {}, ensure_ascii=False),
+            "raw_row_json": json.dumps(
+                normalized_row.get("raw_row") or {}, ensure_ascii=False
+            ),
         },
     )
-
-
-
