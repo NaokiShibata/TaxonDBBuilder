@@ -314,11 +314,7 @@ function setPostPrepStepSelection(steps) {
 }
 
 function setPrimerCandidateSelection(primerSets) {
-  const selectedPrimerSet =
-    Array.isArray(primerSets) && primerSets.length === 1 ? primerSets[0] : "";
-  primerCandidateEls.forEach((el) => {
-    el.checked = el.value === selectedPrimerSet;
-  });
+  setCheckedValues(primerCandidateEls, primerSets);
 }
 
 function applyImportedDbToml(imported) {
@@ -384,9 +380,8 @@ function updatePostPrepGuidance() {
   setFlowItemState(els.flowPostEnable, true);
 
   if (selectedSteps.has("primer_trim")) {
-    const hasPrimerFile = els.primerFileInput.value.trim().length > 0;
     const hasPrimerSet = parseCommaSeparatedList(els.primerSetInput.value).length > 0;
-    setFlowItemState(els.flowPostPrimer, hasPrimerFile && hasPrimerSet);
+    setFlowItemState(els.flowPostPrimer, hasPrimerSet);
   } else {
     setFlowItemNeutral(els.flowPostPrimer);
   }
@@ -686,8 +681,7 @@ postStepEls.forEach((el) => {
 });
 primerCandidateEls.forEach((el) => {
   el.addEventListener("change", () => {
-    if (!el.checked) return;
-    els.primerSetInput.value = el.value;
+    els.primerSetInput.value = readCheckedValues(primerCandidateEls).join(",");
     updateGuidanceState();
   });
 });

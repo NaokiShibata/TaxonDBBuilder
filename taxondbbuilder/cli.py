@@ -901,7 +901,7 @@ def _resolve_post_prep_options(
     has_primer_trim = bool(forward and reverse)
     if PostPrepStep.PRIMER_TRIM.value in requested_steps and not has_primer_trim:
         raise typer.BadParameter(
-            "post-prep step 'primer_trim' requires post_prep.primer_file and post_prep.primer_set."
+            "post-prep step 'primer_trim' requires post_prep.primer_set (post_prep.primer_file is only needed for a custom, non-built-in primer set)."
         )
     if PostPrepStep.LENGTH_FILTER.value in requested_steps and not has_length_filter:
         raise typer.BadParameter(

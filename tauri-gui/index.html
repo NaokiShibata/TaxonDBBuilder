@@ -76,7 +76,7 @@
                     Enable post prep when you need trimmed/filtered output.
                   </li>
                   <li id="flow-post-primer" class="flow-item neutral">
-                    If primer_trim is selected, set primer_file and primer_set.
+                    If primer_trim is selected, choose primer candidates (or set primer_file + primer_set for a custom set).
                   </li>
                   <li id="flow-post-length" class="flow-item neutral">
                     If length_filter is selected, set post min or post max.
@@ -291,7 +291,7 @@
                   <label class="check"
                     ><input id="post-enable" type="checkbox" /> enable</label
                   >
-                  <label for="primer-file">primer_file</label>
+                  <label for="primer-file">primer_file (optional — not needed when using primer candidates)</label>
                   <div class="inline">
                     <input
                       id="primer-file"
@@ -305,8 +305,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="mifish_u"
                       />
                       MiFish-U</label
@@ -314,8 +313,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="mideca"
                       />
                       MiDeca</label
@@ -323,8 +321,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="mtinsects_16s"
                       />
                       MtInsects-16S</label
@@ -332,8 +329,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="mimammal_u"
                       />
                       MiMammal-U</label
@@ -341,8 +337,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="mibird_u"
                       />
                       MiBird-U</label
@@ -350,8 +345,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="amph_16s"
                       />
                       Amph_16S</label
@@ -359,8 +353,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="uceta"
                       />
                       μCeta</label
@@ -368,8 +361,7 @@
                     <label class="check"
                       ><input
                         class="primer-candidate"
-                        name="primer-candidate"
-                        type="radio"
+                        type="checkbox"
                         value="mifish_unity"
                       />
                       MiFish-Unity</label
