@@ -1,7 +1,7 @@
 """Compatibility shim for the historical top-level BOLD API module."""
 
-from types import ModuleType
 import sys as _sys
+from types import ModuleType
 
 from taxondbbuilder import bold_api as _impl
 

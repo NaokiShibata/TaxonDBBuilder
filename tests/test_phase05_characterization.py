@@ -29,7 +29,15 @@ def _normalize_tmp_paths(text: str, tmp_path: Path) -> str:
     return re.sub(r"/tmp/pytest-of-[^/]+/pytest-\d+/[^ \n]+", "<TMP>", text)
 
 
-def _assert_golden(path: Path, golden_dir: Path, name: str, *, root: Path, tmp_path: Path, log: bool = False) -> None:
+def _assert_golden(
+    path: Path,
+    golden_dir: Path,
+    name: str,
+    *,
+    root: Path,
+    tmp_path: Path,
+    log: bool = False,
+) -> None:
     actual = path.read_text(encoding="utf-8")
     if log:
         actual = _normalize_log(actual, root, tmp_path)
@@ -37,7 +45,9 @@ def _assert_golden(path: Path, golden_dir: Path, name: str, *, root: Path, tmp_p
     assert actual == expected
 
 
-def _assert_text_golden(actual: str, golden_dir: Path, name: str, tmp_path: Path) -> None:
+def _assert_text_golden(
+    actual: str, golden_dir: Path, name: str, tmp_path: Path
+) -> None:
     actual = _normalize_tmp_paths(actual, tmp_path)
     assert actual == read_golden(golden_dir, name)
 
@@ -71,7 +81,9 @@ def _assert_build_artifacts(
 
 
 def _bold_download_stub(payload: str):
-    def download(_query_id: str, _runtime_cfg: dict[str, Any], dest_path: Path, **kwargs: Any) -> dict[str, Any]:
+    def download(
+        _query_id: str, _runtime_cfg: dict[str, Any], dest_path: Path, **kwargs: Any
+    ) -> dict[str, Any]:
         dest_path.write_text(payload, encoding="utf-8")
         return {
             "path": str(dest_path),
@@ -114,17 +126,30 @@ def test_build_ncbi_from_gb_and_dump_matches_golden(
         CliRunner(),
         builder,
         [
-            "-c", str(fixture_dir / "minimal_config.toml"),
-            "-t", "999",
-            "-m", "12s",
-            "--from-gb", str(gb_dir),
-            "--dump-gb", str(tmp_path / "dump"),
-            "--out", str(output),
-            "--workers", "1",
+            "-c",
+            str(fixture_dir / "minimal_config.toml"),
+            "-t",
+            "999",
+            "-m",
+            "12s",
+            "--from-gb",
+            str(gb_dir),
+            "--dump-gb",
+            str(tmp_path / "dump"),
+            "--out",
+            str(output),
+            "--workers",
+            "1",
         ],
     )
     assert result.exit_code == 0, result.stdout
-    _assert_build_artifacts(output, golden_dir, "build-ncbi", root=Path(__file__).resolve().parents[1], tmp_path=tmp_path)
+    _assert_build_artifacts(
+        output,
+        golden_dir,
+        "build-ncbi",
+        root=Path(__file__).resolve().parents[1],
+        tmp_path=tmp_path,
+    )
     dump_path = tmp_path / "dump" / "taxid999" / "TEST0001.1.gb"
     assert dump_path.exists()
     assert "ACCESSION   TEST0001" in dump_path.read_text(encoding="utf-8")
@@ -140,24 +165,43 @@ def test_build_bold_download_stub_matches_golden(
         "COI-5P\tAACCGG\tBOLD001\tS001\tBOLDACC\tTestus alpha\n"
         "unknown\tTTTT\tBOLD002\tS002\t\tTestus beta\n"
     )
-    monkeypatch.setattr(builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha")
-    monkeypatch.setattr(builder, "prepare_bold_query", lambda *_args, **_kwargs: _stub_prepared_query(builder))
-    monkeypatch.setattr(builder, "download_documents_to_path", _bold_download_stub(payload))
+    monkeypatch.setattr(
+        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+    )
+    monkeypatch.setattr(
+        builder,
+        "prepare_bold_query",
+        lambda *_args, **_kwargs: _stub_prepared_query(builder),
+    )
+    monkeypatch.setattr(
+        builder, "download_documents_to_path", _bold_download_stub(payload)
+    )
 
     output = tmp_path / "bold.fasta"
     result = _invoke_build(
         CliRunner(),
         builder,
         [
-            "-c", str(fixture_dir / "minimal_config.toml"),
-            "-t", "999",
-            "-m", "coi",
-            "--source", "bold",
-            "--out", str(output),
+            "-c",
+            str(fixture_dir / "minimal_config.toml"),
+            "-t",
+            "999",
+            "-m",
+            "coi",
+            "--source",
+            "bold",
+            "--out",
+            str(output),
         ],
     )
     assert result.exit_code == 0, result.stdout
-    _assert_build_artifacts(output, golden_dir, "build-bold", root=Path(__file__).resolve().parents[1], tmp_path=tmp_path)
+    _assert_build_artifacts(
+        output,
+        golden_dir,
+        "build-bold",
+        root=Path(__file__).resolve().parents[1],
+        tmp_path=tmp_path,
+    )
 
 
 def test_build_both_strict_link_suppression_and_unlinked_record(
@@ -173,26 +217,47 @@ def test_build_both_strict_link_suppression_and_unlinked_record(
         "12S\tGGGG\tBOLD-LINK\tS001\tTEST0001.1\tTestus alpha\n"
         "12S\tCCCC\tBOLD-KEEP\tS002\tUNLINKED\tTestus beta\n"
     )
-    monkeypatch.setattr(builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha")
-    monkeypatch.setattr(builder, "prepare_bold_query", lambda *_args, **_kwargs: _stub_prepared_query(builder))
-    monkeypatch.setattr(builder, "download_documents_to_path", _bold_download_stub(payload))
+    monkeypatch.setattr(
+        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+    )
+    monkeypatch.setattr(
+        builder,
+        "prepare_bold_query",
+        lambda *_args, **_kwargs: _stub_prepared_query(builder),
+    )
+    monkeypatch.setattr(
+        builder, "download_documents_to_path", _bold_download_stub(payload)
+    )
 
     output = tmp_path / "both.fasta"
     result = _invoke_build(
         CliRunner(),
         builder,
         [
-            "-c", str(fixture_dir / "minimal_config.toml"),
-            "-t", "999",
-            "-m", "12s",
-            "--source", "both",
-            "--from-gb", str(gb_dir),
-            "--out", str(output),
-            "--workers", "1",
+            "-c",
+            str(fixture_dir / "minimal_config.toml"),
+            "-t",
+            "999",
+            "-m",
+            "12s",
+            "--source",
+            "both",
+            "--from-gb",
+            str(gb_dir),
+            "--out",
+            str(output),
+            "--workers",
+            "1",
         ],
     )
     assert result.exit_code == 0, result.stdout
-    _assert_build_artifacts(output, golden_dir, "build-both", root=Path(__file__).resolve().parents[1], tmp_path=tmp_path)
+    _assert_build_artifacts(
+        output,
+        golden_dir,
+        "build-both",
+        root=Path(__file__).resolve().parents[1],
+        tmp_path=tmp_path,
+    )
 
 
 def test_build_post_prep_matches_fasta_sidecars_and_duplicate_reports(
@@ -208,13 +273,19 @@ def test_build_post_prep_matches_fasta_sidecars_and_duplicate_reports(
         CliRunner(),
         builder,
         [
-            "-c", str(fixture_dir / "post_prep_config.toml"),
-            "-t", "999",
-            "-m", "12s",
-            "--from-gb", str(gb_dir),
+            "-c",
+            str(fixture_dir / "post_prep_config.toml"),
+            "-t",
+            "999",
+            "-m",
+            "12s",
+            "--from-gb",
+            str(gb_dir),
             "--post-prep",
-            "--out", str(output),
-            "--workers", "1",
+            "--out",
+            str(output),
+            "--workers",
+            "1",
         ],
     )
     assert result.exit_code == 0, result.stdout
@@ -237,25 +308,39 @@ def test_build_post_prep_matches_fasta_sidecars_and_duplicate_reports(
     ("extra_args", "message"),
     [
         (["--source", "bold", "--dump-gb", "dump"], "not supported with --source bold"),
-        (["--source", "bold", "--from-gb", "tests/fixtures"], "not supported with --source bold"),
+        (
+            ["--source", "bold", "--from-gb", "tests/fixtures"],
+            "not supported with --source bold",
+        ),
         (["--source", "bold", "--resume"], "not supported with --source bold"),
         (["--resume"], "--resume requires --dump-gb or --from-gb"),
     ],
 )
 def test_build_rejects_invalid_cache_options(
-    fixture_dir: Path, extra_args: list[str], message: str, monkeypatch: pytest.MonkeyPatch
+    fixture_dir: Path,
+    extra_args: list[str],
+    message: str,
+    monkeypatch: pytest.MonkeyPatch,
 ):
     import taxondbbuilder as builder
 
-    monkeypatch.setattr(builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha")
+    monkeypatch.setattr(
+        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+    )
     kwargs = {
         "config": fixture_dir / "minimal_config.toml",
         "taxon": ["999"],
         "marker": ["12s"],
-        "source": builder.BuildSource.BOLD if "--source" in extra_args else builder.BuildSource.NCBI,
+        "source": builder.BuildSource.BOLD
+        if "--source" in extra_args
+        else builder.BuildSource.NCBI,
         "out": None,
-        "dump_gb": Path(extra_args[extra_args.index("--dump-gb") + 1]) if "--dump-gb" in extra_args else None,
-        "from_gb": Path(extra_args[extra_args.index("--from-gb") + 1]) if "--from-gb" in extra_args else None,
+        "dump_gb": Path(extra_args[extra_args.index("--dump-gb") + 1])
+        if "--dump-gb" in extra_args
+        else None,
+        "from_gb": Path(extra_args[extra_args.index("--from-gb") + 1])
+        if "--from-gb" in extra_args
+        else None,
         "resume": "--resume" in extra_args,
         "dry_run": False,
         "workers": 2,
@@ -288,8 +373,15 @@ def test_apply_post_prep_primer_trim_matches_fasta_and_tsv_goldens(
         ["TGCA"],
         options={"sidecar_format": "tsv", "keep_retained_fasta": True},
     )
-    _assert_text_golden(json_text(stats), golden_dir, "primer-trim.stats.golden", tmp_path)
-    _assert_text_golden(fasta.read_text(encoding="utf-8"), golden_dir, "primer-trim.fasta.golden", tmp_path)
+    _assert_text_golden(
+        json_text(stats), golden_dir, "primer-trim.stats.golden", tmp_path
+    )
+    _assert_text_golden(
+        fasta.read_text(encoding="utf-8"),
+        golden_dir,
+        "primer-trim.fasta.golden",
+        tmp_path,
+    )
     _assert_text_golden(
         fasta.with_suffix(".fasta.postprep.primer.tsv").read_text(encoding="utf-8"),
         golden_dir,
@@ -297,7 +389,9 @@ def test_apply_post_prep_primer_trim_matches_fasta_and_tsv_goldens(
         tmp_path,
     )
     _assert_text_golden(
-        fasta.with_suffix(".fasta.postprep.primer.retained.fasta").read_text(encoding="utf-8"),
+        fasta.with_suffix(".fasta.postprep.primer.retained.fasta").read_text(
+            encoding="utf-8"
+        ),
         golden_dir,
         "primer-trim.retained.fasta.golden",
         tmp_path,
@@ -311,7 +405,11 @@ def test_apply_post_prep_primer_trim_vsearch_branch_is_stubbed(
 
     fasta = tmp_path / "vsearch.fasta"
     fasta.write_text(">record\nACGTGGGG\n", encoding="utf-8")
-    monkeypatch.setattr(builder, "run_vsearch_endpoint_recheck", lambda *args, **kwargs: (1, 0, "stubbed"))
+    monkeypatch.setattr(
+        builder,
+        "run_vsearch_endpoint_recheck",
+        lambda *args, **kwargs: (1, 0, "stubbed"),
+    )
     stats = builder.apply_post_prep_primer_trim(
         fasta,
         ["ACGT"],
@@ -341,6 +439,7 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     search_calls: list[dict[str, Any]] = []
     fetch_calls: list[dict[str, Any]] = []
     fetch_attempts: dict[int, int] = {}
+
     def esearch(**kwargs: Any):
         search_calls.append(kwargs)
         if kwargs.get("retmax") == 0:
@@ -360,7 +459,13 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
         fetch_attempts[start] = fetch_attempts.get(start, 0) + 1
         attempt = fetch_attempts[start]
         if start == 2 and "id" not in kwargs:
-            raise HTTPError("https://example.invalid", HTTPStatus.BAD_REQUEST, "bad history", {}, None)
+            raise HTTPError(
+                "https://example.invalid",
+                HTTPStatus.BAD_REQUEST,
+                "bad history",
+                {},
+                None,
+            )
         if start == 4 and attempt == 1:
             raise RemoteDisconnected("connection reset")
         return _FakeHandle(f"chunk-{start}")
@@ -370,9 +475,17 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     monkeypatch.setattr(builder.Entrez, "efetch", efetch)
     monkeypatch.setattr(builder.time, "sleep", lambda _seconds: None)
 
-    cfg = {"db": "nucleotide", "rettype": "gb", "retmode": "text", "per_query": 2, "fetch_retries": 2}
+    cfg = {
+        "db": "nucleotide",
+        "rettype": "gb",
+        "retmode": "text",
+        "per_query": 2,
+        "fetch_retries": 2,
+    }
     dump_dir = tmp_path / "gb-cache"
-    count, chunks = builder.fetch_genbank("fixture", cfg, 0, dump_dir=dump_dir, taxid="999")
+    count, chunks = builder.fetch_genbank(
+        "fixture", cfg, 0, dump_dir=dump_dir, taxid="999"
+    )
     assert count == 5
     assert list(chunks) == [(0, "chunk-0"), (2, "chunk-2"), (4, "chunk-4")]
     assert sorted(path.name for path in (dump_dir / ".cache").iterdir()) == [
@@ -384,7 +497,9 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     assert any("id" in call and call["id"] == "id2" for call in fetch_calls)
 
     fetch_calls.clear()
-    count, chunks = builder.fetch_genbank("fixture", cfg, 0, dump_dir=dump_dir, resume=True, taxid="999")
+    count, chunks = builder.fetch_genbank(
+        "fixture", cfg, 0, dump_dir=dump_dir, resume=True, taxid="999"
+    )
     assert count == 5
     assert list(chunks) == [(0, "chunk-0"), (2, "chunk-2"), (4, "chunk-4")]
     assert fetch_calls == []

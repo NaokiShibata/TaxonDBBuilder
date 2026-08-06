@@ -1,20 +1,23 @@
 """Post-prep sequence length filtering."""
 
 from pathlib import Path
-from typing import Dict, Optional
 
 from Bio import SeqIO
 
+
 def apply_post_prep_length_filter(
     fasta_path: Path,
-    min_len: Optional[int],
-    max_len: Optional[int],
-) -> Dict[str, int]:
+    min_len: int | None,
+    max_len: int | None,
+) -> dict[str, int]:
     before_count = 0
     after_count = 0
     tmp_path = fasta_path.with_suffix(fasta_path.suffix + ".postprep.tmp")
     try:
-        with fasta_path.open("r", encoding="utf-8") as in_f, tmp_path.open("w", encoding="utf-8") as out_f:
+        with (
+            fasta_path.open("r", encoding="utf-8") as in_f,
+            tmp_path.open("w", encoding="utf-8") as out_f,
+        ):
             for record in SeqIO.parse(in_f, "fasta"):
                 before_count += 1
                 seq_len = len(record.seq)
@@ -33,6 +36,3 @@ def apply_post_prep_length_filter(
         "after": after_count,
         "removed": before_count - after_count,
     }
-
-
-

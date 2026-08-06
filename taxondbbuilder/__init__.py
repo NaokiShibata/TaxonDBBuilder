@@ -15,9 +15,16 @@ from .postprep.primer_trim import *
 from .postprep.duplicates import *
 from .ncbi import *
 from .bold import *
+
+from .bold_api import (
+    download_documents_to_path,
+    prepare_bold_query,
+)
+
 from .cli import *
 
 from . import bold as _bold_module
+from . import bold_api as _bold_api_module
 from . import cli as _cli_module
 from . import ncbi as _ncbi_module
 from .postprep import primer_trim as _primer_module
@@ -28,12 +35,21 @@ class _CompatibilityModule(ModuleType):
 
     def __setattr__(self, name, value):
         super().__setattr__(name, value)
+
         if name.startswith("_"):
             return
-        for target in (_cli_module, _bold_module, _ncbi_module, _primer_module):
+
+        for target in (
+            _cli_module,
+            _bold_module,
+            _bold_api_module,
+            _ncbi_module,
+            _primer_module,
+        ):
             if hasattr(target, name):
                 setattr(target, name, value)
 
 
 _sys.modules[__name__].__class__ = _CompatibilityModule
+
 __all__ = [name for name in globals() if not name.startswith("_")]

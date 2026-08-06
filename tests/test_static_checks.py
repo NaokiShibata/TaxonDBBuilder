@@ -18,7 +18,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 
 TARGETS = [
@@ -81,7 +80,11 @@ def test_star_imports_do_not_grow() -> None:
         for line in _run_pyflakes().splitlines()
         if "unable to detect undefined names" in line
     }
-    allowed = {"taxondbbuilder/__init__.py", "taxondbbuilder/cli.py", "taxondbbuilder.py"}
+    allowed = {
+        "taxondbbuilder/__init__.py",
+        "taxondbbuilder/cli.py",
+        "taxondbbuilder.py",
+    }
     assert blinded <= allowed, (
         "new modules use star imports and are excluded from static analysis: "
         f"{sorted(blinded - allowed)}"

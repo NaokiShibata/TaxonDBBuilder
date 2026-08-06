@@ -12,11 +12,11 @@ from __future__ import annotations
 import argparse
 import csv
 import sqlite3
+from collections.abc import Iterable, Iterator
 from pathlib import Path
-from typing import Iterable, Iterator, Tuple
 
 
-def iter_scientific_names(names_dmp: Path) -> Iterator[Tuple[int, str]]:
+def iter_scientific_names(names_dmp: Path) -> Iterator[tuple[int, str]]:
     """
     Yield (tax_id, scientific_name) from names.dmp where name_class == scientific name.
     """
@@ -26,8 +26,7 @@ def iter_scientific_names(names_dmp: Path) -> Iterator[Tuple[int, str]]:
             if not line:
                 continue
             # taxdump lines end with '\t|'
-            if line.endswith("\t|"):
-                line = line[:-2]
+            line = line.removesuffix("\t|")
             parts = line.split("\t|\t")
             if len(parts) < 4:
                 continue
@@ -54,7 +53,7 @@ def extract_scientific_names_csv(names_dmp: Path, output_csv: Path) -> int:
     return count
 
 
-def iter_csv_rows(input_csv: Path) -> Iterator[Tuple[int, str]]:
+def iter_csv_rows(input_csv: Path) -> Iterator[tuple[int, str]]:
     with input_csv.open("r", newline="", encoding="utf-8") as fin:
         reader = csv.DictReader(fin)
         if reader.fieldnames is None:
@@ -75,8 +74,10 @@ def iter_csv_rows(input_csv: Path) -> Iterator[Tuple[int, str]]:
             yield int(tax_s), sci_name
 
 
-def _chunked(rows: Iterable[Tuple[int, str]], size: int = 10000) -> Iterator[list[Tuple[int, str]]]:
-    buf: list[Tuple[int, str]] = []
+def _chunked(
+    rows: Iterable[tuple[int, str]], size: int = 10000
+) -> Iterator[list[tuple[int, str]]]:
+    buf: list[tuple[int, str]] = []
     for row in rows:
         buf.append(row)
         if len(buf) >= size:
@@ -121,7 +122,9 @@ def build_sqlite_from_csv(input_csv: Path, output_db: Path) -> int:
     return inserted
 
 
-def build_from_names_dmp(names_dmp: Path, output_csv: Path, output_db: Path) -> tuple[int, int]:
+def build_from_names_dmp(
+    names_dmp: Path, output_csv: Path, output_db: Path
+) -> tuple[int, int]:
     extracted = extract_scientific_names_csv(names_dmp, output_csv)
     inserted = build_sqlite_from_csv(output_csv, output_db)
     return extracted, inserted
@@ -133,18 +136,30 @@ def parse_args() -> argparse.Namespace:
     )
     sub = parser.add_subparsers(dest="command", required=True)
 
-    p_extract = sub.add_parser("extract-csv", help="Extract scientific names from names.dmp to CSV")
-    p_extract.add_argument("--names-dmp", type=Path, required=True, help="Path to names.dmp")
-    p_extract.add_argument("--out-csv", type=Path, required=True, help="Output CSV path")
+    p_extract = sub.add_parser(
+        "extract-csv", help="Extract scientific names from names.dmp to CSV"
+    )
+    p_extract.add_argument(
+        "--names-dmp", type=Path, required=True, help="Path to names.dmp"
+    )
+    p_extract.add_argument(
+        "--out-csv", type=Path, required=True, help="Output CSV path"
+    )
 
     p_sqlite = sub.add_parser("build-sqlite", help="Build SQLite taxonomy.db from CSV")
     p_sqlite.add_argument("--in-csv", type=Path, required=True, help="Input CSV path")
-    p_sqlite.add_argument("--out-db", type=Path, required=True, help="Output SQLite DB path")
+    p_sqlite.add_argument(
+        "--out-db", type=Path, required=True, help="Output SQLite DB path"
+    )
 
     p_all = sub.add_parser("all", help="Run extract-csv and build-sqlite in one step")
-    p_all.add_argument("--names-dmp", type=Path, required=True, help="Path to names.dmp")
+    p_all.add_argument(
+        "--names-dmp", type=Path, required=True, help="Path to names.dmp"
+    )
     p_all.add_argument("--out-csv", type=Path, required=True, help="Output CSV path")
-    p_all.add_argument("--out-db", type=Path, required=True, help="Output SQLite DB path")
+    p_all.add_argument(
+        "--out-db", type=Path, required=True, help="Output SQLite DB path"
+    )
 
     return parser.parse_args()
 
@@ -163,7 +178,9 @@ def main() -> int:
         return 0
 
     if args.command == "all":
-        extracted, inserted = build_from_names_dmp(args.names_dmp, args.out_csv, args.out_db)
+        extracted, inserted = build_from_names_dmp(
+            args.names_dmp, args.out_csv, args.out_db
+        )
         print(f"extracted {extracted} rows -> {args.out_csv}")
         print(f"inserted {inserted} rows -> {args.out_db}")
         return 0

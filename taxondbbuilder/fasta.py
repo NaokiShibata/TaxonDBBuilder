@@ -1,19 +1,18 @@
 """FASTA and source sidecar output helpers."""
 
-from pathlib import Path
 from threading import Lock
-from typing import Dict, List, Optional
 
 from .headers import build_header
-from .models import CanonicalRecord, DEFAULT_HEADER_FORMAT, build_source_merge_row
+from .models import DEFAULT_HEADER_FORMAT, CanonicalRecord, build_source_merge_row
+
 
 def emit_records_to_fasta(
-    records: List[CanonicalRecord],
+    records: list[CanonicalRecord],
     out_f,
-    counters: Dict[str, int],
-    emitted_records: List[Dict[str, str]],
+    counters: dict[str, int],
+    emitted_records: list[dict[str, str]],
     lock: Lock,
-    source_merge_rows: Optional[List[Dict[str, str]]] = None,
+    source_merge_rows: list[dict[str, str]] | None = None,
 ) -> None:
     for record in records:
         if not record.emitted_to_fasta:
@@ -32,7 +31,3 @@ def emit_records_to_fasta(
             emitted_records.append(dict(emitted_row))
             if source_merge_rows is not None:
                 source_merge_rows.append(dict(emitted_row))
-
-
-
-

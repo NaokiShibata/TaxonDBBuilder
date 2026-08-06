@@ -1,3 +1,21 @@
+╭──────────────── TaxonDBBuilder ─────────────────╮
+│ Generic NCBI GenBank fetch + feature extraction │
+╰─────────────── DB FASTA builder ────────────────╯
+                                  Run Summary                                   
+┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Item    ┃ Value                                                              ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Config  │ <ROOT>/tests/fixtu │
+│         │ res/post_prep_config.toml                                          │
+│ Source  │ ncbi                                                               │
+│ Taxids  │ 999                                                                │
+│ Markers │ 12s                                                                │
+│ Output  │ <TMP>/po │
+│         │ stprep.fasta                                                       │
+│ Filters │ none                                                               │
+│ From GB │ <TMP>/po │
+│         │ stprep-gb                                                          │
+└─────────┴────────────────────────────────────────────────────────────────────┘
 # started: <TIMESTAMP>
 # config: <ROOT>/tests/fixtures/post_prep_config.toml
 # source: ncbi
@@ -41,7 +59,13 @@
 # post_prep length filter: before=3 after=3 removed=0
 # post_prep duplicate_acc_report: total=3 parsed=3 unparsed=0 groups=1 records=2 cross_organism_groups=1
 # post_prep duplicate_acc_records_csv: <TMP>/postprep.fasta.duplicate_acc.records.csv
+post_prep duplicate ACC records CSV: 
+<TMP>/postprep.fasta.d
+uplicate_acc.records.csv
 # post_prep duplicate_acc_groups_csv: <TMP>/postprep.fasta.duplicate_acc.groups.csv
+post_prep duplicate ACC groups CSV: 
+<TMP>/postprep.fasta.d
+uplicate_acc.groups.csv
 # acc_organism_map: total=3 mapped=3 unmapped=0 unused_source_records=0 unique_accessions=3 unique_organisms=3
 # acc_organism_map_csv: <TMP>/postprep.fasta.acc_organism.csv
 # total records: 3
@@ -66,8 +90,8 @@
 │ Log                                  │ <TMP> │
 └──────────────────────────────────────┴───────────────────────────────────────┘
 ACC-organism mapping CSV: 
-<TMP>/postprep.fasta.ac
-c_organism.csv
+<TMP>/postprep.fasta.a
+cc_organism.csv
 Source merge CSV: 
-<TMP>/postprep.fasta.so
-urce_merge.csv
+<TMP>/postprep.fasta.s
+ource_merge.csv

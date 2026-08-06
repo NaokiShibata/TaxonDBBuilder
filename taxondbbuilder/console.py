@@ -1,16 +1,15 @@
 """Console rendering helpers."""
 
 from pathlib import Path
-from typing import Any, Dict, List, Optional
 
 from rich.console import Console
 from rich.panel import Panel
-from rich.progress import Progress
 from rich.table import Table
 
 from .models import BuildSource
 
 console = Console()
+
 
 def print_header() -> None:
     console.print(
@@ -26,12 +25,12 @@ def print_header() -> None:
 def render_run_table(
     config: Path,
     source: BuildSource,
-    taxids: List[str],
-    markers: List[str],
+    taxids: list[str],
+    markers: list[str],
     out_path: Path,
-    filters_cfg: Dict,
-    dump_gb: Optional[Path] = None,
-    from_gb: Optional[Path] = None,
+    filters_cfg: dict,
+    dump_gb: Path | None = None,
+    from_gb: Path | None = None,
     resume: bool = False,
 ) -> None:
     table = Table(title="Run Summary", show_header=True, header_style="bold")
@@ -92,7 +91,7 @@ def format_byte_count(num_bytes: int) -> str:
 def build_bold_download_description(
     scientific_name: str,
     downloaded_bytes: int,
-    content_length: Optional[int],
+    content_length: int | None,
 ) -> str:
     if content_length:
         return (
@@ -100,5 +99,3 @@ def build_bold_download_description(
             f"{format_byte_count(downloaded_bytes)}/{format_byte_count(content_length)}"
         )
     return f"BOLD {scientific_name}: download {format_byte_count(downloaded_bytes)}"
-
-

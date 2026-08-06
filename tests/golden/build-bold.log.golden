@@ -1,3 +1,19 @@
+╭──────────────── TaxonDBBuilder ─────────────────╮
+│ Generic NCBI GenBank fetch + feature extraction │
+╰─────────────── DB FASTA builder ────────────────╯
+                                  Run Summary                                   
+┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Item    ┃ Value                                                              ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Config  │ <ROOT>/tests/fixtu │
+│         │ res/minimal_config.toml                                            │
+│ Source  │ bold                                                               │
+│ Taxids  │ 999                                                                │
+│ Markers │ coi                                                                │
+│ Output  │ <TMP>/bo │
+│         │ ld.fasta                                                           │
+│ Filters │ none                                                               │
+└─────────┴────────────────────────────────────────────────────────────────────┘
 # started: <TIMESTAMP>
 # config: <ROOT>/tests/fixtures/minimal_config.toml
 # source: bold
@@ -11,6 +27,12 @@
 # resume: False
 # post_prep: False
 # workers: 2
+# bold progress: taxon=Testus alpha phase=preprocess
+# bold progress: taxon=Testus alpha phase=summary specimens=3
+# bold progress: taxon=Testus alpha phase=query
+# bold progress: taxon=Testus alpha phase=download
+# bold progress: taxon=Testus alpha phase=filter downloaded=0 matched=0
+# bold progress: taxon=Testus alpha phase=filter downloaded=2 matched=1
 # bold query: taxon=Testus alpha normalized=Testus alpha specimens=3 format=tsv bytes=147 downloaded=2 matched=1
 # source_merge_csv: <TMP>/bold.fasta.source_merge.csv
 # acc_organism_map: total=1 mapped=1 unmapped=0 unused_source_records=0 unique_accessions=1 unique_organisms=1
@@ -23,13 +45,6 @@
 # kept duplicates (same accession, different sequence): 0
 # output: <TMP>/bold.fasta
 # finished: <TIMESTAMP>
-Source  │ bold                                                               │
-│ Taxids  │ 999                                                                │
-│ Markers │ coi                                                                │
-│ Output  │ <TMP>/bol │
-│         │ d.fasta                                                            │
-│ Filters │ none                                                               │
-└─────────┴────────────────────────────────────────────────────────────────────┘
                                  Result Summary                                 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Metric                               ┃ Value                                 ┃
@@ -44,8 +59,8 @@ Source  │ bold                                                               �
 │ Log                                  │ <TMP> │
 └──────────────────────────────────────┴───────────────────────────────────────┘
 ACC-organism mapping CSV: 
-<TMP>/bold.fasta.acc_or
-ganism.csv
+<TMP>/bold.fasta.acc_o
+rganism.csv
 Source merge CSV: 
-<TMP>/bold.fasta.source
-_merge.csv
+<TMP>/bold.fasta.sourc
+e_merge.csv

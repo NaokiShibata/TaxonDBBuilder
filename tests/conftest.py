@@ -6,7 +6,6 @@ from pathlib import Path
 
 import pytest
 
-
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
@@ -33,8 +32,8 @@ def json_text(value: object) -> str:
 @pytest.fixture(autouse=True)
 def forbid_external_network(monkeypatch):
     """Fail loudly if a Phase 0 test accidentally reaches Entrez or BOLD."""
-    import taxondbbuilder as builder
     import taxondb_bold as bold
+    import taxondbbuilder as builder
 
     def no_network(*args, **kwargs):
         raise AssertionError("Phase 0 tests must not access the network")

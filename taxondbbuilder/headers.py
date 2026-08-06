@@ -1,9 +1,9 @@
 """Header formatting and extraction helpers."""
 
 import re
+from collections.abc import Iterable
 from dataclasses import dataclass
 from string import Formatter
-from typing import Dict, Iterable, List, Optional, Tuple
 
 import typer
 
@@ -11,13 +11,14 @@ from .models import DEFAULT_HEADER_FORMAT
 
 FORMATTER = Formatter()
 
+
 def sanitize_header(text: str) -> str:
     safe = re.sub(r"\s+", "_", text.strip())
     safe = re.sub(r"[^A-Za-z0-9._-]", "_", safe)
     return safe
 
 
-def resolve_header_format(cfg: Dict, output_cfg: Dict) -> str:
+def resolve_header_format(cfg: dict, output_cfg: dict) -> str:
     header_formats = output_cfg.get("header_formats") or {}
     if not isinstance(header_formats, dict):
         raise typer.BadParameter("[output].header_formats must be a table (dict).")
@@ -42,7 +43,7 @@ class SafeFormatDict(dict):
         return ""
 
 
-def build_header(template: str, values: Dict[str, str]) -> str:
+def build_header(template: str, values: dict[str, str]) -> str:
     return template.format_map(SafeFormatDict(values))
 
 
@@ -59,8 +60,10 @@ class HeaderExtractor:
     captures_organism: bool
 
 
-def compile_header_extractors(header_formats: Iterable[str]) -> Tuple[List[HeaderExtractor], bool, bool]:
-    extractors: List[HeaderExtractor] = []
+def compile_header_extractors(
+    header_formats: Iterable[str],
+) -> tuple[list[HeaderExtractor], bool, bool]:
+    extractors: list[HeaderExtractor] = []
     has_acc_id_template = False
     has_organism_template = False
     for template in sorted(set(header_formats)):
@@ -76,7 +79,7 @@ def compile_header_extractors(header_formats: Iterable[str]) -> Tuple[List[Heade
         if not has_acc_id:
             continue
 
-        parts: List[str] = []
+        parts: list[str] = []
         seen_acc_id = False
         seen_organism = False
         for literal, field, _, _ in FORMATTER.parse(template):
@@ -107,7 +110,9 @@ def compile_header_extractors(header_formats: Iterable[str]) -> Tuple[List[Heade
     return extractors, has_acc_id_template, has_organism_template
 
 
-def extract_header_fields_from_header(header: str, extractors: List[HeaderExtractor]) -> Tuple[Optional[str], Optional[str]]:
+def extract_header_fields_from_header(
+    header: str, extractors: list[HeaderExtractor]
+) -> tuple[str | None, str | None]:
     for extractor in extractors:
         match = extractor.pattern.match(header)
         if not match:
@@ -120,6 +125,3 @@ def extract_header_fields_from_header(header: str, extractors: List[HeaderExtrac
             organism_name = organism_name.strip()
         return acc_id, organism_name or None
     return None, None
-
-
-

@@ -5,44 +5,41 @@ import json
 import logging
 from pathlib import Path
 from threading import Lock
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import typer
 from rich.progress import Progress
 
 from .bold_api import (
-    BoldApiError,
     download_documents_to_path,
     iter_document_rows_from_path,
     normalize_bold_row,
     parse_accession_tokens,
-    prepare_bold_query,
 )
-
 from .console import build_bold_download_description, console
 from .headers import resolve_header_format, sanitize_header
 from .models import (
+    DEFAULT_BOLD_HEADER_FORMAT,
     BuildSource,
     CanonicalRecord,
     ResolvedTaxon,
     append_records_to_spool,
     build_source_merge_row,
-    DEFAULT_BOLD_HEADER_FORMAT,
 )
 
 
 def process_bold_taxon_to_spool(
     resolved_taxon: ResolvedTaxon,
     prepared_query: Any,
-    marker_keys: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-    output_cfg: Dict[str, Any],
+    marker_keys: list[str],
+    marker_map: dict[str, dict[str, Any]],
+    output_cfg: dict[str, Any],
     source: BuildSource,
     progress: Progress,
     bold_spool_f,
     lock: Lock,
-    counters: Dict[str, int],
-    source_merge_rows: List[Dict[str, str]],
+    counters: dict[str, int],
+    source_merge_rows: list[dict[str, str]],
     ncbi_accessions: set,
     spool_dir: Path,
     run_logger: logging.Logger,
@@ -75,11 +72,11 @@ def process_bold_taxon_to_spool(
 
     # Notify the GUI that the download has started.
     run_logger.info(
-        f"# bold progress: taxon={resolved_taxon.scientific_name}phase=download"
+        f"# bold progress: taxon={resolved_taxon.scientific_name} phase=download"
     )
 
     def on_bold_download_progress(
-        downloaded_bytes: int, content_length: Optional[int]
+        downloaded_bytes: int, content_length: int | None
     ) -> None:
         threshold = 1024 * 1024
         if (
@@ -97,7 +94,7 @@ def process_bold_taxon_to_spool(
             ),
         )
         # Log the download progress every 1MiB
-        detail = f"byte={downloaded_bytes}"
+        detail = f"bytes={downloaded_bytes}"
         if content_length is not None:
             detail += f" total_bytes={content_length}"
 
@@ -117,7 +114,7 @@ def process_bold_taxon_to_spool(
 
         downloaded_rows = 0
         matched_rows = 0
-        buffered_records: List[CanonicalRecord] = []
+        buffered_records: list[CanonicalRecord] = []
         progress.update(
             task_id,
             description=f"BOLD {resolved_taxon.scientific_name}: filter",
@@ -126,7 +123,7 @@ def process_bold_taxon_to_spool(
         )
 
         run_logger.info(
-            f"# bold progress: taxon={resolved_taxon.scientific_name}"
+            f"# bold progress: taxon={resolved_taxon.scientific_name} "
             f"phase=filter downloaded=0 matched=0"
         )
 
@@ -150,8 +147,8 @@ def process_bold_taxon_to_spool(
 
             if downloaded_rows % filter_report_interval == 0:
                 run_logger.info(
-                    f"# bold progressL taxon={resolved_taxon.scientific_name}"
-                    f"phase=filter downloaded={downloaded_rows}"
+                    f"# bold progress: taxon={resolved_taxon.scientific_name} "
+                    f"phase=filter downloaded={downloaded_rows} "
                     f"matched={matched_rows}"
                 )
 
@@ -200,9 +197,9 @@ def process_bold_taxon_to_spool(
 
 
 def build_bold_canonical_record(
-    normalized_row: Dict[str, Any],
-    marker_map: Dict[str, Dict],
-    output_cfg: Dict,
+    normalized_row: dict[str, Any],
+    marker_map: dict[str, dict],
+    output_cfg: dict,
 ) -> CanonicalRecord:
     marker_key = str(normalized_row["marker_key"])
     marker_cfg = marker_map[marker_key]

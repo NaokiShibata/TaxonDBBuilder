@@ -1,3 +1,23 @@
+╭──────────────── TaxonDBBuilder ─────────────────╮
+│ Generic NCBI GenBank fetch + feature extraction │
+╰─────────────── DB FASTA builder ────────────────╯
+                                  Run Summary                                   
+┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Item    ┃ Value                                                              ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Config  │ <ROOT>/tests/fixtu │
+│         │ res/minimal_config.toml                                            │
+│ Source  │ ncbi                                                               │
+│ Taxids  │ 999                                                                │
+│ Markers │ 12s                                                                │
+│ Output  │ <TMP>/nc │
+│         │ bi.fasta                                                           │
+│ Filters │ none                                                               │
+│ From GB │ <TMP>/nc │
+│         │ bi-gb                                                              │
+│ Dump GB │ <TMP>/du │
+│         │ mp                                                                 │
+└─────────┴────────────────────────────────────────────────────────────────────┘
 # started: <TIMESTAMP>
 # config: <ROOT>/tests/fixtures/minimal_config.toml
 # source: ncbi
@@ -24,16 +44,6 @@
 # kept duplicates (same accession, different sequence): 0
 # output: <TMP>/ncbi.fasta
 # finished: <TIMESTAMP>
-                                   │
-│ Markers │ 12s                                                                │
-│ Output  │ <TMP>/ncb │
-│         │ i.fasta                                                            │
-│ Filters │ none                                                               │
-│ From GB │ <TMP>/ncb │
-│         │ i-gb                                                               │
-│ Dump GB │ <TMP>/dum │
-│         │ p                                                                  │
-└─────────┴────────────────────────────────────────────────────────────────────┘
                                  Result Summary                                 
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Metric                               ┃ Value                                 ┃
@@ -48,8 +58,8 @@
 │ Log                                  │ <TMP> │
 └──────────────────────────────────────┴───────────────────────────────────────┘
 ACC-organism mapping CSV: 
-<TMP>/ncbi.fasta.acc_or
-ganism.csv
+<TMP>/ncbi.fasta.acc_o
+rganism.csv
 Source merge CSV: 
-<TMP>/ncbi.fasta.source
-_merge.csv
+<TMP>/ncbi.fasta.sourc
+e_merge.csv

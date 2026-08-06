@@ -8,23 +8,24 @@ from __future__ import annotations
 import csv
 import gzip
 import hashlib
-import io
 import json
 import re
 import time
+from collections.abc import Iterable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
-
 
 DEFAULT_BASE_URL = "https://portal.boldsystems.org/api"
 DEFAULT_TIMEOUT_SEC = 60.0
 DEFAULT_RETRIES = 3
 DEFAULT_BACKOFF_SEC = 1.5
-DEFAULT_USER_AGENT = "TaxonDBBuilder/0.1 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+DEFAULT_USER_AGENT = (
+    "TaxonDBBuilder/0.1 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+)
 MAX_DOCUMENT_COUNT = 1_000_000
 DEFAULT_DOWNLOAD_FORMAT = "tsv"
 DEFAULT_DOWNLOAD_CHUNK_SIZE = 64 * 1024
@@ -39,21 +40,28 @@ class PreparedBoldQuery:
     scientific_name: str
     raw_query: str
     normalized_query: str
-    specimen_count: Optional[int]
-    query_id: Optional[str]
-    runtime_cfg: Dict[str, Any]
+    specimen_count: int | None
+    query_id: str | None
+    runtime_cfg: dict[str, Any]
     download_format: str
 
 
-def get_bold_runtime_config(raw_cfg: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+def get_bold_runtime_config(raw_cfg: dict[str, Any] | None) -> dict[str, Any]:
     cfg = dict(raw_cfg or {})
     base_url = str(cfg.get("base_url", DEFAULT_BASE_URL)).rstrip("/")
     timeout_sec = float(cfg.get("timeout_sec", DEFAULT_TIMEOUT_SEC))
     retries = int(cfg.get("retries", DEFAULT_RETRIES))
     backoff_sec = float(cfg.get("backoff_sec", DEFAULT_BACKOFF_SEC))
-    user_agent = str(cfg.get("user_agent", DEFAULT_USER_AGENT)).strip() or DEFAULT_USER_AGENT
-    download_format = str(cfg.get("download_format", DEFAULT_DOWNLOAD_FORMAT)).strip().lower() or DEFAULT_DOWNLOAD_FORMAT
-    download_chunk_size = int(cfg.get("download_chunk_size", DEFAULT_DOWNLOAD_CHUNK_SIZE))
+    user_agent = (
+        str(cfg.get("user_agent", DEFAULT_USER_AGENT)).strip() or DEFAULT_USER_AGENT
+    )
+    download_format = (
+        str(cfg.get("download_format", DEFAULT_DOWNLOAD_FORMAT)).strip().lower()
+        or DEFAULT_DOWNLOAD_FORMAT
+    )
+    download_chunk_size = int(
+        cfg.get("download_chunk_size", DEFAULT_DOWNLOAD_CHUNK_SIZE)
+    )
 
     if timeout_sec <= 0:
         raise BoldApiError("bold.timeout_sec must be > 0.")
@@ -92,7 +100,7 @@ def _parse_json_payload(text: str) -> Any:
         pass
 
     decoder = json.JSONDecoder()
-    values: List[Any] = []
+    values: list[Any] = []
     idx = 0
     length = len(stripped)
     while idx < length:
@@ -107,7 +115,7 @@ def _parse_json_payload(text: str) -> Any:
     if values:
         return values if len(values) > 1 else values[0]
 
-    line_values: List[Any] = []
+    line_values: list[Any] = []
     for line in stripped.splitlines():
         line = line.strip()
         if not line:
@@ -119,7 +127,7 @@ def _parse_json_payload(text: str) -> Any:
     raise json.JSONDecodeError("Unable to parse JSON payload", text, 0)
 
 
-def _request_json(url: str, runtime_cfg: Dict[str, Any]) -> Any:
+def _request_json(url: str, runtime_cfg: dict[str, Any]) -> Any:
     retries = int(runtime_cfg["retries"])
     timeout_sec = float(runtime_cfg["timeout_sec"])
     backoff_sec = float(runtime_cfg["backoff_sec"])
@@ -155,7 +163,7 @@ def _request_json(url: str, runtime_cfg: Dict[str, Any]) -> Any:
     raise BoldApiError("BOLD request failed after retries.")
 
 
-def _build_url(base_url: str, path: str, params: Optional[Dict[str, str]] = None) -> str:
+def _build_url(base_url: str, path: str, params: dict[str, str] | None = None) -> str:
     url = f"{base_url}{path}"
     if params:
         return f"{url}?{urlencode(params)}"
@@ -166,9 +174,9 @@ def _normalized_key(value: str) -> str:
     return re.sub(r"[^a-z0-9]", "", value.lower())
 
 
-def _find_values_by_key(payload: Any, normalized_targets: Iterable[str]) -> List[Any]:
+def _find_values_by_key(payload: Any, normalized_targets: Iterable[str]) -> list[Any]:
     targets = set(normalized_targets)
-    found: List[Any] = []
+    found: list[Any] = []
 
     def visit(node: Any) -> None:
         if isinstance(node, dict):
@@ -184,7 +192,7 @@ def _find_values_by_key(payload: Any, normalized_targets: Iterable[str]) -> List
     return found
 
 
-def _first_scalar(payload: Any, keys: Iterable[str]) -> Optional[str]:
+def _first_scalar(payload: Any, keys: Iterable[str]) -> str | None:
     normalized_targets = [_normalized_key(key) for key in keys]
     for value in _find_values_by_key(payload, normalized_targets):
         if isinstance(value, str) and value.strip():
@@ -200,7 +208,7 @@ def _first_scalar(payload: Any, keys: Iterable[str]) -> Optional[str]:
     return None
 
 
-def _extract_successful_terms(preprocess_payload: Any) -> List[str]:
+def _extract_successful_terms(preprocess_payload: Any) -> list[str]:
     if isinstance(preprocess_payload, dict):
         successful_terms = preprocess_payload.get("successful_terms")
     else:
@@ -209,7 +217,7 @@ def _extract_successful_terms(preprocess_payload: Any) -> List[str]:
     if not isinstance(successful_terms, list):
         return []
 
-    terms: List[str] = []
+    terms: list[str] = []
     for term in successful_terms:
         if isinstance(term, str) and term.strip():
             terms.append(term.strip())
@@ -231,7 +239,7 @@ def _extract_successful_terms(preprocess_payload: Any) -> List[str]:
     return [term for term in terms if term]
 
 
-def preprocess_query(query: str, runtime_cfg: Dict[str, Any]) -> Tuple[str, Any]:
+def preprocess_query(query: str, runtime_cfg: dict[str, Any]) -> tuple[str, Any]:
     url = _build_url(runtime_cfg["base_url"], "/query/preprocessor", {"query": query})
     payload = _request_json(url, runtime_cfg)
     successful_terms = _extract_successful_terms(payload)
@@ -239,7 +247,9 @@ def preprocess_query(query: str, runtime_cfg: Dict[str, Any]) -> Tuple[str, Any]
     return normalized_query, payload
 
 
-def fetch_specimen_count(normalized_query: str, runtime_cfg: Dict[str, Any]) -> Optional[int]:
+def fetch_specimen_count(
+    normalized_query: str, runtime_cfg: dict[str, Any]
+) -> int | None:
     url = _build_url(
         runtime_cfg["base_url"],
         "/summary",
@@ -269,8 +279,12 @@ def fetch_specimen_count(normalized_query: str, runtime_cfg: Dict[str, Any]) -> 
         return None
 
 
-def submit_query(normalized_query: str, runtime_cfg: Dict[str, Any], extent: str = "full") -> Tuple[str, Any]:
-    url = _build_url(runtime_cfg["base_url"], "/query", {"query": normalized_query, "extent": extent})
+def submit_query(
+    normalized_query: str, runtime_cfg: dict[str, Any], extent: str = "full"
+) -> tuple[str, Any]:
+    url = _build_url(
+        runtime_cfg["base_url"], "/query", {"query": normalized_query, "extent": extent}
+    )
     payload = _request_json(url, runtime_cfg)
     query_id = None
     if isinstance(payload, dict):
@@ -284,7 +298,9 @@ def submit_query(normalized_query: str, runtime_cfg: Dict[str, Any], extent: str
     return query_id, payload
 
 
-def prepare_bold_query(scientific_name: str, bold_cfg: Optional[Dict[str, Any]] = None) -> PreparedBoldQuery:
+def prepare_bold_query(
+    scientific_name: str, bold_cfg: dict[str, Any] | None = None
+) -> PreparedBoldQuery:
     runtime_cfg = get_bold_runtime_config(bold_cfg)
     raw_query = build_taxon_query(scientific_name)
     normalized_query, _ = preprocess_query(raw_query, runtime_cfg)
@@ -303,35 +319,55 @@ def prepare_bold_query(scientific_name: str, bold_cfg: Optional[Dict[str, Any]] 
         specimen_count=specimen_count,
         query_id=query_id,
         runtime_cfg=runtime_cfg,
-        download_format=str(runtime_cfg.get("download_format") or DEFAULT_DOWNLOAD_FORMAT).strip().lower(),
+        download_format=str(
+            runtime_cfg.get("download_format") or DEFAULT_DOWNLOAD_FORMAT
+        )
+        .strip()
+        .lower(),
     )
 
 
-def download_documents(query_id: str, runtime_cfg: Dict[str, Any], fmt: str = "json") -> Any:
+def download_documents(
+    query_id: str, runtime_cfg: dict[str, Any], fmt: str = "json"
+) -> Any:
     encoded_query_id = quote(query_id, safe="")
-    url = _build_url(runtime_cfg["base_url"], f"/documents/{encoded_query_id}/download", {"format": fmt})
+    url = _build_url(
+        runtime_cfg["base_url"],
+        f"/documents/{encoded_query_id}/download",
+        {"format": fmt},
+    )
     return _request_json(url, runtime_cfg)
 
 
 def download_documents_to_path(
     query_id: str,
-    runtime_cfg: Dict[str, Any],
+    runtime_cfg: dict[str, Any],
     dest_path: Path,
-    fmt: Optional[str] = None,
-    progress_callback: Optional[Any] = None,
-) -> Dict[str, Any]:
+    fmt: str | None = None,
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
     encoded_query_id = quote(query_id, safe="")
-    format_name = str(fmt or runtime_cfg.get("download_format") or DEFAULT_DOWNLOAD_FORMAT).strip().lower()
+    format_name = (
+        str(fmt or runtime_cfg.get("download_format") or DEFAULT_DOWNLOAD_FORMAT)
+        .strip()
+        .lower()
+    )
     if format_name not in {"json", "tsv"}:
         raise BoldApiError(f"Unsupported BOLD download format: {format_name}")
-    url = _build_url(runtime_cfg["base_url"], f"/documents/{encoded_query_id}/download", {"format": format_name})
+    url = _build_url(
+        runtime_cfg["base_url"],
+        f"/documents/{encoded_query_id}/download",
+        {"format": format_name},
+    )
 
     retries = int(runtime_cfg["retries"])
     timeout_sec = float(runtime_cfg["timeout_sec"])
     backoff_sec = float(runtime_cfg["backoff_sec"])
     chunk_size = int(runtime_cfg["download_chunk_size"])
     headers = {
-        "Accept": "application/json" if format_name == "json" else "text/tab-separated-values",
+        "Accept": "application/json"
+        if format_name == "json"
+        else "text/tab-separated-values",
         "Accept-Encoding": "gzip",
         "User-Agent": str(runtime_cfg["user_agent"]),
     }
@@ -344,7 +380,9 @@ def download_documents_to_path(
             with urlopen(request, timeout=timeout_sec) as response:
                 content_length_header = response.headers.get("Content-Length")
                 try:
-                    content_length = int(content_length_header) if content_length_header else None
+                    content_length = (
+                        int(content_length_header) if content_length_header else None
+                    )
                 except ValueError:
                     content_length = None
                 encoding = response.headers.get("Content-Encoding", "")
@@ -388,7 +426,7 @@ def download_documents_to_path(
     raise BoldApiError("BOLD document download failed after retries.")
 
 
-def iter_tsv_document_rows(path: Path) -> Iterable[Dict[str, Any]]:
+def iter_tsv_document_rows(path: Path) -> Iterable[dict[str, Any]]:
     with path.open("r", encoding="utf-8", errors="replace", newline="") as in_f:
         reader = csv.DictReader(in_f, delimiter="\t")
         if reader.fieldnames:
@@ -399,7 +437,7 @@ def iter_tsv_document_rows(path: Path) -> Iterable[Dict[str, Any]]:
         for row in reader:
             if not row:
                 continue
-            cleaned: Dict[str, Any] = {}
+            cleaned: dict[str, Any] = {}
             has_value = False
             for key, value in row.items():
                 key_text = str(key).strip() if key is not None else ""
@@ -417,14 +455,14 @@ def iter_tsv_document_rows(path: Path) -> Iterable[Dict[str, Any]]:
                 yield cleaned
 
 
-def iter_json_document_rows(path: Path) -> Iterable[Dict[str, Any]]:
+def iter_json_document_rows(path: Path) -> Iterable[dict[str, Any]]:
     text = path.read_text(encoding="utf-8", errors="replace")
     payload = _parse_json_payload(text)
     for row in extract_document_rows(payload):
         yield row
 
 
-def iter_document_rows_from_path(path: Path, fmt: str) -> Iterable[Dict[str, Any]]:
+def iter_document_rows_from_path(path: Path, fmt: str) -> Iterable[dict[str, Any]]:
     format_name = fmt.strip().lower()
     if format_name == "tsv":
         yield from iter_tsv_document_rows(path)
@@ -435,7 +473,7 @@ def iter_document_rows_from_path(path: Path, fmt: str) -> Iterable[Dict[str, Any
     raise BoldApiError(f"Unsupported BOLD row iteration format: {fmt}")
 
 
-def extract_document_rows(documents_payload: Any) -> List[Dict[str, Any]]:
+def extract_document_rows(documents_payload: Any) -> list[dict[str, Any]]:
     if isinstance(documents_payload, list):
         return [row for row in documents_payload if isinstance(row, dict)]
     if isinstance(documents_payload, dict):
@@ -443,16 +481,19 @@ def extract_document_rows(documents_payload: Any) -> List[Dict[str, Any]]:
             value = documents_payload.get(key)
             if isinstance(value, list):
                 return [row for row in value if isinstance(row, dict)]
-        if any(_first_scalar(documents_payload, [key]) for key in ("processid", "sampleid", "marker_code", "nucleotides")):
+        if any(
+            _first_scalar(documents_payload, [key])
+            for key in ("processid", "sampleid", "marker_code", "nucleotides")
+        ):
             return [documents_payload]
     return []
 
 
-def parse_accession_tokens(raw_value: Optional[str]) -> List[str]:
+def parse_accession_tokens(raw_value: str | None) -> list[str]:
     if not raw_value:
         return []
     tokens = re.split(r"[,\s;|/]+", raw_value.strip())
-    cleaned: List[str] = []
+    cleaned: list[str] = []
     for token in tokens:
         value = token.strip()
         if value and value not in cleaned:
@@ -473,14 +514,19 @@ def _marker_matches(marker_text: str, candidate: str, exact_only: bool) -> bool:
         return True
     if exact_only:
         return False
-    return left.startswith(right) or right.startswith(left) or right in left or left in right
+    return (
+        left.startswith(right)
+        or right.startswith(left)
+        or right in left
+        or left in right
+    )
 
 
 def resolve_marker_from_record(
-    marker_text: Optional[str],
-    marker_keys: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-) -> Optional[Tuple[str, str]]:
+    marker_text: str | None,
+    marker_keys: list[str],
+    marker_map: dict[str, dict[str, Any]],
+) -> tuple[str, str] | None:
     if not marker_text:
         return None
 
@@ -489,7 +535,9 @@ def resolve_marker_from_record(
         for marker_key in marker_keys:
             marker_cfg = marker_map.get(marker_key, {})
             if strategy == "marker_codes":
-                candidates = list((marker_cfg.get("bold") or {}).get("marker_codes") or [])
+                candidates = list(
+                    (marker_cfg.get("bold") or {}).get("marker_codes") or []
+                )
                 exact_only = True
             elif strategy == "aliases":
                 candidates = list(marker_cfg.get("aliases") or [])
@@ -508,7 +556,7 @@ def resolve_marker_from_record(
     return None
 
 
-def _sanitize_sequence(sequence: Optional[str]) -> str:
+def _sanitize_sequence(sequence: str | None) -> str:
     if not sequence:
         return ""
     cleaned = re.sub(r"[^A-Za-z]", "", sequence).upper()
@@ -516,10 +564,10 @@ def _sanitize_sequence(sequence: Optional[str]) -> str:
 
 
 def normalize_bold_row(
-    raw_row: Dict[str, Any],
-    marker_keys: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-) -> Optional[Dict[str, Any]]:
+    raw_row: dict[str, Any],
+    marker_keys: list[str],
+    marker_map: dict[str, dict[str, Any]],
+) -> dict[str, Any] | None:
     marker_text = _first_scalar(raw_row, ["marker_code", "marker", "markercode"])
     marker_match = resolve_marker_from_record(marker_text, marker_keys, marker_map)
     if not marker_match:
@@ -542,7 +590,9 @@ def normalize_bold_row(
 
     processid = _first_scalar(raw_row, ["processid", "process_id"])
     sampleid = _first_scalar(raw_row, ["sampleid", "sample_id"])
-    accession_raw = _first_scalar(raw_row, ["insdcacs", "insdc_acs", "genbank_accession"])
+    accession_raw = _first_scalar(
+        raw_row, ["insdcacs", "insdc_acs", "genbank_accession"]
+    )
     taxon_name = _first_scalar(
         raw_row,
         [
@@ -575,10 +625,10 @@ def normalize_bold_row(
 
 def fetch_bold_records_for_taxon(
     scientific_name: str,
-    marker_keys: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-    bold_cfg: Optional[Dict[str, Any]] = None,
-) -> Tuple[List[Dict[str, Any]], Dict[str, Any]]:
+    marker_keys: list[str],
+    marker_map: dict[str, dict[str, Any]],
+    bold_cfg: dict[str, Any] | None = None,
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     prepared = prepare_bold_query(scientific_name, bold_cfg)
     if prepared.specimen_count == 0:
         return [], {
@@ -595,9 +645,11 @@ def fetch_bold_records_for_taxon(
 
     format_name = prepared.download_format
     if format_name == "json":
-        documents_payload = download_documents(prepared.query_id, prepared.runtime_cfg, fmt="json")
+        documents_payload = download_documents(
+            prepared.query_id, prepared.runtime_cfg, fmt="json"
+        )
         rows = extract_document_rows(documents_payload)
-        download_meta: Dict[str, Any] = {"format": "json"}
+        download_meta: dict[str, Any] = {"format": "json"}
     else:
         download_path = Path(
             f"/tmp/taxondbbuilder_bold_{hashlib.sha1(prepared.query_id.encode('utf-8')).hexdigest()[:16]}.tsv"
@@ -611,7 +663,7 @@ def fetch_bold_records_for_taxon(
         rows = list(iter_document_rows_from_path(download_path, format_name))
         download_path.unlink(missing_ok=True)
 
-    normalized_rows: List[Dict[str, Any]] = []
+    normalized_rows: list[dict[str, Any]] = []
     for row in rows:
         normalized = normalize_bold_row(row, marker_keys, marker_map)
         if normalized:
@@ -628,5 +680,3 @@ def fetch_bold_records_for_taxon(
         "matched_rows": len(normalized_rows),
     }
     return normalized_rows, stats
-
-

@@ -2,12 +2,12 @@
 
 import csv
 import json
-from dataclasses import dataclass
+from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
 from string import Formatter
 from threading import Lock
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 from Bio.Data.IUPACData import ambiguous_dna_values
 
@@ -37,25 +37,25 @@ class ResolvedTaxon:
     input_value: str
     taxid: str
     scientific_name: str
-    warning: Optional[str] = None
+    warning: str | None = None
 
 
 @dataclass
 class CanonicalRecord:
     source: str
     source_record_id: str
-    accession: Optional[str]
-    processid: Optional[str]
-    sampleid: Optional[str]
-    taxon_name: Optional[str]
+    accession: str | None
+    processid: str | None
+    sampleid: str | None
+    taxon_name: str | None
     marker_key: str
-    marker_label: Optional[str]
+    marker_label: str | None
     sequence: str
-    header_values: Dict[str, str]
-    metadata: Dict[str, str]
+    header_values: dict[str, str]
+    metadata: dict[str, str]
     linked_to_ncbi: bool = False
     emitted_to_fasta: bool = True
-    skip_reason: Optional[str] = None
+    skip_reason: str | None = None
 
 
 POST_PREP_STEP_ORDER = [
@@ -73,7 +73,8 @@ PRIMER_TRIM_MODES = {
     PRIMER_TRIM_MODE_ONE_END_MARK_ONLY,
 }
 
-def build_source_merge_row(record: CanonicalRecord, header: str = "") -> Dict[str, str]:
+
+def build_source_merge_row(record: CanonicalRecord, header: str = "") -> dict[str, str]:
     return {
         "source": record.source,
         "source_record_id": record.source_record_id,
@@ -91,7 +92,7 @@ def build_source_merge_row(record: CanonicalRecord, header: str = "") -> Dict[st
     }
 
 
-def canonical_record_sort_key(record: CanonicalRecord) -> Tuple[str, str, str]:
+def canonical_record_sort_key(record: CanonicalRecord) -> tuple[str, str, str]:
     return (
         record.taxon_name or "",
         record.marker_key,
@@ -99,54 +100,28 @@ def canonical_record_sort_key(record: CanonicalRecord) -> Tuple[str, str, str]:
     )
 
 
-def canonical_record_to_dict(record: CanonicalRecord) -> Dict[str, Any]:
-    return {
-        "source": record.source,
-        "source_record_id": record.source_record_id,
-        "accession": record.accession,
-        "processid": record.processid,
-        "sampleid": record.sampleid,
-        "taxon_name": record.taxon_name,
-        "marker_key": record.marker_key,
-        "marker_label": record.marker_label,
-        "sequence": record.sequence,
-        "header_values": record.header_values,
-        "metadata": record.metadata,
-        "linked_to_ncbi": record.linked_to_ncbi,
-        "emitted_to_fasta": record.emitted_to_fasta,
-        "skip_reason": record.skip_reason,
-    }
+def canonical_record_to_dict(record: CanonicalRecord) -> dict[str, Any]:
+    return asdict(record)
 
 
-def canonical_record_from_dict(data: Dict[str, Any]) -> CanonicalRecord:
-    return CanonicalRecord(
-        source=str(data.get("source", "")),
-        source_record_id=str(data.get("source_record_id", "")),
-        accession=data.get("accession"),
-        processid=data.get("processid"),
-        sampleid=data.get("sampleid"),
-        taxon_name=data.get("taxon_name"),
-        marker_key=str(data.get("marker_key", "")),
-        marker_label=data.get("marker_label"),
-        sequence=str(data.get("sequence", "")),
-        header_values=dict(data.get("header_values") or {}),
-        metadata=dict(data.get("metadata") or {}),
-        linked_to_ncbi=bool(data.get("linked_to_ncbi", False)),
-        emitted_to_fasta=bool(data.get("emitted_to_fasta", True)),
-        skip_reason=data.get("skip_reason"),
-    )
+def canonical_record_from_dict(data: dict[str, Any]) -> CanonicalRecord:
+    return CanonicalRecord(**data)
 
 
-def append_records_to_spool(records: List[CanonicalRecord], spool_f, lock: Lock) -> None:
+def append_records_to_spool(
+    records: list[CanonicalRecord], spool_f, lock: Lock
+) -> None:
     if not records:
         return
     with lock:
         for record in records:
-            spool_f.write(json.dumps(canonical_record_to_dict(record), ensure_ascii=False) + "\n")
+            spool_f.write(
+                json.dumps(canonical_record_to_dict(record), ensure_ascii=False) + "\n"
+            )
 
 
-def load_records_from_spool(spool_path: Path) -> List[CanonicalRecord]:
-    records: List[CanonicalRecord] = []
+def load_records_from_spool(spool_path: Path) -> list[CanonicalRecord]:
+    records: list[CanonicalRecord] = []
     if not spool_path.exists():
         return records
     with spool_path.open("r", encoding="utf-8") as in_f:
@@ -158,7 +133,7 @@ def load_records_from_spool(spool_path: Path) -> List[CanonicalRecord]:
     return records
 
 
-def write_source_merge_csv(fasta_path: Path, rows: List[Dict[str, str]]) -> Path:
+def write_source_merge_csv(fasta_path: Path, rows: list[dict[str, str]]) -> Path:
     merge_path = fasta_path.with_suffix(fasta_path.suffix + ".source_merge.csv")
     sorted_rows = sorted(
         rows,
@@ -191,4 +166,3 @@ def write_source_merge_csv(fasta_path: Path, rows: List[Dict[str, str]]) -> Path
         writer.writeheader()
         writer.writerows(sorted_rows)
     return merge_path
-

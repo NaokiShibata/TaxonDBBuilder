@@ -1,34 +1,15 @@
 """Typer application and build orchestration."""
 
-import io
-import json
-import logging
-import os
-import re
-import subprocess
 import tempfile
-import time
-import csv
-import hashlib
-import shutil
-import sys
-from contextlib import contextmanager, redirect_stderr, redirect_stdout
+from collections.abc import Iterable
 from dataclasses import dataclass, field
-from datetime import date, datetime
-from http import HTTPStatus
-from http.client import HTTPException, RemoteDisconnected
+from datetime import datetime
 from pathlib import Path
 from queue import Queue
-from string import Formatter
 from threading import Event, Lock, Thread
-from typing import Any, Dict, Iterable, List, Optional, Tuple
-from urllib.error import HTTPError, URLError
+from typing import Any
 
 import typer
-from Bio import Entrez, SeqIO
-from Bio.Seq import Seq
-from rich.console import Console
-from rich.panel import Panel
 from rich.progress import (
     BarColumn,
     MofNCompleteColumn,
@@ -39,18 +20,62 @@ from rich.progress import (
 )
 from rich.table import Table
 
-from .models import *
-from .console import *
-from .logging_utils import *
-from .headers import *
-from .markers import *
-from .config import *
-from .fasta import *
-from .postprep.length_filter import *
-from .postprep.primer_trim import *
-from .postprep.duplicates import *
-from .ncbi import *
-from .bold import *
+from .bold import process_bold_taxon_to_spool
+from .config import (
+    BUILTIN_PRIMER_SETS,
+    combine_primer_set_sequences,
+    load_config,
+    load_primer_sets_from_file,
+    resolve_support_file_path,
+    tomllib,
+)
+from .console import console, print_header, render_result_table, render_run_table
+from .fasta import emit_records_to_fasta
+from .headers import resolve_header_format
+from .logging_utils import (
+    close_run_logger,
+    setup_run_logger,
+    tee_console_output,
+)
+from .markers import (
+    build_marker_query,
+    build_region_patterns,
+    compile_patterns,
+    normalize_marker_map,
+    resolve_marker_key,
+)
+from .models import (
+    DEFAULT_FEATURE_FIELDS,
+    DEFAULT_FEATURE_TYPES,
+    POST_PREP_STEP_ORDER,
+    PRIMER_TRIM_MODE_ONE_OR_BOTH,
+    BuildSource,
+    PostPrepStep,
+    ResolvedTaxon,
+    append_records_to_spool,
+    canonical_record_sort_key,
+    load_records_from_spool,
+    write_source_merge_csv,
+)
+from .ncbi import (
+    build_query,
+    default_delay,
+    extract_ncbi_records_from_genbank_chunk,
+    fetch_genbank,
+    iter_genbank_files,
+    resolve_taxon,
+    setup_entrez,
+)
+from .bold_api import (
+    BoldApiError,
+    prepare_bold_query,
+)
+from .postprep.duplicates import (
+    write_acc_organism_mapping_csv,
+    write_duplicate_acc_reports_csv,
+)
+from .postprep.length_filter import apply_post_prep_length_filter
+from .postprep.primer_trim import apply_post_prep_primer_trim
 
 app = typer.Typer(
     add_completion=False,
@@ -60,46 +85,46 @@ app = typer.Typer(
 
 @dataclass
 class _BuildContext:
-    cfg: Dict[str, Any]
+    cfg: dict[str, Any]
     config: Path
     source: BuildSource
-    taxon: List[str]
-    taxids: List[str]
-    resolved_taxa: List[ResolvedTaxon]
-    marker_keys: List[str]
+    taxon: list[str]
+    taxids: list[str]
+    resolved_taxa: list[ResolvedTaxon]
+    marker_keys: list[str]
     marker_query: str
-    marker_rules: List[Dict[str, Any]]
-    marker_map: Dict[str, Dict[str, Any]]
-    output_cfg: Dict[str, Any]
-    selected_header_formats: List[str]
-    ncbi_cfg: Dict[str, Any]
-    filters_cfg: Dict[str, Any]
+    marker_rules: list[dict[str, Any]]
+    marker_map: dict[str, dict[str, Any]]
+    output_cfg: dict[str, Any]
+    selected_header_formats: list[str]
+    ncbi_cfg: dict[str, Any]
+    filters_cfg: dict[str, Any]
     taxon_noexp: bool
     output_prefix: str
     out_path: Path
     log_path: Path
-    dump_gb: Optional[Path]
-    from_gb: Optional[Path]
+    dump_gb: Path | None
+    from_gb: Path | None
     resume: bool
     dry_run: bool
     workers: int
     uses_ncbi: bool
     uses_bold: bool
-    warnings: List[str]
+    warnings: list[str]
     post_prep: bool
-    post_prep_steps_run: List[str]
+    post_prep_steps_run: list[str]
     has_length_filter: bool
     has_primer_trim: bool
-    post_min: Optional[int]
-    post_max: Optional[int]
-    post_primer_forward: List[str]
-    post_primer_reverse: List[str]
-    post_primer_file: Optional[str]
-    post_primer_set_names: List[str]
-    post_primer_trim_options: Dict[str, Any]
+    post_min: int | None
+    post_max: int | None
+    post_primer_forward: list[str]
+    post_primer_reverse: list[str]
+    post_primer_file: str | None
+    post_primer_set_names: list[str]
+    post_primer_trim_options: dict[str, Any]
     run_logger: Any = None
     lock: Lock = field(default_factory=Lock)
-    counters: Dict[str, int] = field(
+    counters: dict[str, int] = field(
         default_factory=lambda: {
             "total_records": 0,
             "matched_records": 0,
@@ -109,17 +134,17 @@ class _BuildContext:
             "duplicated_diff": 0,
         }
     )
-    acc_to_seqs: Dict[str, set] = field(default_factory=dict)
-    dup_accessions: Dict[str, int] = field(default_factory=dict)
-    emitted_records: List[Dict[str, str]] = field(default_factory=list)
-    source_merge_rows: List[Dict[str, str]] = field(default_factory=list)
-    progress: Optional[Progress] = None
+    acc_to_seqs: dict[str, set] = field(default_factory=dict)
+    dup_accessions: dict[str, int] = field(default_factory=dict)
+    emitted_records: list[dict[str, str]] = field(default_factory=list)
+    source_merge_rows: list[dict[str, str]] = field(default_factory=list)
+    progress: Progress | None = None
 
 
 def build_output_path(
-    out: Optional[Path],
-    taxids: List[str],
-    markers: List[str],
+    out: Path | None,
+    taxids: list[str],
+    markers: list[str],
     output_prefix: str = "",
 ) -> Path:
     run_date = datetime.now().strftime("%Y%m%d")
@@ -141,11 +166,11 @@ def build_output_path(
 
 
 def _build_marker_rules(
-    marker_keys: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-    output_cfg: Dict[str, Any],
+    marker_keys: list[str],
+    marker_map: dict[str, dict[str, Any]],
+    output_cfg: dict[str, Any],
     uses_ncbi: bool,
-) -> Tuple[List[str], List[Dict[str, Any]]]:
+) -> tuple[list[str], list[dict[str, Any]]]:
     selected_header_formats = _collect_marker_header_formats(
         marker_keys, marker_map, output_cfg
     )
@@ -159,16 +184,16 @@ def _build_marker_rules(
 
 
 def _collect_marker_header_formats(
-    marker_keys: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-    output_cfg: Dict[str, Any],
-) -> List[str]:
+    marker_keys: list[str],
+    marker_map: dict[str, dict[str, Any]],
+    output_cfg: dict[str, Any],
+) -> list[str]:
     return [resolve_header_format(marker_map[key], output_cfg) for key in marker_keys]
 
 
 def _build_ncbi_marker_rule(
-    key: str, cfg_m: Dict[str, Any], header_format: str
-) -> Dict[str, Any]:
+    key: str, cfg_m: dict[str, Any], header_format: str
+) -> dict[str, Any]:
     region_patterns = build_region_patterns(cfg_m)
     if not region_patterns:
         raise typer.BadParameter(
@@ -303,8 +328,8 @@ def _initialize_build_runtime(ctx: _BuildContext) -> None:
 def _process_ncbi_chunks(
     ctx: _BuildContext,
     taxid: str,
-    count: Optional[int],
-    data_iter: Iterable[Tuple[int, str]],
+    count: int | None,
+    data_iter: Iterable[tuple[int, str]],
     spool_f: Any,
     task_id: int,
 ) -> None:
@@ -312,7 +337,7 @@ def _process_ncbi_chunks(
         raise typer.BadParameter("--workers must be >= 1.")
     queue: Queue = Queue(maxsize=max(1, ctx.workers * 2))
     stop_event = Event()
-    errors: List[Exception] = []
+    errors: list[Exception] = []
 
     def worker() -> None:
         while True:
@@ -392,7 +417,11 @@ def _run_ncbi_stage(ctx: _BuildContext, spool_f: Any) -> None:
         _process_ncbi_chunks(ctx, taxid, count, data_iter, spool_f, task_id)
 
 
-def _run_bold_stage(ctx: _BUildContext, spool_f: Any, spool_dir: Path) -> None:
+def _run_bold_stage(
+    ctx: _BuildContext,
+    spool_f: Any,
+    spool_dir: Path,
+) -> None:
     if not ctx.uses_bold:
         return
 
@@ -402,26 +431,27 @@ def _run_bold_stage(ctx: _BUildContext, spool_f: Any, spool_dir: Path) -> None:
         scientific_name = resolved_taxon.scientific_name
 
         try:
-            # Notify the GUI of the start of BOLD query preprocessing.
-            ctx.run_lopgger.info(
+            ctx.run_logger.info(
                 f"# bold progress: taxon={scientific_name} phase=preprocess"
             )
 
-            prepared_query = prepare_bold_query(scientific_name, ctx.cfg.get("bold"))
+            prepared_query = prepare_bold_query(
+                scientific_name,
+                ctx.cfg.get("bold"),
+            )
 
             specimen_count = prepared_query.specimen_count or 0
 
-            # Notify the GUI that the number of search target items has been determined.
             ctx.run_logger.info(
-                f"# bold progerss: taxon={scientific_name}"
-                f"phase=summary speciments={specimen_count}"
+                f"# bold progress: taxon={scientific_name} "
+                f"phase=summary specimens={specimen_count}"
             )
 
             if specimen_count > 0:
-                # Notify the transition to the BOLD document query.
                 ctx.run_logger.info(
-                    f"# bold progerss: taxon={scientific_name}phase=query"
+                    f"# bold progress: taxon={scientific_name} phase=query"
                 )
+
             process_bold_taxon_to_spool(
                 resolved_taxon,
                 prepared_query,
@@ -614,91 +644,17 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         )
 
 
-def _run_build_pipeline(
-    *,
-    cfg: Dict[str, Any],
-    config: Path,
-    source: BuildSource,
-    taxon: List[str],
-    taxids: List[str],
-    resolved_taxa: List[ResolvedTaxon],
-    marker_keys: List[str],
-    marker_query: str,
-    marker_rules: List[Dict[str, Any]],
-    marker_map: Dict[str, Dict[str, Any]],
-    output_cfg: Dict[str, Any],
-    selected_header_formats: List[str],
-    ncbi_cfg: Dict[str, Any],
-    filters_cfg: Dict[str, Any],
-    taxon_noexp: bool,
-    output_prefix: str,
-    out_path: Path,
-    log_path: Path,
-    dump_gb: Optional[Path],
-    from_gb: Optional[Path],
-    resume: bool,
-    dry_run: bool,
-    workers: int,
-    uses_ncbi: bool,
-    uses_bold: bool,
-    warnings: List[str],
-    post_prep: bool,
-    post_prep_steps_run: List[str],
-    has_length_filter: bool,
-    has_primer_trim: bool,
-    post_min: Optional[int],
-    post_max: Optional[int],
-    post_primer_forward: List[str],
-    post_primer_reverse: List[str],
-    post_primer_file: Optional[str],
-    post_primer_set_names: List[str],
-    post_primer_trim_options: Dict[str, Any],
-) -> None:
-    run_logger = setup_run_logger(log_path)
-    ctx = _BuildContext(
-        cfg=cfg,
-        config=config,
-        source=source,
-        taxon=taxon,
-        taxids=taxids,
-        resolved_taxa=resolved_taxa,
-        marker_keys=marker_keys,
-        marker_query=marker_query,
-        marker_rules=marker_rules,
-        marker_map=marker_map,
-        output_cfg=output_cfg,
-        selected_header_formats=selected_header_formats,
-        ncbi_cfg=ncbi_cfg,
-        filters_cfg=filters_cfg,
-        taxon_noexp=taxon_noexp,
-        output_prefix=output_prefix,
-        out_path=out_path,
-        log_path=log_path,
-        dump_gb=dump_gb,
-        from_gb=from_gb,
-        resume=resume,
-        dry_run=dry_run,
-        workers=workers,
-        uses_ncbi=uses_ncbi,
-        uses_bold=uses_bold,
-        warnings=warnings,
-        post_prep=post_prep,
-        post_prep_steps_run=post_prep_steps_run,
-        has_length_filter=has_length_filter,
-        has_primer_trim=has_primer_trim,
-        post_min=post_min,
-        post_max=post_max,
-        post_primer_forward=post_primer_forward,
-        post_primer_reverse=post_primer_reverse,
-        post_primer_file=post_primer_file,
-        post_primer_set_names=post_primer_set_names,
-        post_primer_trim_options=post_primer_trim_options,
-        run_logger=run_logger,
-    )
-    try:
-        with tee_console_output(log_path):
+def _run_build_pipeline(**context_fields: Any) -> None:
+    ctx = _BuildContext(**context_fields)
+
+    with tee_console_output(ctx.log_path) as log_stream:
+        run_logger = setup_run_logger(log_stream)
+        ctx.run_logger = run_logger
+
+        try:
             if _show_build_plan(ctx):
                 return
+
             _initialize_build_runtime(ctx)
 
             with tempfile.TemporaryDirectory(
@@ -706,14 +662,18 @@ def _run_build_pipeline(
             ) as spool_dir_name:
                 spool_dir = Path(spool_dir_name)
                 _run_source_stages(ctx, spool_dir)
-            source_merge_path = write_source_merge_csv(
-                ctx.out_path, ctx.source_merge_rows
-            )
-            ctx.run_logger.info(f"# source_merge_csv: {source_merge_path}")
-            _run_post_prep(ctx)
-            _show_build_result(ctx, source_merge_path)
-    finally:
-        close_run_logger(run_logger)
+
+                source_merge_path = write_source_merge_csv(
+                    ctx.out_path,
+                    ctx.source_merge_rows,
+                )
+
+                ctx.run_logger.info(f"# source_merge_csv: {source_merge_path}")
+
+                _run_post_prep(ctx)
+                _show_build_result(ctx, source_merge_path)
+        finally:
+            close_run_logger(run_logger)
 
 
 @app.command("list-markers")
@@ -777,7 +737,7 @@ def list_primer_sets(
     console.print(table)
 
 
-def _resolve_build_configuration(config: Path, source: BuildSource) -> Dict[str, Any]:
+def _resolve_build_configuration(config: Path, source: BuildSource) -> dict[str, Any]:
     cfg = load_config(config, source=source)
     ncbi_cfg = cfg.get("ncbi", {})
     uses_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
@@ -799,12 +759,12 @@ def _resolve_build_configuration(config: Path, source: BuildSource) -> Dict[str,
 
 
 def _resolve_build_markers(
-    marker: List[str],
-    marker_map: Dict[str, Dict[str, Any]],
-    output_cfg: Dict[str, Any],
+    marker: list[str],
+    marker_map: dict[str, dict[str, Any]],
+    output_cfg: dict[str, Any],
     uses_ncbi: bool,
     output_prefix: str,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     marker_keys = [resolve_marker_key(value, marker_map) for value in marker]
     selected_header_formats, marker_rules = _build_marker_rules(
         marker_keys, marker_map, output_cfg, uses_ncbi
@@ -821,11 +781,11 @@ def _resolve_build_markers(
 
 
 def _normalize_post_prep_requests(
-    post_prep_step: Optional[List[PostPrepStep]],
-    post_prep_primer_set: Optional[List[str]],
-) -> Tuple[List[str], List[str]]:
+    post_prep_step: list[PostPrepStep] | None,
+    post_prep_primer_set: list[str] | None,
+) -> tuple[list[str], list[str]]:
     requested_steps = [step.value for step in (post_prep_step or [])]
-    requested_sets: List[str] = []
+    requested_sets: list[str] = []
     for value in post_prep_primer_set or []:
         name = value.strip()
         if not name:
@@ -838,8 +798,8 @@ def _normalize_post_prep_requests(
 
 
 def _build_post_prep_trim_options(
-    post_prep_cfg: Dict[str, Any], enabled: bool
-) -> Dict[str, Any]:
+    post_prep_cfg: dict[str, Any], enabled: bool
+) -> dict[str, Any]:
     return {
         "trim_mode": post_prep_cfg.get(
             "primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH
@@ -873,10 +833,10 @@ def _build_post_prep_trim_options(
 
 
 def _resolve_post_prep_primers(
-    post_prep_cfg: Dict[str, Any],
-    requested_sets: List[str],
+    post_prep_cfg: dict[str, Any],
+    requested_sets: list[str],
     config: Path,
-) -> Tuple[List[str], List[str], Optional[str], List[str]]:
+) -> tuple[list[str], list[str], str | None, list[str]]:
     forward = list(post_prep_cfg.get("_primer_forward") or [])
     reverse = list(post_prep_cfg.get("_primer_reverse") or [])
     primer_file = post_prep_cfg.get("_primer_file_resolved") or post_prep_cfg.get(
@@ -892,26 +852,24 @@ def _resolve_post_prep_primers(
                 str(value).strip() for value in configured if str(value).strip()
             ]
     if requested_sets:
-        if not primer_file:
-            raise typer.BadParameter(
-                "--post-prep-primer-set requires [post_prep].primer_file in config."
-            )
-        primer_path = resolve_support_file_path(str(primer_file), config, "Primer file")
-        forward, reverse = combine_primer_set_sequences(
-            load_primer_sets_from_file(primer_path), requested_sets
-        )
-        primer_file, set_names = str(primer_path), requested_sets
+        primer_sets_data = dict(BUILTIN_PRIMER_SETS)
+        if primer_file:
+            primer_path = resolve_support_file_path(str(primer_file), config, "Primer file")
+            primer_sets_data.update(load_primer_sets_from_file(primer_path))
+            primer_file = str(primer_path)
+        forward, reverse = combine_primer_set_sequences(primer_sets_data, requested_sets)
+        set_names = requested_sets
     return forward, reverse, primer_file, set_names
 
 
 def _resolve_post_prep_options(
     post_prep: bool,
-    post_prep_step: Optional[List[PostPrepStep]],
-    post_prep_primer_set: Optional[List[str]],
-    post_prep_cfg: Dict[str, Any],
+    post_prep_step: list[PostPrepStep] | None,
+    post_prep_primer_set: list[str] | None,
+    post_prep_cfg: dict[str, Any],
     config: Path,
     source: BuildSource,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     requested_steps, requested_sets = _normalize_post_prep_requests(
         post_prep_step, post_prep_primer_set
     )
@@ -977,17 +935,17 @@ def _resolve_post_prep_options(
 def _resolve_build_targets(
     config: Path,
     source: BuildSource,
-    taxon: List[str],
+    taxon: list[str],
     uses_bold: bool,
-    out: Optional[Path],
-    marker_keys: List[str],
+    out: Path | None,
+    marker_keys: list[str],
     output_prefix: str,
-    dump_gb: Optional[Path],
-    from_gb: Optional[Path],
+    dump_gb: Path | None,
+    from_gb: Path | None,
     resume: bool,
-) -> Dict[str, Any]:
-    resolved_taxa: List[ResolvedTaxon] = []
-    warnings: List[str] = []
+) -> dict[str, Any]:
+    resolved_taxa: list[ResolvedTaxon] = []
+    warnings: list[str] = []
     for value in taxon:
         resolved = resolve_taxon(value, require_scientific_name=uses_bold)
         resolved_taxa.append(resolved)
@@ -1019,10 +977,10 @@ def build(
     config: Path = typer.Option(
         ..., "--config", "-c", help="Path to TOML config file."
     ),
-    taxon: List[str] = typer.Option(
+    taxon: list[str] = typer.Option(
         ..., "--taxon", "-t", help="Taxon (taxid or scientific name)."
     ),
-    marker: List[str] = typer.Option(
+    marker: list[str] = typer.Option(
         ..., "--marker", "-m", help="Marker key or prefix."
     ),
     source: BuildSource = typer.Option(
@@ -1030,15 +988,15 @@ def build(
         "--source",
         help="Sequence source: ncbi, bold, or both.",
     ),
-    out: Optional[Path] = typer.Option(
+    out: Path | None = typer.Option(
         None, "--out", "-o", help="Output file or directory."
     ),
-    dump_gb: Optional[Path] = typer.Option(
+    dump_gb: Path | None = typer.Option(
         None,
         "--dump-gb",
         help="Directory to store GenBank chunks for caching.",
     ),
-    from_gb: Optional[Path] = typer.Option(
+    from_gb: Path | None = typer.Option(
         None,
         "--from-gb",
         help="Directory of GenBank chunks to extract without downloading.",
@@ -1060,7 +1018,7 @@ def build(
         "--post-prep",
         help="Apply [post_prep] FASTA processing after extraction.",
     ),
-    post_prep_step: Optional[List[PostPrepStep]] = typer.Option(
+    post_prep_step: list[PostPrepStep] | None = typer.Option(
         None,
         "--post-prep-step",
         help=(
@@ -1068,7 +1026,7 @@ def build(
             "Choices: primer_trim, length_filter, duplicate_report."
         ),
     ),
-    post_prep_primer_set: Optional[List[str]] = typer.Option(
+    post_prep_primer_set: list[str] | None = typer.Option(
         None,
         "--post-prep-primer-set",
         help="Primer set name(s) for primer_trim. Repeat to select multiple (overrides config).",
