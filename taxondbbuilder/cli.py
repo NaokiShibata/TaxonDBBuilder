@@ -75,6 +75,7 @@ from .postprep.duplicates import (
     write_duplicate_acc_reports_csv,
 )
 from .postprep.length_filter import apply_post_prep_length_filter
+from .postprep.phylo import apply_post_prep_msa_tree
 from .postprep.primer_trim import apply_post_prep_primer_trim
 
 app = typer.Typer(
@@ -115,6 +116,7 @@ class _BuildContext:
     post_prep_steps_run: list[str]
     has_length_filter: bool
     has_primer_trim: bool
+    has_msa_tree: bool
     post_min: int | None
     post_max: int | None
     post_primer_forward: list[str]
@@ -122,6 +124,7 @@ class _BuildContext:
     post_primer_file: str | None
     post_primer_set_names: list[str]
     post_primer_trim_options: dict[str, Any]
+    post_msa_tree_options: dict[str, Any]
     run_logger: Any = None
     lock: Lock = field(default_factory=Lock)
     counters: dict[str, int] = field(
@@ -277,6 +280,11 @@ def _log_build_inputs(ctx: _BuildContext) -> None:
             logger.info(f"# post_prep.sequence_length_min: {ctx.post_min}")
         if ctx.post_max is not None:
             logger.info(f"# post_prep.sequence_length_max: {ctx.post_max}")
+    if ctx.post_prep and ctx.has_msa_tree:
+        options = ctx.post_msa_tree_options
+        logger.info(f"# post_prep.msa_tree_min_taxa: {options['min_taxa']}")
+        logger.info(f"# post_prep.msa_tree_max_samples: {options['max_samples']}")
+        logger.info(f"# post_prep.msa_tree_model: {options['model']}")
 
 
 def _log_primer_inputs(ctx: _BuildContext) -> None:
@@ -585,6 +593,17 @@ def _run_duplicate_post_prep(ctx: _BuildContext) -> None:
         console.print(f"post_prep duplicate ACC groups CSV: {groups_path}")
 
 
+def _run_msa_tree_post_prep(ctx: _BuildContext) -> None:
+    if PostPrepStep.MSA_TREE.value not in ctx.post_prep_steps_run:
+        return
+    stats = apply_post_prep_msa_tree(ctx.out_path, ctx.post_msa_tree_options)
+    ctx.run_logger.info(
+        "# post_prep msa_tree:"
+        f" status={stats['status']} taxa={stats['taxa_count']}"
+        f" msa={stats['msa_path'] or 'none'} tree={stats['tree_path'] or 'none'}"
+    )
+
+
 def _run_post_prep(ctx: _BuildContext) -> None:
     if not ctx.post_prep:
         return
@@ -593,6 +612,7 @@ def _run_post_prep(ctx: _BuildContext) -> None:
     _run_primer_post_prep(ctx)
     _run_length_post_prep(ctx)
     _run_duplicate_post_prep(ctx)
+    _run_msa_tree_post_prep(ctx)
 
 
 def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
@@ -832,6 +852,16 @@ def _build_post_prep_trim_options(
     }
 
 
+def _build_post_prep_msa_tree_options(
+    post_prep_cfg: dict[str, Any],
+) -> dict[str, Any]:
+    return {
+        "min_taxa": int(post_prep_cfg.get("msa_tree_min_taxa", 3)),
+        "max_samples": int(post_prep_cfg.get("msa_tree_max_samples", 500)),
+        "model": post_prep_cfg.get("msa_tree_model", "GTR+G"),
+    }
+
+
 def _resolve_post_prep_primers(
     post_prep_cfg: dict[str, Any],
     requested_sets: list[str],
@@ -883,6 +913,7 @@ def _resolve_post_prep_options(
             "post_prep_steps_run": [],
             "has_length_filter": False,
             "has_primer_trim": False,
+            "has_msa_tree": False,
             "post_min": None,
             "post_max": None,
             "post_primer_forward": [],
@@ -890,6 +921,7 @@ def _resolve_post_prep_options(
             "post_primer_file": None,
             "post_primer_set_names": [],
             "post_primer_trim_options": _build_post_prep_trim_options({}, False),
+            "post_msa_tree_options": _build_post_prep_msa_tree_options({}),
         }
 
     post_min = post_prep_cfg.get("sequence_length_min")
@@ -899,6 +931,7 @@ def _resolve_post_prep_options(
         post_prep_cfg, requested_sets, config
     )
     has_primer_trim = bool(forward and reverse)
+    has_msa_tree = bool(post_prep_cfg.get("msa_tree_enable"))
     if PostPrepStep.PRIMER_TRIM.value in requested_steps and not has_primer_trim:
         raise typer.BadParameter(
             "post-prep step 'primer_trim' requires post_prep.primer_set (post_prep.primer_file is only needed for a custom, non-built-in primer set)."
@@ -906,6 +939,10 @@ def _resolve_post_prep_options(
     if PostPrepStep.LENGTH_FILTER.value in requested_steps and not has_length_filter:
         raise typer.BadParameter(
             "post-prep step 'length_filter' requires post_prep.sequence_length_min or sequence_length_max."
+        )
+    if PostPrepStep.MSA_TREE.value in requested_steps and not has_msa_tree:
+        raise typer.BadParameter(
+            "post-prep step 'msa_tree' requires post_prep.msa_tree_enable = true."
         )
     if requested_steps:
         steps_run = [step for step in POST_PREP_STEP_ORDER if step in requested_steps]
@@ -917,11 +954,14 @@ def _resolve_post_prep_options(
             steps_run.append(PostPrepStep.LENGTH_FILTER.value)
         if source != BuildSource.BOTH:
             steps_run.append(PostPrepStep.DUPLICATE_REPORT.value)
+        if has_msa_tree:
+            steps_run.append(PostPrepStep.MSA_TREE.value)
     return {
         "post_prep": True,
         "post_prep_steps_run": steps_run,
         "has_length_filter": has_length_filter,
         "has_primer_trim": has_primer_trim,
+        "has_msa_tree": has_msa_tree,
         "post_min": int(post_min) if post_min is not None else None,
         "post_max": int(post_max) if post_max is not None else None,
         "post_primer_forward": forward,
@@ -929,6 +969,7 @@ def _resolve_post_prep_options(
         "post_primer_file": primer_file,
         "post_primer_set_names": set_names,
         "post_primer_trim_options": _build_post_prep_trim_options(post_prep_cfg, True),
+        "post_msa_tree_options": _build_post_prep_msa_tree_options(post_prep_cfg),
     }
 
 
@@ -1023,7 +1064,7 @@ def build(
         "--post-prep-step",
         help=(
             "Post-prep step(s) to run. Repeat to select multiple. "
-            "Choices: primer_trim, length_filter, duplicate_report."
+            "Choices: primer_trim, length_filter, duplicate_report, msa_tree."
         ),
     ),
     post_prep_primer_set: list[str] | None = typer.Option(

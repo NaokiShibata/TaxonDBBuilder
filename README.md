@@ -182,11 +182,16 @@ file = "configs/markers_mitogenome.toml"
 # パラメータは有効化するカテゴリに応じて指定します
 # - length_filter: sequence_length_min または sequence_length_max
 # - primer_trim: primer_file + primer_set
+# - msa_tree: msa_tree_enable = true
 # sequence_length_min = 120
 # sequence_length_max = 300
 # primer_file = "configs/primers.toml"
 # primer_set = "mifish_12s"
 # primer_set = ["mifish_12s", "mifish_ev2"]
+# msa_tree_enable = false
+# msa_tree_min_taxa = 3
+# msa_tree_max_samples = 500
+# msa_tree_model = "GTR+G"
 ```
 
 ### 検索・抽出の考え方
@@ -372,7 +377,7 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 | `--resume` | なし | キャッシュを優先して利用 |
 | `--dry-run` | なし | 実際の取得・抽出を行わず、生成されるNCBIクエリのみ表示 |
 | `--post-prep` | `db.toml` の `[post_prep]` | 生成FASTAに後処理を有効化 |
-| `--post-prep-step` | `db.toml` の `[post_prep]` | 実行する後処理カテゴリを選択 (`primer_trim` / `length_filter` / `duplicate_report`) |
+| `--post-prep-step` | `db.toml` の `[post_prep]` | 実行する後処理カテゴリを選択 (`primer_trim` / `length_filter` / `duplicate_report` / `msa_tree`) |
 | `--post-prep-primer-set` | `[post_prep].primer_file` | primer_trim で使う primer_set をCLIから指定 (複数可・config上書き) |
 
 ### 具体例 (設定とコマンドの対応)
@@ -493,6 +498,7 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
   - `primer_trim` (primer設定がある場合)
   - `length_filter` (length設定がある場合)
   - `duplicate_report` (常に実行)
+  - `msa_tree` (`msa_tree_enable = true` の場合、最後に実行)
 - `--post-prep-step` を指定した場合、指定カテゴリのみ実行
 - `[post_prep].primer_file + primer_set` 指定時、`primer_trim` カテゴリで primer trim を適用
 - `primer_set` は文字列または文字列配列で指定可能
@@ -502,6 +508,7 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
   - 逆向き配列も考慮し、`reverse`(5') + `forward`逆相補(3') の組み合わせも判定
   - IUPAC塩基 (`R`, `Y`, `N` など) を利用可能
 - `[post_prep].sequence_length_min/max` 指定時、`length_filter` カテゴリで配列長フィルタを適用
+- `[post_prep].msa_tree_enable = true` 指定時、MAFFTによるMSA (`*.msa.fasta`) とIQ-TREEによるNewick系統樹 (`*.tree.nwk`) を出力
 - FASTAヘッダーテンプレートに `{acc_id}` と `{organism_raw}` (または `{organism}`) が含まれる場合、同一配列の重複情報を以下に出力
 - `*.fasta.duplicate_acc.records.csv` (1レコード=1行の詳細)
 - `*.fasta.duplicate_acc.groups.csv` (重複グループの集約。`cross_organism_duplicate` を含む)

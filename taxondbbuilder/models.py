@@ -24,6 +24,7 @@ class PostPrepStep(str, Enum):
     PRIMER_TRIM = "primer_trim"
     LENGTH_FILTER = "length_filter"
     DUPLICATE_REPORT = "duplicate_report"
+    MSA_TREE = "msa_tree"
 
 
 class BuildSource(str, Enum):
@@ -62,6 +63,7 @@ POST_PREP_STEP_ORDER = [
     PostPrepStep.PRIMER_TRIM.value,
     PostPrepStep.LENGTH_FILTER.value,
     PostPrepStep.DUPLICATE_REPORT.value,
+    PostPrepStep.MSA_TREE.value,
 ]
 
 PRIMER_TRIM_MODE_BOTH_REQUIRED = "both_required"

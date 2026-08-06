@@ -273,6 +273,33 @@ def _parse_primer_reporting_options(post_prep: dict[str, Any]) -> dict[str, str]
     }
 
 
+def _parse_msa_tree_options(post_prep: dict[str, Any]) -> dict[str, Any]:
+    model_raw = post_prep.get("msa_tree_model", "GTR+G")
+    if not isinstance(model_raw, str) or not model_raw.strip():
+        raise typer.BadParameter("post_prep.msa_tree_model must be a non-empty string.")
+    min_taxa = _parse_int_option(
+        "post_prep.msa_tree_min_taxa", post_prep.get("msa_tree_min_taxa", 3), 0
+    )
+    max_samples = _parse_int_option(
+        "post_prep.msa_tree_max_samples",
+        post_prep.get("msa_tree_max_samples", 500),
+        0,
+    )
+    if min_taxa > max_samples:
+        raise typer.BadParameter(
+            "post_prep.msa_tree_min_taxa must be <= post_prep.msa_tree_max_samples."
+        )
+    return {
+        "enable": _parse_bool_option(
+            "post_prep.msa_tree_enable",
+            post_prep.get("msa_tree_enable", False),
+        ),
+        "min_taxa": min_taxa,
+        "max_samples": max_samples,
+        "model": model_raw.strip(),
+    }
+
+
 def _normalize_primer_trim_config(post_prep: dict[str, Any], path: Path) -> None:
     primer_file, primer_sets = _normalize_primer_selection(post_prep)
     options = _parse_primer_numeric_options(post_prep)
@@ -302,6 +329,10 @@ def _normalize_post_prep_config(post_prep: Any, path: Path) -> None:
         raise typer.BadParameter("[post_prep] must be a table (dict).")
     _normalize_length_filter_config(post_prep)
     _normalize_primer_trim_config(post_prep, path)
+    msa_tree_options = _parse_msa_tree_options(post_prep)
+    post_prep.update(
+        {f"msa_tree_{key}": value for key, value in msa_tree_options.items()}
+    )
 
 
 def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> dict:
