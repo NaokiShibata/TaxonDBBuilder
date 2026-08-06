@@ -1,5 +1,26 @@
 # Changelog
 
+## 3.2.0 (planned)
+
+### Scope
+- `main` から `refactor/modularize` を Pull Request でマージする差分を対象。
+
+### Added
+- `build` に `--source [ncbi|bold|both]` を追加。BOLD Data Portal から taxon 指定で配列を取得し、`insdcacs` と NCBI accession が完全一致する場合のみ NCBI 側を優先して統合する strict link 判定を実装。
+- BOLD 由来レコード用の `*.fasta.source_merge.csv` を追加し、`*.acc_organism.csv` に `source` / `linked_to_ncbi` / `skip_reason` 等の列を追加。
+- Post Prep 用の primer set を 8 種類 (`mifish_u`, `mideca`, `mtinsects_16s`, `mimammal_u`, `mibird_u`, `amph_16s`, `uceta`, `mifish_unity`) 追加し、Python 側にハードコードされた組み込み定義として持たせることで `primer_file` を指定せずに利用可能に。
+- GUI の Post Prep カードに primer candidates のチェックボックス (複数選択可) を追加。選択すると `primer_set` 欄に自動反映される。
+
+### Changed
+- `taxondbbuilder.py` (3,483 行の単一ファイル) を `taxondbbuilder/` パッケージへ完全分割。`taxondbbuilder.py` / `taxondb_bold.py` は互換シムとして維持。
+- GUI の build / post-prep 実行を Python sidecar (PyInstaller) 経由に一本化し、Rust 側の重複実装 (`taxondb_runner.rs` / `taxondb_post_prep.rs`) を削除。CLI と GUI が同一の Python パッケージから同一の結果を生成する。
+- GUI の Run Monitor で、ログファイルを 100ms 間隔でポーリングする `tail_log_once` が読み取りチャンクの境界で行を分断し、進捗 (%) と Metrics が更新されなくなる不具合を修正。不完全な末尾行をバイト単位でバッファし、完全な行のみを解析するように変更。
+- GUI のログ表示 (`#log-view`) の折り返しを `white-space: pre` から `pre-wrap` + `overflow-wrap: anywhere` に変更し、長い行を含め一貫して折り返すように統一。
+- Post Prep の primer_trim に関する GUI の文言・"Ready to Build?" 判定・CLI エラーメッセージを、`primer_file` が必須ではなくなったことに合わせて更新。
+
+### Fixed
+- 実行ログの書き込みをスレッドセーフな共有ストリーム経由に変更し、コンソール出力とログファイルの内容を一致させた。
+
 ## 3.0.0 (planned)
 
 ### Scope
