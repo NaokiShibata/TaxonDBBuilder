@@ -33,7 +33,7 @@ typer_rich_hiddenimports = [
     "rich.panel",
     "rich.progress",
     "rich.table",
-]
+] + collect_submodules("rich._unicode_data")
 
 # Config files, marker definitions, and primer files are selected at runtime
 # by the GUI/CLI, so they must remain external rather than being bundled.
