@@ -11,6 +11,7 @@ import {
 } from "./lib/form-utils.js";
 import { createMonitorView } from "./lib/monitor-view.js";
 import { mergeUniqueValues, parseDelimitedTokens, renderTokenPills } from "./lib/token-list.js";
+import { parseNewick, renderTreeStatus, renderTreeSVG } from "./tree-view.js";
 
 const els = {
   tabSetup: document.querySelector("#tab-setup"),
@@ -30,6 +31,8 @@ const els = {
   logs: document.querySelector("#log-view"),
   metricsList: document.querySelector("#metrics-list"),
   resultFiles: document.querySelector("#result-files"),
+  treeViewContainer: document.querySelector("#tree-view-container"),
+  treeViewStatus: document.querySelector("#tree-view-status"),
   openJobDir: document.querySelector("#open-job-dir"),
   newJob: document.querySelector("#new-job"),
   pickOutput: document.querySelector("#pick-output"),
@@ -65,6 +68,7 @@ const els = {
   filterLengthMinInput: document.querySelector("#f-length-min"),
   filterLengthMaxInput: document.querySelector("#f-length-max"),
   postEnableInput: document.querySelector("#post-enable"),
+  postMsaTreeEnableInput: document.querySelector("#postprep-msa-tree-enable"),
   primerFileInput: document.querySelector("#primer-file"),
   primerSetInput: document.querySelector("#primer-set"),
   postLengthMinInput: document.querySelector("#post-length-min"),
@@ -87,7 +91,9 @@ const els = {
 
 const state = {
   jobDir: "",
+  outputPath: "",
   files: [],
+  msaTreeStatus: "",
   unlisten: null,
   taxids: [],
   markers: [],
@@ -334,6 +340,7 @@ function applyImportedDbToml(imported) {
 
   const postPrep = imported.postPrep || {};
   els.postEnableInput.checked = Boolean(postPrep.enable);
+  els.postMsaTreeEnableInput.checked = Boolean(postPrep.msaTree);
   els.primerFileInput.value = postPrep.primerFile || "";
   els.primerSetInput.value = (postPrep.primerSet || []).join(",");
   setPrimerCandidateSelection(postPrep.primerSet);
@@ -407,6 +414,40 @@ function getSelectedPostPrepSteps() {
   return readCheckedValues(postStepEls);
 }
 
+function treePathForOutput(outputPath) {
+  if (!outputPath) return "";
+  return outputPath.toLowerCase().endsWith(".fasta")
+    ? `${outputPath.slice(0, -".fasta".length)}.tree.nwk`
+    : `${outputPath}.tree.nwk`;
+}
+
+async function renderRunTree() {
+  const collectedTreePath = state.files.find((path) =>
+    path.toLowerCase().endsWith(".tree.nwk"),
+  );
+  const treePath = collectedTreePath || treePathForOutput(state.outputPath);
+  const unavailableMessage = state.msaTreeStatus && state.msaTreeStatus !== "ok"
+    ? `系統樹は生成されませんでした（理由: ${state.msaTreeStatus}）`
+    : "系統樹は生成されませんでした。";
+
+  if (!treePath) {
+    els.treeViewStatus.textContent = "系統樹ファイルを特定できませんでした。";
+    renderTreeStatus(els.treeViewContainer, unavailableMessage);
+    return;
+  }
+
+  els.treeViewStatus.textContent = `読み込み中: ${treePath}`;
+  try {
+    const newickText = await invoke("read_text_file", { path: treePath });
+    const root = parseNewick(newickText);
+    renderTreeSVG(root, els.treeViewContainer);
+    els.treeViewStatus.textContent = treePath;
+  } catch (error) {
+    els.treeViewStatus.textContent = "系統樹ファイルを読み込めませんでした。";
+    renderTreeStatus(els.treeViewContainer, unavailableMessage);
+  }
+}
+
 function collectRequest() {
   const steps = getSelectedPostPrepSteps();
   const primerSet = parseCommaSeparatedList(els.primerSetInput.value);
@@ -429,6 +470,7 @@ function collectRequest() {
     },
     postPrep: {
       enable: els.postEnableInput.checked,
+      msaTree: els.postMsaTreeEnableInput.checked,
       primerFile: els.primerFileInput.value.trim(),
       primerSet,
       steps,
@@ -464,6 +506,10 @@ async function setupEventListener() {
 
     if (payload.eventType === "log" && payload.line) {
       monitorView.appendLog(payload.line);
+      const msaTreeMatch = payload.line.match(
+        /post_prep msa_tree: status=([a-z_]+)/,
+      );
+      if (msaTreeMatch) state.msaTreeStatus = msaTreeMatch[1];
     }
     if (payload.eventType === "status" && payload.status) {
       els.status.textContent = payload.status;
@@ -480,6 +526,7 @@ async function setupEventListener() {
       setResultsEnabled(true);
       monitorView.renderResultFiles(state.files);
       switchView("results");
+      renderRunTree();
     }
     if (payload.eventType === "error" && payload.message) {
       monitorView.appendLog(`[error] ${payload.message}`);
@@ -535,11 +582,18 @@ async function runJob() {
 
   await setupEventListener();
   monitorView.reset();
+  state.jobDir = "";
+  state.outputPath = "";
+  state.files = [];
+  state.msaTreeStatus = "";
+  els.treeViewStatus.textContent = "系統樹の生成結果を確認しています。";
+  renderTreeStatus(els.treeViewContainer, "実行完了後に系統樹を表示します。");
   setMonitorEnabled(true);
   setResultsEnabled(false);
   switchView("monitor");
 
   const resp = await invoke("start_run", { req });
+  state.outputPath = resp.outputPath || "";
   monitorView.appendLog(`job dir: ${resp.jobDir}`);
   monitorView.appendLog(`log path: ${resp.logPath}`);
 }
@@ -560,6 +614,7 @@ function resetForm() {
   els.primerFileInput.value = "";
   els.primerSetInput.value = "";
   els.postEnableInput.checked = false;
+  els.postMsaTreeEnableInput.checked = false;
   setPostPrepStepSelection([]);
   syncSourceMode();
   updateGuidanceState();
