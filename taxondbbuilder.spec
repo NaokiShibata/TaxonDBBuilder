@@ -11,6 +11,7 @@ project_root = Path(SPECPATH)
 # every package module in the archive so the spec remains correct when a
 # module is only reached through that compatibility surface.
 package_hiddenimports = collect_submodules("taxondbbuilder")
+cogent3_hiddenimports = collect_submodules("cogent3")
 
 # Biopython's format registry and data modules are used through lazy imports
 # during GenBank parsing. These imports are required by the --from-gb path.
@@ -39,6 +40,7 @@ typer_rich_hiddenimports = [
 # by the GUI/CLI, so they must remain external rather than being bundled.
 datas = []
 hiddenimports = package_hiddenimports + biopython_hiddenimports
+hiddenimports += cogent3_hiddenimports
 hiddenimports += typer_rich_hiddenimports
 
 a = Analysis(

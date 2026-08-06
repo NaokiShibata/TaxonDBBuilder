@@ -1,62 +1,47 @@
 """MSA and phylogenetic tree post-prep pipeline."""
 
-import shutil
-import subprocess
-import tempfile
 from pathlib import Path
 
+import kalign
+import piqtree
 from Bio import SeqIO
+from Bio.Seq import Seq
+from Bio.SeqRecord import SeqRecord
+from cogent3 import make_aligned_seqs
 
 
-def run_mafft(fasta_path: Path, out_path: Path) -> str | None:
-    mafft_bin = shutil.which("mafft")
-    if not mafft_bin:
-        return "mafft_not_found"
-    cmd = [mafft_bin, "--auto", str(fasta_path)]
+def run_msa(
+    records: list[tuple[str, str]],
+) -> tuple[list[tuple[str, str]] | None, str | None]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    except OSError:
-        return "mafft_failed"
-    if proc.returncode != 0:
-        return "mafft_failed"
-    try:
-        out_path.write_text(proc.stdout, encoding="utf-8")
-    except OSError:
-        return "mafft_failed"
-    return None
+        aligned_sequences = kalign.align(
+            [sequence for _, sequence in records], seq_type="dna"
+        )
+    except Exception:
+        return None, "msa_failed"
+    return [
+        (record_id, aligned_sequence)
+        for (record_id, _), aligned_sequence in zip(records, aligned_sequences)
+    ], None
 
 
-def run_iqtree(
-    msa_path: Path, out_dir: Path, model: str
-) -> tuple[Path | None, str | None]:
-    iqtree_bin = shutil.which("iqtree2") or shutil.which("iqtree")
-    if not iqtree_bin:
-        return None, "iqtree_not_found"
-    prefix = out_dir / "iqtree"
-    cmd = [
-        iqtree_bin,
-        "-s",
-        str(msa_path),
-        "-m",
-        model,
-        "-fast",
-        "-pre",
-        str(prefix),
-        "-redo",
-    ]
+def run_tree(
+    aligned_records: list[tuple[str, str]], model: str
+) -> tuple[str | None, str | None]:
     try:
-        proc = subprocess.run(cmd, capture_output=True, text=True, check=False)
-    except OSError:
-        return None, "iqtree_failed"
-    treefile = Path(f"{prefix}.treefile")
-    if proc.returncode != 0 or not treefile.exists():
-        return None, "iqtree_failed"
-    return treefile, None
+        alignment = make_aligned_seqs(dict(aligned_records), moltype="dna")
+        tree = piqtree.build_tree(alignment, model, rand_seed=1)
+        return tree.get_newick(with_distances=True), None
+    except Exception:
+        return None, "tree_failed"
 
 
 def apply_post_prep_msa_tree(fasta_path: Path, options: dict) -> dict:
     with fasta_path.open("r", encoding="utf-8") as in_f:
-        taxa_count = sum(1 for _ in SeqIO.parse(in_f, "fasta"))
+        records = [
+            (record.id, str(record.seq)) for record in SeqIO.parse(in_f, "fasta")
+        ]
+    taxa_count = len(records)
 
     min_taxa = int(options.get("min_taxa", 3))
     max_samples = int(options.get("max_samples", 500))
@@ -77,28 +62,36 @@ def apply_post_prep_msa_tree(fasta_path: Path, options: dict) -> dict:
 
     msa_path = fasta_path.with_suffix(fasta_path.suffix + ".msa.fasta")
     tree_path = fasta_path.with_suffix(fasta_path.suffix + ".tree.nwk")
-    error = run_mafft(fasta_path, msa_path)
-    if error:
+    aligned_records, error = run_msa(records)
+    if error or aligned_records is None:
         return {
-            "status": error,
+            "status": error or "msa_failed",
             "taxa_count": taxa_count,
             "msa_path": None,
             "tree_path": None,
         }
 
-    with tempfile.TemporaryDirectory(prefix="taxondb-msa-tree-") as tmpdir:
-        tmp_path = Path(tmpdir)
-        treefile, error = run_iqtree(
-            msa_path, tmp_path, str(options.get("model", "GTR+G"))
+    with msa_path.open("w", encoding="utf-8") as out_f:
+        SeqIO.write(
+            (
+                SeqRecord(Seq(sequence), id=record_id, description="")
+                for record_id, sequence in aligned_records
+            ),
+            out_f,
+            "fasta",
         )
-        if error or treefile is None:
-            return {
-                "status": error or "iqtree_failed",
-                "taxa_count": taxa_count,
-                "msa_path": str(msa_path),
-                "tree_path": None,
-            }
-        shutil.copyfile(treefile, tree_path)
+
+    newick_text, error = run_tree(
+        aligned_records, str(options.get("model", "GTR+G"))
+    )
+    if error or newick_text is None:
+        return {
+            "status": error or "tree_failed",
+            "taxa_count": taxa_count,
+            "msa_path": str(msa_path),
+            "tree_path": None,
+        }
+    tree_path.write_text(newick_text, encoding="utf-8")
 
     return {
         "status": "ok",
