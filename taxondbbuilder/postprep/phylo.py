@@ -77,21 +77,19 @@ def apply_post_prep_msa_tree(fasta_path: Path, options: dict) -> dict:
 
     msa_path = fasta_path.with_suffix(fasta_path.suffix + ".msa.fasta")
     tree_path = fasta_path.with_suffix(fasta_path.suffix + ".tree.nwk")
+    error = run_mafft(fasta_path, msa_path)
+    if error:
+        return {
+            "status": error,
+            "taxa_count": taxa_count,
+            "msa_path": None,
+            "tree_path": None,
+        }
+
     with tempfile.TemporaryDirectory(prefix="taxondb-msa-tree-") as tmpdir:
         tmp_path = Path(tmpdir)
-        tmp_msa_path = tmp_path / "alignment.fasta"
-        error = run_mafft(fasta_path, tmp_msa_path)
-        if error:
-            return {
-                "status": error,
-                "taxa_count": taxa_count,
-                "msa_path": None,
-                "tree_path": None,
-            }
-        shutil.copyfile(tmp_msa_path, msa_path)
-
         treefile, error = run_iqtree(
-            tmp_msa_path, tmp_path, str(options.get("model", "GTR+G"))
+            msa_path, tmp_path, str(options.get("model", "GTR+G"))
         )
         if error or treefile is None:
             return {
