@@ -157,6 +157,15 @@ pub(crate) fn open_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub(crate) fn read_text_file(path: String) -> Result<String, String> {
+    let target = PathBuf::from(path.trim());
+    if target.as_os_str().is_empty() {
+        return Err("path is required".to_string());
+    }
+    fs::read_to_string(&target).map_err(|e| format!("failed to read {}: {e}", target.display()))
+}
+
+#[tauri::command]
 pub(crate) fn cancel_run(state: State<AppState>) -> Result<(), String> {
     let run = {
         let slot = state

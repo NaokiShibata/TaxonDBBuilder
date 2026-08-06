@@ -77,6 +77,8 @@ pub(crate) struct FiltersInput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PostPrepInput {
     pub(crate) enable: bool,
+    #[serde(default, rename = "msaTree", alias = "msaTreeEnable")]
+    pub(crate) msa_tree_enable: bool,
     pub(crate) primer_file: String,
     pub(crate) primer_set: Vec<String>,
     pub(crate) steps: Vec<String>,
@@ -394,6 +396,10 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
     toml.push('\n');
 
     toml.push_str("[post_prep]\n");
+    toml.push_str(&format!(
+        "msa_tree_enable = {}\n",
+        req.post_prep.msa_tree_enable
+    ));
     toml.push_str(&format!("primer_file = {}\n", toml_quote(&primer_file)));
     if !req.post_prep.primer_set.is_empty() {
         let sets = req
@@ -659,6 +665,10 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
 
     if let Some(post) = value.get("post_prep").and_then(|v| v.as_table()) {
         imported.post_prep.enable = true;
+        imported.post_prep.msa_tree_enable = post
+            .get("msa_tree_enable")
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
         imported.post_prep.primer_file = post
             .get("primer_file")
             .and_then(|v| v.as_str())

@@ -632,6 +632,26 @@ progress {
   min-width: 0;
 }
 
+.tree-view-card {
+  margin-top: 12px;
+}
+
+.tree-view-status,
+.tree-view-message {
+  margin: 0;
+  color: #4b708c;
+  font-size: 12px;
+}
+
+#tree-view-container {
+  min-height: 100px;
+  overflow-x: auto;
+  border: 1px solid #dbeaf7;
+  border-radius: 10px;
+  padding: 8px;
+  background: rgba(255, 255, 255, 0.78);
+}
+
 #log-view {
   min-height: 260px;
   height: min(62vh, 720px);

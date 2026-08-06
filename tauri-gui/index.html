@@ -291,6 +291,13 @@
                   <label class="check"
                     ><input id="post-enable" type="checkbox" /> enable</label
                   >
+                  <label class="check"
+                    ><input
+                      id="postprep-msa-tree-enable"
+                      type="checkbox"
+                    />
+                    MSA / 系統樹構築を実行</label
+                  >
                   <label for="primer-file">primer_file (optional — not needed when using primer candidates)</label>
                   <div class="inline">
                     <input
@@ -454,6 +461,15 @@
               <button id="new-job" class="primary">New job</button>
             </div>
           </div>
+          <section id="tree-view-panel" class="view active">
+            <div class="card tree-view-card">
+              <h3>系統樹</h3>
+              <p id="tree-view-status" class="tree-view-status">
+                実行完了後に系統樹を表示します。
+              </p>
+              <div id="tree-view-container"></div>
+            </div>
+          </section>
         </section>
       </section>
     </main>
