@@ -25,6 +25,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "externalBin": ["bin/taxondbbuilder"],
     "icon": ["icons/icon.png"]
   }
 }

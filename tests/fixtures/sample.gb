@@ -1,0 +1,34 @@
+LOCUS       TEST0001               60 bp    DNA     linear       01-JAN-2000
+DEFINITION  A small characterization fixture.
+ACCESSION   TEST0001
+VERSION     TEST0001.1
+KEYWORDS    .
+SOURCE      test organism
+  ORGANISM  Testus alpha
+            other.
+FEATURES             Location/Qualifiers
+     source          1..60
+                     /organism="Testus alpha"
+     gene            5..20
+                     /gene="12S"
+     rRNA            complement(25..40)
+                     /product="16S ribosomal RNA"
+ORIGIN
+        1 aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa aaaaaaaaaa
+//
+LOCUS       TEST0002               60 bp    DNA     linear       01-JAN-2000
+DEFINITION  A second small characterization fixture.
+ACCESSION   TEST0002
+VERSION     TEST0002.1
+KEYWORDS    .
+SOURCE      test organism
+  ORGANISM  Testus beta
+            other.
+FEATURES             Location/Qualifiers
+     source          1..60
+                     /organism="Testus beta"
+     gene            10..25
+                     /gene="COI"
+ORIGIN
+        1 cccccccccc cccccccccc cccccccccc cccccccccc cccccccccc cccccccccc
+//

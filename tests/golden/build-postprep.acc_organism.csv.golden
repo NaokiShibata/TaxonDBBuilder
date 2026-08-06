@@ -1,0 +1,4 @@
+acc_id,accession,organism_name,header,source,source_record_id,processid,sampleid,marker_key,linked_to_ncbi,emitted_to_fasta,skip_reason
+TESTP001.1,TESTP001.1,Testus alpha other.,TESTP001.1|Testus alpha other.|12s|12S|gene|5-16|1,ncbi,TESTP001.1,,,12s,false,true,
+TESTP002.1,TESTP002.1,Testus beta other.,TESTP002.1|Testus beta other.|12s|12S|gene|5-16|1,ncbi,TESTP002.1,,,12s,false,true,
+TESTP003.1,TESTP003.1,Testus gamma other.,TESTP003.1|Testus gamma other.|12s|12S|gene|5-12|1,ncbi,TESTP003.1,,,12s,false,true,

@@ -1,0 +1,6 @@
+record_id	round	orientation_chosen	orientation_ambiguous	left_hit	right_hit	left_overlap_bp	right_overlap_bp	left_trim_bp	right_trim_bp	left_mismatch	right_mismatch	left_primer_name	right_primer_name	trim_start	trim_end	trim_mode	confidence	dropped_empty	recheck_tool	recheck_status	phylo_mismatch_flag
+both	1	canonical	0	1	1	4	4	4	4	0	0	ACGT	TGCA	4	8	one_or_both	high	0	off	not_run_phase2	0
+left	1	canonical	0	1	0	4	0	4	0	0	0	ACGT		4	6	one_or_both	medium	0	off	not_run_phase2	0
+right	1	canonical	0	0	1	0	4	0	4	0	0		TGCA	0	4	one_or_both	medium	0	off	not_run_phase2	0
+none	1	canonical	1	0	0	0	0	0	0	0	0			0	4	one_or_both	low	0	off	not_run_phase2	0
+empty	1	canonical	0	1	1	4	4	4	4	0	0	ACGT	TGCA	4	4	one_or_both	high	1	off	not_run_phase2	0

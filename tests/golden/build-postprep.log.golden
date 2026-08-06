@@ -1,0 +1,97 @@
+╭──────────────── TaxonDBBuilder ─────────────────╮
+│ Generic NCBI GenBank fetch + feature extraction │
+╰─────────────── DB FASTA builder ────────────────╯
+                                  Run Summary                                   
+┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Item    ┃ Value                                                              ┃
+┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Config  │ <ROOT>/tests/fixtu │
+│         │ res/post_prep_config.toml                                          │
+│ Source  │ ncbi                                                               │
+│ Taxids  │ 999                                                                │
+│ Markers │ 12s                                                                │
+│ Output  │ <TMP>/po │
+│         │ stprep.fasta                                                       │
+│ Filters │ none                                                               │
+│ From GB │ <TMP>/po │
+│         │ stprep-gb                                                          │
+└─────────┴────────────────────────────────────────────────────────────────────┘
+# started: <TIMESTAMP>
+# config: <ROOT>/tests/fixtures/post_prep_config.toml
+# source: ncbi
+# taxon input: ['999']
+# taxids: ['999']
+# scientific_names: ['999']
+# markers: ['12s']
+# output_prefix: taxondbbuilder_
+# dump_gb: none
+# from_gb: <TMP>/postprep-gb
+# resume: False
+# post_prep: True
+# post_prep.steps: primer_trim, length_filter, duplicate_report
+# post_prep.sequence_length_min: 4
+# post_prep.sequence_length_max: 10
+# post_prep.primer_file: <ROOT>/tests/fixtures/minimal_primers.toml
+# post_prep.primer_set: alpha
+# post_prep.primer_forward_count: 1
+# post_prep.primer_reverse_count: 1
+# post_prep.primer_trim_mode: one_or_both
+# post_prep.primer_max_mismatch: 0
+# post_prep.primer_max_error_rate: 0.0
+# post_prep.primer_min_overlap_bp: None
+# post_prep.primer_min_overlap_ratio: 1.0
+# post_prep.primer_end_max_offset: 0
+# post_prep.primer_iter_enable: False
+# post_prep.primer_iter_max_rounds: 3
+# post_prep.primer_sidecar_format: tsv
+# post_prep.primer_recheck_tool: off
+# post_prep.primer_recheck_min_identity: 0.85
+# post_prep.primer_recheck_min_query_cov: 0.7
+# workers: 1
+# query taxid=999: (txid999[Organism]) AND ("12S"[All Fields])
+# query count taxid=999: from-gb
+# source_merge_csv: <TMP>/postprep.fasta.source_merge.csv
+# kept records before post_prep: 3
+# post_prep primer trim: before=3 after=3 removed=0 trimmed_both=2 trimmed_left_only=0 trimmed_right_only=0 untrimmed=1 dropped_empty=0 canonical_orientation=2 reverse_orientation=0 confidence_high=2 confidence_medium=0 confidence_low=1 rounds_run=1 best_round=1 high_conf_rate=0.6667
+# post_prep primer sidecar: <TMP>/postprep.fasta.postprep.primer.tsv
+# post_prep primer retained_fasta: <TMP>/postprep.fasta.postprep.primer.retained.fasta
+# post_prep primer recheck: tool=off attempted=0 rescued=0 error=none
+# post_prep length filter: before=3 after=3 removed=0
+# post_prep duplicate_acc_report: total=3 parsed=3 unparsed=0 groups=1 records=2 cross_organism_groups=1
+# post_prep duplicate_acc_records_csv: <TMP>/postprep.fasta.duplicate_acc.records.csv
+post_prep duplicate ACC records CSV: 
+<TMP>/postprep.fasta.d
+uplicate_acc.records.csv
+# post_prep duplicate_acc_groups_csv: <TMP>/postprep.fasta.duplicate_acc.groups.csv
+post_prep duplicate ACC groups CSV: 
+<TMP>/postprep.fasta.d
+uplicate_acc.groups.csv
+# acc_organism_map: total=3 mapped=3 unmapped=0 unused_source_records=0 unique_accessions=3 unique_organisms=3
+# acc_organism_map_csv: <TMP>/postprep.fasta.acc_organism.csv
+# total records: 3
+# matched records: 3
+# matched features: 3
+# kept records: 3
+# skipped duplicates (same accession+sequence): 0
+# kept duplicates (same accession, different sequence): 0
+# output: <TMP>/postprep.fasta
+# finished: <TIMESTAMP>
+                                 Result Summary                                 
+┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
+┃ Metric                               ┃ Value                                 ┃
+┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
+│ Total records                        │ 3                                     │
+│ Matched records                      │ 3                                     │
+│ Matched features                     │ 3                                     │
+│ Kept records                         │ 3                                     │
+│ Skipped duplicates (same acc+seq)    │ 0                                     │
+│ Kept duplicates (same acc, diff seq) │ 0                                     │
+│ Output                               │ <TMP> │
+│ Log                                  │ <TMP> │
+└──────────────────────────────────────┴───────────────────────────────────────┘
+ACC-organism mapping CSV: 
+<TMP>/postprep.fasta.a
+cc_organism.csv
+Source merge CSV: 
+<TMP>/postprep.fasta.s
+ource_merge.csv

@@ -1,0 +1,7 @@
+[primer_sets.alpha]
+forward = ["ACGT"]
+reverse = ["TGCA"]
+
+[primer_sets.beta]
+forward = ["RGTU"]
+reverse = ["CARY"]

@@ -1,0 +1,4 @@
+source,source_record_id,acc_id,accession,processid,sampleid,organism_name,marker_key,marker_label,linked_to_ncbi,emitted_to_fasta,skip_reason,header
+bold,BOLD-LINK,BOLD_BOLD-LINK,TEST0001.1,BOLD-LINK,S001,Testus alpha,12s,12S,true,false,linked_by_insdcacs,
+bold,BOLD-KEEP,BOLD_BOLD-KEEP,UNLINKED,BOLD-KEEP,S002,Testus beta,12s,12S,false,true,,BOLD_BOLD-KEEP|12s|
+ncbi,TEST0001.1,TEST0001.1,TEST0001.1,,,Testus alpha other.,12s,12S,false,true,,TEST0001.1|12s|5-20

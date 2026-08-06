@@ -76,7 +76,7 @@
                     Enable post prep when you need trimmed/filtered output.
                   </li>
                   <li id="flow-post-primer" class="flow-item neutral">
-                    If primer_trim is selected, set primer_file and primer_set.
+                    If primer_trim is selected, choose primer candidates (or set primer_file + primer_set for a custom set).
                   </li>
                   <li id="flow-post-length" class="flow-item neutral">
                     If length_filter is selected, set post min or post max.
@@ -150,9 +150,8 @@
                     <label for="ncbi-per-query">per_query</label>
                     <input
                       id="ncbi-per-query"
-                      type="number"
-                      min="1"
-                      step="1"
+                      type="text"
+                      inputmode="numeric"
                       value="100"
                     />
                     <label class="check"
@@ -162,9 +161,8 @@
                     <label for="ncbi-delay-sec">delay_sec (optional)</label>
                     <input
                       id="ncbi-delay-sec"
-                      type="number"
-                      min="0"
-                      step="0.01"
+                      type="text"
+                      inputmode="decimal"
                       placeholder="auto"
                     />
                   </details>
@@ -187,15 +185,15 @@
                   <label for="f-length-min">length_min</label>
                   <input
                     id="f-length-min"
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputmode="numeric"
                     placeholder="example: 120"
                   />
                   <label for="f-length-max">length_max</label>
                   <input
                     id="f-length-max"
-                    type="number"
-                    min="0"
+                    type="text"
+                    inputmode="numeric"
                     placeholder="example: 20000"
                   />
                 </section>
@@ -293,7 +291,7 @@
                   <label class="check"
                     ><input id="post-enable" type="checkbox" /> enable</label
                   >
-                  <label for="primer-file">primer_file</label>
+                  <label for="primer-file">primer_file (optional — not needed when using primer candidates)</label>
                   <div class="inline">
                     <input
                       id="primer-file"
@@ -301,6 +299,73 @@
                       placeholder="/path/to/primers.toml"
                     />
                     <button id="pick-primer" type="button">Browse</button>
+                  </div>
+                  <label>primer candidates</label>
+                  <div class="step-grid">
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="mifish_u"
+                      />
+                      MiFish-U</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="mideca"
+                      />
+                      MiDeca</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="mtinsects_16s"
+                      />
+                      MtInsects-16S</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="mimammal_u"
+                      />
+                      MiMammal-U</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="mibird_u"
+                      />
+                      MiBird-U</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="amph_16s"
+                      />
+                      Amph_16S</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="uceta"
+                      />
+                      μCeta</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="primer-candidate"
+                        type="checkbox"
+                        value="mifish_unity"
+                      />
+                      MiFish-Unity</label
+                    >
                   </div>
                   <label for="primer-set">primer_set (comma separated)</label>
                   <input
@@ -339,9 +404,9 @@
                   </div>
 
                   <label for="post-length-min">post sequence_length_min</label>
-                  <input id="post-length-min" type="number" min="0" />
+                  <input id="post-length-min" type="text" inputmode="numeric" />
                   <label for="post-length-max">post sequence_length_max</label>
-                  <input id="post-length-max" type="number" min="0" />
+                  <input id="post-length-max" type="text" inputmode="numeric" />
                 </section>
               </div>
             </div>

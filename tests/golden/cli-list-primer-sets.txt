@@ -1,0 +1,9 @@
+           Primer Sets            
+(tests/fixtures/minimal_primers.to
+               ml)                
+┏━━━━━━━━━━━━┳━━━━━━━━━┳━━━━━━━━━┓
+┃ Primer Set ┃ Forward ┃ Reverse ┃
+┡━━━━━━━━━━━━╇━━━━━━━━━╇━━━━━━━━━┩
+│ alpha      │ 1       │ 1       │
+│ beta       │ 1       │ 1       │
+└────────────┴─────────┴─────────┘

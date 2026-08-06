@@ -1,0 +1,48 @@
+LOCUS       TESTP001               20 bp    DNA     linear       01-JAN-2000
+DEFINITION  A primer-trim characterization fixture.
+ACCESSION   TESTP001
+VERSION     TESTP001.1
+KEYWORDS    .
+SOURCE      test organism
+  ORGANISM  Testus alpha
+            other.
+FEATURES             Location/Qualifiers
+     source          1..20
+                     /organism="Testus alpha"
+     gene            5..16
+                     /gene="12S"
+ORIGIN
+        1 ttttacgtgg gg tgc atttt
+//
+LOCUS       TESTP002               20 bp    DNA     linear       01-JAN-2000
+DEFINITION  A second primer-trim characterization fixture.
+ACCESSION   TESTP002
+VERSION     TESTP002.1
+KEYWORDS    .
+SOURCE      test organism
+  ORGANISM  Testus beta
+            other.
+FEATURES             Location/Qualifiers
+     source          1..20
+                     /organism="Testus beta"
+     gene            5..16
+                     /gene="12S"
+ORIGIN
+        1 ttttacgtgg gg tgc atttt
+//
+LOCUS       TESTP003               20 bp    DNA     linear       01-JAN-2000
+DEFINITION  An untrimmed primer-trim characterization fixture.
+ACCESSION   TESTP003
+VERSION     TESTP003.1
+KEYWORDS    .
+SOURCE      test organism
+  ORGANISM  Testus gamma
+            other.
+FEATURES             Location/Qualifiers
+     source          1..20
+                     /organism="Testus gamma"
+     gene            5..12
+                     /gene="12S"
+ORIGIN
+        1 ttttcccc cccc cccc tttt
+//

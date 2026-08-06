@@ -20,6 +20,10 @@ reverse = ["CATAGGAGGGTGTCTAATCCCCGTTTG"]
 forward = ["GCTGGTAAACCTCGTGCCAGC"]
 reverse = ["CATAGCGGGGTATCTAATCCCGGTTTG"]
 
+[primer_sets.mifish_unity]
+forward = ["GYYGGTAAAWCTCGTGCCAGC"]
+reverse = ["CATAGKRGGGTRTCTAATCCYMGTTTG"]
+
 # Decapoda
 [primer_sets.mideca]
 forward = ["GGACGATAAGACCCTATAAA"]

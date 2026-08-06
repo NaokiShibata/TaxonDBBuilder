@@ -97,6 +97,7 @@ const state = {
 };
 
 const postStepEls = Array.from(document.querySelectorAll(".post-step"));
+const primerCandidateEls = Array.from(document.querySelectorAll(".primer-candidate"));
 const monitorView = createMonitorView({
   statusEl: els.status,
   phaseEl: els.phase,
@@ -312,6 +313,10 @@ function setPostPrepStepSelection(steps) {
   setCheckedValues(postStepEls, steps);
 }
 
+function setPrimerCandidateSelection(primerSets) {
+  setCheckedValues(primerCandidateEls, primerSets);
+}
+
 function applyImportedDbToml(imported) {
   els.sourceInput.value = imported.source || "ncbi";
   els.emailInput.value = imported.email || "";
@@ -331,6 +336,7 @@ function applyImportedDbToml(imported) {
   els.postEnableInput.checked = Boolean(postPrep.enable);
   els.primerFileInput.value = postPrep.primerFile || "";
   els.primerSetInput.value = (postPrep.primerSet || []).join(",");
+  setPrimerCandidateSelection(postPrep.primerSet);
   els.postLengthMinInput.value = postPrep.sequenceLengthMin ?? "";
   els.postLengthMaxInput.value = postPrep.sequenceLengthMax ?? "";
   setPostPrepStepSelection(postPrep.steps || []);
@@ -374,9 +380,8 @@ function updatePostPrepGuidance() {
   setFlowItemState(els.flowPostEnable, true);
 
   if (selectedSteps.has("primer_trim")) {
-    const hasPrimerFile = els.primerFileInput.value.trim().length > 0;
     const hasPrimerSet = parseCommaSeparatedList(els.primerSetInput.value).length > 0;
-    setFlowItemState(els.flowPostPrimer, hasPrimerFile && hasPrimerSet);
+    setFlowItemState(els.flowPostPrimer, hasPrimerSet);
   } else {
     setFlowItemNeutral(els.flowPostPrimer);
   }
@@ -673,6 +678,12 @@ els.postLengthMinInput.addEventListener("input", updateGuidanceState);
 els.postLengthMaxInput.addEventListener("input", updateGuidanceState);
 postStepEls.forEach((el) => {
   el.addEventListener("change", updateGuidanceState);
+});
+primerCandidateEls.forEach((el) => {
+  el.addEventListener("change", () => {
+    els.primerSetInput.value = readCheckedValues(primerCandidateEls).join(",");
+    updateGuidanceState();
+  });
 });
 
 els.openJobDir.addEventListener("click", async () => {
