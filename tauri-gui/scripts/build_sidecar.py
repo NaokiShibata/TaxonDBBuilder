@@ -39,20 +39,22 @@ def write_stub_binary(path: Path, os_key: str) -> None:
         content = "@echo off\r\necho taxondbbuilder sidecar stub. Build real binary with scripts/build_sidecar.py\r\nexit /b 1\r\n"
         path.write_text(content, encoding="utf-8")
     else:
-        content = "#!/usr/bin/env sh\n" \
-            "echo 'taxondbbuilder sidecar stub. Build real binary with scripts/build_sidecar.py' >&2\n" \
+        content = (
+            "#!/usr/bin/env sh\n"
+            "echo 'taxondbbuilder sidecar stub. Build real binary with scripts/build_sidecar.py' >&2\n"
             "exit 1\n"
+        )
         path.write_text(content, encoding="utf-8")
         path.chmod(0o755)
 
 
 def main() -> int:
-    parser = argparse.ArgumentParser(description="Build TaxonDBBuilder sidecar with PyInstaller")
+    parser = argparse.ArgumentParser(
+        description="Build TaxonDBBuilder sidecar with PyInstaller"
+    )
     parser.add_argument("--repo-root", default="..", help="Repository root path")
     parser.add_argument(
-        "--tauri-root",
-        default=".",
-        help="tauri-gui root path (contains src-tauri/)"
+        "--tauri-root", default=".", help="tauri-gui root path (contains src-tauri/)"
     )
     parser.add_argument(
         "--stub",

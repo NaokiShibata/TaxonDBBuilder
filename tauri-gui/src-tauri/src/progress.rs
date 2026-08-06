@@ -20,6 +20,13 @@ static RE_LOG_PREFIX: Lazy<Regex> = Lazy::new(|| {
     )
     .expect("log prefix regex")
 });
+
+static RE_QUERY_START: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^# query taxid=([^:]+):\s*(.+)$").expect("query start regex"));
+
+static RE_NETWORK_RETRY: Lazy<Regex> =
+    Lazy::new(|| Regex::new(r"^#?\s*(?:esearch|efetch)\s+retry\b").expect("network retry regex"));
+
 static RE_QUERY_COUNT: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"^# query count taxid=([^:]+):\s*(.+)$").expect("query count regex"));
 static RE_FETCH_PROGRESS: Lazy<Regex> = Lazy::new(|| {
@@ -52,6 +59,9 @@ static RE_DUP_CROSS: Lazy<Regex> =
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RunMetrics {
+    active_taxid: Option<String>,
+    network_retries: u64,
+
     query_count_by_taxid: BTreeMap<String, u64>,
     fetch_count_by_taxid: BTreeMap<String, u64>,
     bold_specimen_count_by_taxon: BTreeMap<String, u64>,
@@ -65,7 +75,7 @@ pub(crate) struct RunMetrics {
     cross_organism_groups: Option<u64>,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RunEvent {
     event_type: String,
@@ -90,10 +100,22 @@ pub(crate) struct ProgressParser {
     phase: String,
     percent: f64,
     metrics: RunMetrics,
+    uses_ncbi: bool,
+    uses_bold: bool,
 }
 
 impl ProgressParser {
+    #[cfg(test)]
     pub(crate) fn new(taxid_total: usize, post_steps_total: usize) -> Self {
+        Self::for_source(taxid_total, post_steps_total, true, false)
+    }
+
+    pub(crate) fn for_source(
+        taxid_total: usize,
+        post_steps_total: usize,
+        uses_ncbi: bool,
+        uses_bold: bool,
+    ) -> Self {
         Self {
             taxid_total,
             query_seen: HashSet::new(),
@@ -102,30 +124,62 @@ impl ProgressParser {
             matched_records: None,
             post_steps_total,
             post_steps_seen: HashSet::new(),
-            phase: "Query count".to_string(),
+            phase: "Preparing".to_string(),
             percent: 0.0,
             metrics: RunMetrics::default(),
+            uses_ncbi,
+            uses_bold,
         }
     }
 
     pub(crate) fn consume_line(&mut self, line: &str) -> bool {
         let line = strip_log_prefix(line);
+
         let mut changed = false;
+        let mut fetch_progress_changed = false;
+        let mut bold_progress_changed = false;
+        let mut record_progress_changed = false;
+
+        if let Some(caps) = RE_QUERY_START.captures(line) {
+            let taxid = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
+
+            if !taxid.is_empty() {
+                self.metrics.active_taxid = Some(taxid.to_string());
+                self.phase = "NCBI Query".to_string();
+                self.percent = self.percent.max(2.0);
+                changed = true;
+            }
+        }
+
+        if RE_NETWORK_RETRY.is_match(line) {
+            self.metrics.network_retries = self.metrics.network_retries.saturating_add(1);
+
+            self.phase = "NCBI Query (retry)".to_string();
+            self.percent = self.percent.max(2.0);
+            changed = true;
+        }
 
         if let Some(caps) = RE_QUERY_COUNT.captures(line) {
             let taxid = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
+
             let count_raw = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+
             let count = count_raw.parse::<u64>().ok();
+
             if !taxid.is_empty() {
-                if let Some(v) = count {
+                if let Some(value) = count {
                     self.metrics
                         .query_count_by_taxid
-                        .insert(taxid.to_string(), v);
+                        .insert(taxid.to_string(), value);
                 }
+
+                self.metrics.active_taxid = Some(taxid.to_string());
                 self.query_seen.insert(taxid.to_string());
                 self.phase = "Query count".to_string();
+
                 let total = self.taxid_total.max(1) as f64;
                 self.percent = ((self.query_seen.len() as f64 / total) * 10.0).clamp(0.0, 10.0);
+
                 changed = true;
             }
         }
@@ -147,7 +201,9 @@ impl ProgressParser {
                 self.metrics
                     .fetch_count_by_taxid
                     .insert(taxid.to_string(), fetched.min(total));
-                self.phase = "Fetch/Parse".to_string();
+                self.phase = "NCBI Fetch/Parse".to_string();
+
+                fetch_progress_changed = true;
                 changed = true;
             }
         }
@@ -205,6 +261,7 @@ impl ProgressParser {
                             .insert(taxon.to_string(), matched);
                     }
                 }
+                bold_progress_changed = true;
                 changed = true;
             }
         }
@@ -235,19 +292,25 @@ impl ProgressParser {
                     .insert(taxon.to_string(), matched);
                 self.bold_progress_by_taxon.insert(taxon.to_string(), 1.0);
                 self.phase = "BOLD Filter".to_string();
+                bold_progress_changed = true;
                 changed = true;
             }
         }
 
         if let Some(caps) = RE_TOTAL_RECORDS.captures(line) {
             self.total_records = caps.get(1).and_then(|m| m.as_str().parse::<u64>().ok());
+
+            record_progress_changed = true;
             changed = true;
         }
 
         if let Some(caps) = RE_MATCHED_RECORDS.captures(line) {
             let matched = caps.get(1).and_then(|m| m.as_str().parse::<u64>().ok());
+
             self.matched_records = matched;
             self.metrics.matched_records = matched;
+
+            record_progress_changed = true;
             changed = true;
         }
 
@@ -303,44 +366,72 @@ impl ProgressParser {
         }
 
         if changed {
-            if !self.metrics.fetch_count_by_taxid.is_empty() {
-                let mut taxid_progress_sum = 0.0;
-                for taxid in &self.query_seen {
-                    let Some(total) = self.metrics.query_count_by_taxid.get(taxid) else {
-                        continue;
-                    };
+            if fetch_progress_changed {
+                let mut completed = 0.0;
+
+                for (taxid, total) in &self.metrics.query_count_by_taxid {
                     if *total == 0 {
-                        taxid_progress_sum += 1.0;
+                        completed += 1.0;
                         continue;
                     }
-                    let done = *self.metrics.fetch_count_by_taxid.get(taxid).unwrap_or(&0);
-                    taxid_progress_sum += (done as f64 / *total as f64).clamp(0.0, 1.0);
+
+                    let fetched = *self.metrics.fetch_count_by_taxid.get(taxid).unwrap_or(&0);
+
+                    completed += (fetched as f64 / *total as f64).clamp(0.0, 1.0);
                 }
 
-                if taxid_progress_sum > 0.0 {
-                    self.phase = "Fetch/Parse".to_string();
-                    let overall_ratio =
-                        (taxid_progress_sum / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
-                    self.percent = self
-                        .percent
-                        .max((10.0 + overall_ratio * 70.0).clamp(10.0, 80.0));
-                }
-            }
+                let overall_ratio = (completed / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
 
-            if !self.bold_progress_by_taxon.is_empty() {
-                let bold_progress_sum: f64 = self.bold_progress_by_taxon.values().copied().sum();
-                let overall_ratio =
-                    (bold_progress_sum / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
+                let (base, span) = if self.uses_bold {
+                    // source=both
+                    (5.0, 45.0)
+                } else {
+                    // source=ncbi
+                    (10.0, 70.0)
+                };
+
                 self.percent = self
                     .percent
-                    .max((10.0 + overall_ratio * 70.0).clamp(10.0, 80.0));
+                    .max((base + overall_ratio * span).clamp(base, base + span));
             }
 
-            if let (Some(total), Some(matched)) = (self.total_records, self.matched_records) {
-                if total > 0 {
-                    self.phase = "Fetch/Parse".to_string();
-                    let ratio = (matched as f64 / total as f64).clamp(0.0, 1.0);
-                    self.percent = self.percent.max((10.0 + ratio * 70.0).clamp(10.0, 80.0));
+            if bold_progress_changed {
+                let completed: f64 = self.bold_progress_by_taxon.values().copied().sum();
+
+                let overall_ratio = (completed / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
+
+                let (base, span) = if self.uses_ncbi {
+                    // source=both
+                    (50.0, 30.0)
+                } else {
+                    // source=bold
+                    (10.0, 70.0)
+                };
+
+                self.percent = self
+                    .percent
+                    .max((base + overall_ratio * span).clamp(base, base + span));
+            }
+
+            if record_progress_changed {
+                if let (Some(total), Some(matched)) = (self.total_records, self.matched_records) {
+                    if total > 0 {
+                        self.phase = "Record processing".to_string();
+
+                        let ratio = (matched as f64 / total as f64).clamp(0.0, 1.0);
+
+                        let (base, span) = if self.uses_bold {
+                            // source=both
+                            (70.0, 10.0)
+                        } else {
+                            // source=ncbi
+                            (10.0, 70.0)
+                        };
+
+                        self.percent = self
+                            .percent
+                            .max((base + ratio * span).clamp(base, base + span));
+                    }
                 }
             }
 
@@ -374,27 +465,15 @@ pub(crate) fn status_event(status: &str) -> RunEvent {
     RunEvent {
         event_type: "status".to_string(),
         status: Some(status.to_string()),
-        phase: None,
-        percent: None,
-        line: None,
-        message: None,
-        metrics: None,
-        files: None,
-        job_dir: None,
+        ..Default::default()
     }
 }
 
 pub(crate) fn log_event(line: String) -> RunEvent {
     RunEvent {
         event_type: "log".to_string(),
-        status: None,
-        phase: None,
-        percent: None,
         line: Some(line),
-        message: None,
-        metrics: None,
-        files: None,
-        job_dir: None,
+        ..Default::default()
     }
 }
 
@@ -428,42 +507,27 @@ pub(crate) fn format_monitor_log_line(line: &str) -> String {
 pub(crate) fn progress_event(parser: &ProgressParser) -> RunEvent {
     RunEvent {
         event_type: "progress".to_string(),
-        status: None,
         phase: Some(parser.phase.clone()),
         percent: Some(parser.percent.min(100.0)),
-        line: None,
-        message: None,
         metrics: Some(parser.metrics.clone()),
-        files: None,
-        job_dir: None,
+        ..Default::default()
     }
 }
 
 pub(crate) fn result_event(job_dir: &Path, files: Vec<String>) -> RunEvent {
     RunEvent {
         event_type: "result".to_string(),
-        status: None,
-        phase: None,
-        percent: None,
-        line: None,
-        message: None,
-        metrics: None,
         files: Some(files),
         job_dir: Some(job_dir.to_string_lossy().to_string()),
+        ..Default::default()
     }
 }
 
 pub(crate) fn error_event(message: String) -> RunEvent {
     RunEvent {
         event_type: "error".to_string(),
-        status: None,
-        phase: None,
-        percent: None,
-        line: None,
         message: Some(message),
-        metrics: None,
-        files: None,
-        job_dir: None,
+        ..Default::default()
     }
 }
 pub(crate) fn strip_log_prefix(line: &str) -> &str {
@@ -498,6 +562,19 @@ pub(crate) fn tail_log_once(
     parser: &mut ProgressParser,
     log_path: &Path,
     offset: &mut u64,
+    pending: &mut Vec<u8>,
+) -> Result<(), String> {
+    tail_log_once_impl(parser, log_path, offset, pending, |event| {
+        emit_event(app, event);
+    })
+}
+
+fn tail_log_once_impl(
+    parser: &mut ProgressParser,
+    log_path: &Path,
+    offset: &mut u64,
+    pending: &mut Vec<u8>,
+    mut emit: impl FnMut(RunEvent),
 ) -> Result<(), String> {
     if !log_path.exists() {
         return Ok(());
@@ -517,12 +594,19 @@ pub(crate) fn tail_log_once(
     }
 
     *offset += data.len() as u64;
-    let text = String::from_utf8_lossy(&data);
+    pending.extend_from_slice(&data);
+
+    let Some(split_at) = pending.iter().rposition(|&b| b == b'\n').map(|i| i + 1) else {
+        return Ok(());
+    };
+
+    let complete: Vec<u8> = pending.drain(..split_at).collect();
+    let text = String::from_utf8_lossy(&complete);
 
     for line in text.lines() {
-        emit_event(app, log_event(format_monitor_log_line(line)));
+        emit(log_event(format_monitor_log_line(line)));
         if parser.consume_line(line) {
-            emit_event(app, progress_event(parser));
+            emit(progress_event(parser));
         }
     }
 
@@ -616,6 +700,59 @@ mod tests {
                 .get("Testus alpha"),
             Some(&3)
         );
-        assert_eq!(parser.phase, "Fetch/Parse");
+        assert_eq!(parser.phase, "BOLD Download");
+    }
+
+    #[test]
+    fn tail_log_preserves_incomplete_line_across_polls() {
+        use std::io::Write;
+        use std::time::{SystemTime, UNIX_EPOCH};
+
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let log_path =
+            std::env::temp_dir().join(format!("taxondbbuilder-progress-tail-{stamp}.log"));
+        let mut file = File::create(&log_path).expect("create temporary log");
+        file.write_all(b"# query count taxid=999: 4\n# fetch progress taxid=999: 2/")
+            .expect("write first log chunk");
+
+        let mut parser = ProgressParser::new(1, 0);
+        let mut offset = 0;
+        let mut pending = Vec::new();
+        let mut emitted_lines = Vec::new();
+
+        tail_log_once_impl(&mut parser, &log_path, &mut offset, &mut pending, |event| {
+            if event.event_type == "log" {
+                emitted_lines.push(event.line.expect("log event line"));
+            }
+        })
+        .expect("tail first log chunk");
+        assert_eq!(parser.metrics.query_count_by_taxid.get("999"), Some(&4));
+        assert!(!parser.metrics.fetch_count_by_taxid.contains_key("999"));
+
+        let mut file = fs::OpenOptions::new()
+            .append(true)
+            .open(&log_path)
+            .expect("reopen temporary log");
+        file.write_all(b"2000\n").expect("write second log chunk");
+
+        tail_log_once_impl(&mut parser, &log_path, &mut offset, &mut pending, |event| {
+            if event.event_type == "log" {
+                emitted_lines.push(event.line.expect("log event line"));
+            }
+        })
+        .expect("tail completed log line");
+        assert_eq!(parser.metrics.fetch_count_by_taxid.get("999"), Some(&2));
+        assert_eq!(
+            emitted_lines,
+            vec![
+                "query count taxid=999: 4".to_string(),
+                "fetch progress taxid=999: 2/2000".to_string(),
+            ]
+        );
+
+        fs::remove_file(log_path).expect("remove temporary log");
     }
 }

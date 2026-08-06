@@ -270,11 +270,12 @@ pub(crate) fn run_build_via_sidecar(
     }
 
     let mut log_offset = 0;
+    let mut log_pending: Vec<u8> = Vec::new();
     let status = loop {
         for line in line_rx.try_iter() {
             emit_sidecar_line(app, parser, &line);
         }
-        tail_log_once(app, parser, log_path, &mut log_offset)?;
+        tail_log_once(app, parser, log_path, &mut log_offset, &mut log_pending)?;
 
         let status = {
             let mut slot = child_slot
@@ -309,7 +310,7 @@ pub(crate) fn run_build_via_sidecar(
     for line in line_rx.try_iter() {
         emit_sidecar_line(app, parser, &line);
     }
-    tail_log_once(app, parser, log_path, &mut log_offset)?;
+    tail_log_once(app, parser, log_path, &mut log_offset, &mut log_pending)?;
     let _ = take_child(child_slot)?;
 
     if status.success() {
@@ -403,7 +404,9 @@ mod tests {
         }
 
         assert!(event_count > 0, "no parser events were produced");
-        assert!(events.iter().any(|event| event["phase"] == "Fetch/Parse"));
+        assert!(events
+            .iter()
+            .any(|event| event["phase"] == "Record processing"));
         let terminal_event = events.last().expect("terminal RunEvent");
         assert_eq!(terminal_event["eventType"], "progress");
         assert_eq!(terminal_event["phase"], "Finalize");

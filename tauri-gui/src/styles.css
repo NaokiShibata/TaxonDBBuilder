@@ -19,12 +19,26 @@
 body {
   margin: 0;
   min-height: 100vh;
-  font-family: "M PLUS Rounded 1c", "Noto Sans JP", "Hiragino Kaku Gothic ProN", sans-serif;
+  font-family:
+    "M PLUS Rounded 1c", "Noto Sans JP", "Hiragino Kaku Gothic ProN", sans-serif;
   color: var(--ink);
   background:
-    radial-gradient(560px 330px at 12% 7%, rgba(148, 210, 255, 0.28) 0%, rgba(148, 210, 255, 0) 100%),
-    radial-gradient(620px 360px at 87% 10%, rgba(182, 229, 255, 0.24) 0%, rgba(182, 229, 255, 0) 100%),
-    linear-gradient(170deg, var(--bg-top) 0%, var(--bg-bottom) 67%, #f7fcff 100%);
+    radial-gradient(
+      560px 330px at 12% 7%,
+      rgba(148, 210, 255, 0.28) 0%,
+      rgba(148, 210, 255, 0) 100%
+    ),
+    radial-gradient(
+      620px 360px at 87% 10%,
+      rgba(182, 229, 255, 0.24) 0%,
+      rgba(182, 229, 255, 0) 100%
+    ),
+    linear-gradient(
+      170deg,
+      var(--bg-top) 0%,
+      var(--bg-bottom) 67%,
+      #f7fcff 100%
+    );
 }
 
 h1,
@@ -141,8 +155,16 @@ select {
   display: grid;
   border: 1px solid #d9e9f7;
   background:
-    radial-gradient(680px 220px at 52% 0%, rgba(177, 223, 255, 0.2) 0%, rgba(177, 223, 255, 0) 100%),
-    linear-gradient(180deg, rgba(247, 252, 255, 0.96) 0%, rgba(240, 248, 255, 0.92) 100%);
+    radial-gradient(
+      680px 220px at 52% 0%,
+      rgba(177, 223, 255, 0.2) 0%,
+      rgba(177, 223, 255, 0) 100%
+    ),
+    linear-gradient(
+      180deg,
+      rgba(247, 252, 255, 0.96) 0%,
+      rgba(240, 248, 255, 0.92) 100%
+    );
   border-radius: 20px;
   box-shadow: var(--shadow);
   padding: 14px;
@@ -164,7 +186,11 @@ select {
 
 .card {
   border: 1px solid #d9e9f7;
-  background: linear-gradient(180deg, var(--panel) 0%, var(--panel-strong) 100%);
+  background: linear-gradient(
+    180deg,
+    var(--panel) 0%,
+    var(--panel-strong) 100%
+  );
   border-radius: 16px;
   box-shadow: var(--shadow);
   padding: 14px;
@@ -181,8 +207,7 @@ select {
 
 .card-guide {
   border-color: #cde4f6;
-  background:
-    linear-gradient(180deg, #f7fcff 0%, #f0f8ff 100%);
+  background: linear-gradient(180deg, #f7fcff 0%, #f0f8ff 100%);
 }
 
 .setup-columns {
@@ -609,14 +634,29 @@ progress {
 
 #log-view {
   min-height: 260px;
+  height: min(62vh, 720px);
   max-height: 460px;
-  overflow: auto;
+
+  overflow-x: auto;
+  overflow-y: auto;
+
   margin: 0;
   padding: 11px;
+
   border: 1px solid #18344a;
   border-radius: 10px;
   background: #0f1c2a;
   color: #d6f7e4;
+
+  font-family:
+    "Noto Sans Mono CJK JP", "Noto Sans Mono", "Liberation Mono", monospace;
+  font-size: 12px;
+  line-height: 1.45;
+
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  tab-size: 2;
+  scrollbar-gutter: stable;
 }
 
 .file-row {

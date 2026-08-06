@@ -1,5 +1,8 @@
 function sumValues(record) {
-  return Object.values(record || {}).reduce((acc, value) => acc + (Number(value) || 0), 0);
+  return Object.values(record || {}).reduce(
+    (acc, value) => acc + (Number(value) || 0),
+    0,
+  );
 }
 
 function buildMetricItems(metrics) {
@@ -10,7 +13,10 @@ function buildMetricItems(metrics) {
   const boldDownloadedByTaxon = metrics?.boldDownloadedByTaxon || {};
   const boldMatchedByTaxon = metrics?.boldMatchedByTaxon || {};
 
-  const allTaxids = new Set([...Object.keys(queryCountByTaxid), ...Object.keys(fetchCountByTaxid)]);
+  const allTaxids = new Set([
+    ...Object.keys(queryCountByTaxid),
+    ...Object.keys(fetchCountByTaxid),
+  ]);
   for (const taxid of Array.from(allTaxids).sort()) {
     if (queryCountByTaxid[taxid] != null) {
       items.push(`query count taxid=${taxid}: ${queryCountByTaxid[taxid]}`);
@@ -21,7 +27,7 @@ function buildMetricItems(metrics) {
       items.push(
         total != null
           ? `fetch progress taxid=${taxid}: ${Math.min(fetched, total)}/${total}`
-          : `fetch progress taxid=${taxid}: ${fetched}`
+          : `fetch progress taxid=${taxid}: ${fetched}`,
       );
     }
   }
@@ -29,7 +35,7 @@ function buildMetricItems(metrics) {
   const allBoldTaxa = new Set([
     ...Object.keys(boldSpecimenCountByTaxon),
     ...Object.keys(boldDownloadedByTaxon),
-    ...Object.keys(boldMatchedByTaxon)
+    ...Object.keys(boldMatchedByTaxon),
   ]);
   for (const taxon of Array.from(allBoldTaxa).sort()) {
     const parts = [];
@@ -47,13 +53,17 @@ function buildMetricItems(metrics) {
     }
   }
 
-  if (metrics?.matchedRecords != null) items.push(`matched records: ${metrics.matchedRecords}`);
+  if (metrics?.matchedRecords != null)
+    items.push(`matched records: ${metrics.matchedRecords}`);
   if (metrics?.keptRecordsBeforePostPrep != null) {
     items.push(`kept before post_prep: ${metrics.keptRecordsBeforePostPrep}`);
   }
-  if (metrics?.primerTrimRemoved != null) items.push(`primer_trim removed: ${metrics.primerTrimRemoved}`);
-  if (metrics?.lengthFilterRemoved != null) items.push(`length_filter removed: ${metrics.lengthFilterRemoved}`);
-  if (metrics?.duplicateGroups != null) items.push(`duplicate groups: ${metrics.duplicateGroups}`);
+  if (metrics?.primerTrimRemoved != null)
+    items.push(`primer_trim removed: ${metrics.primerTrimRemoved}`);
+  if (metrics?.lengthFilterRemoved != null)
+    items.push(`length_filter removed: ${metrics.lengthFilterRemoved}`);
+  if (metrics?.duplicateGroups != null)
+    items.push(`duplicate groups: ${metrics.duplicateGroups}`);
   if (metrics?.crossOrganismGroups != null) {
     items.push(`cross_organism_groups: ${metrics.crossOrganismGroups}`);
   }
@@ -62,7 +72,8 @@ function buildMetricItems(metrics) {
 }
 
 function buildProgressDetail(phase, percent, metrics) {
-  const safePercent = typeof percent === "number" ? Math.max(0, Math.min(percent, 100)) : null;
+  const safePercent =
+    typeof percent === "number" ? Math.max(0, Math.min(percent, 100)) : null;
   const parts = [];
 
   const queryCountByTaxid = metrics?.queryCountByTaxid || {};
@@ -73,13 +84,18 @@ function buildProgressDetail(phase, percent, metrics) {
 
   const total = sumValues(queryCountByTaxid);
   if (total > 0) {
-    const fetched = Object.entries(fetchCountByTaxid).reduce((acc, [taxid, raw]) => {
-      const done = Number(raw) || 0;
-      const max = Number(queryCountByTaxid[taxid]) || done;
-      return acc + Math.min(done, max);
-    }, 0);
+    const fetched = Object.entries(fetchCountByTaxid).reduce(
+      (acc, [taxid, raw]) => {
+        const done = Number(raw) || 0;
+        const max = Number(queryCountByTaxid[taxid]) || done;
+        return acc + Math.min(done, max);
+      },
+      0,
+    );
     const safeFetched = Math.min(fetched, total);
-    parts.push(`fetch ${safeFetched}/${total} (${((safeFetched / total) * 100).toFixed(1)}%)`);
+    parts.push(
+      `fetch ${safeFetched}/${total} (${((safeFetched / total) * 100).toFixed(1)}%)`,
+    );
   }
 
   const boldDownloadedTotal = sumValues(boldDownloadedByTaxon);
@@ -89,7 +105,7 @@ function buildProgressDetail(phase, percent, metrics) {
     const boldTaxonCount = new Set([
       ...Object.keys(boldSpecimenCountByTaxon),
       ...Object.keys(boldDownloadedByTaxon),
-      ...Object.keys(boldMatchedByTaxon)
+      ...Object.keys(boldMatchedByTaxon),
     ]).size;
     let detail = `bold matched ${boldMatchedTotal}/${boldDownloadedTotal || 0}`;
     if (boldSpecimenTotal > 0) {
@@ -118,22 +134,55 @@ export function createMonitorView({
   logsEl,
   metricsListEl,
   resultFilesEl,
-  openPath
+  openPath,
 }) {
+  const MAX_LOG_LINES = 4000;
+  const logLines = [];
+  let logRenderScheduled = false;
+
+  function renderLogs() {
+    logRenderScheduled = false;
+    logsEl.textContent = `${logLines.join("\n")}\n`;
+    logsEl.scrollTop = logsEl.scrollHeight;
+  }
+
+  function scheduleLogRender() {
+    if (logRenderScheduled) return;
+
+    logRenderScheduled = true;
+    window.requestAnimationFrame(renderLogs);
+  }
+
   function reset() {
     statusEl.textContent = "Idle";
     phaseEl.textContent = "-";
     progressEl.value = 0;
     progressDetailEl.textContent = "0.0%";
+
+    logLines.length = 0;
     logsEl.textContent = "";
+
     metricsListEl.innerHTML = "";
   }
 
   function appendLog(line) {
-    const current = logsEl.textContent;
-    const next = current.length > 50000 ? current.slice(-30000) : current;
-    logsEl.textContent = `${next}${line}\n`;
-    logsEl.scrollTop = logsEl.scrollHeight;
+    logLines.push(line);
+
+    if (logLines.length > MAX_LOG_LINES) {
+      const removeCount = logLines.length - MAX_LOG_LINES;
+      logLines.splice(0, removeCount);
+
+      if (
+        logLines[0] !==
+        "[Older GUI log lines omitted. See the .log file for the full log.]"
+      ) {
+        logLines.unshift(
+          "[Older GUI log lines omitted. See the .log file for the full log.]",
+        );
+      }
+    }
+
+    scheduleLogRender();
   }
 
   function renderMetrics(metrics) {
@@ -176,6 +225,6 @@ export function createMonitorView({
     appendLog,
     renderMetrics,
     renderProgressDetail,
-    renderResultFiles
+    renderResultFiles,
   };
 }

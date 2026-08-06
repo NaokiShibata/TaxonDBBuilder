@@ -295,7 +295,17 @@ pub(crate) fn start_run(
     };
 
     thread::spawn(move || {
-        let mut parser = ProgressParser::new(taxid_total, post_steps_total);
+        let uses_ncbi = source_uses_ncbi(&source_for_thread);
+        let uses_bold = matches!(
+            source_for_thread.to_ascii_lowercase().as_str(),
+            "bold" | "both"
+        );
+
+        let mut parser =
+            ProgressParser::for_source(taxid_total, post_steps_total, uses_ncbi, uses_bold);
+
+        emit_event(&app_for_thread, progress_event(&parser));
+
         let build_params = BuildParams {
             config_path: config_path_for_thread,
             taxids: taxids_for_thread,
