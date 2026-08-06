@@ -1,4 +1,6 @@
+# Requires Python 3.12+. kalign-python requires a source build on Windows.
 biopython
+kalign-python
+piqtree
 rich
 typer
-tomli; python_version < '3.11'

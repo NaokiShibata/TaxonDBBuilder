@@ -12,9 +12,8 @@ GUI の詳細は[こちらの README](tauri-gui/README.md)を参照してくだ�
 ![](tauri-gui/figures/TaxonDBBuilderGUI.drawio.png)
 
 ## 動作環境
-- Python 3.8+ (3.11+ 推奨)
-- 主要依存: biopython, rich, typer
-- Python < 3.11 の場合: tomli
+- Python 3.12+
+- 主要依存: biopython, kalign-python, piqtree, rich, typer
 - パッケージ管理: uv (推奨)
 
 開発・sidecar ビルド用の依存は `requirements-dev.txt` に記録しています
@@ -57,10 +56,10 @@ uv --version
 
 ```bash
 # Pythonのインストール (必要な場合)
-uv python install 3.11
+uv python install 3.12
 
 # 仮想環境
-uv venv --python 3.11
+uv venv --python 3.12
 source .venv/bin/activate
 
 # 依存導入
@@ -69,14 +68,16 @@ uv pip install -r requirements-dev.txt
 
 ### 補足
 - uvはPythonパッケージのみを扱います。現時点で外部ツールは不要です。
+- `kalign-python` はWindows向けビルド済みwheelがないため、WindowsではCMakeとC++コンパイラを使ったソースビルドが必要です。
+- `piqtree` はIntel Mac向けwheelを提供していません。
 
 ## クイックスタート
 環境構築から **GenBankキャッシュ付きの実行** までの最短手順です。
 
 ```bash
 # 1) 仮想環境と依存導入
-uv python install 3.11
-uv venv --python 3.11
+uv python install 3.12
+uv venv --python 3.12
 source .venv/bin/activate
 uv pip install -r requirements.txt
 
@@ -508,7 +509,7 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
   - 逆向き配列も考慮し、`reverse`(5') + `forward`逆相補(3') の組み合わせも判定
   - IUPAC塩基 (`R`, `Y`, `N` など) を利用可能
 - `[post_prep].sequence_length_min/max` 指定時、`length_filter` カテゴリで配列長フィルタを適用
-- `[post_prep].msa_tree_enable = true` 指定時、MAFFTによるMSA (`*.msa.fasta`) とIQ-TREEによるNewick系統樹 (`*.tree.nwk`) を出力
+- `[post_prep].msa_tree_enable = true` 指定時、`kalign-python`によるDNA MSA (`*.msa.fasta`) と`piqtree`によるNewick系統樹 (`*.tree.nwk`) を出力
 - FASTAヘッダーテンプレートに `{acc_id}` と `{organism_raw}` (または `{organism}`) が含まれる場合、同一配列の重複情報を以下に出力
 - `*.fasta.duplicate_acc.records.csv` (1レコード=1行の詳細)
 - `*.fasta.duplicate_acc.groups.csv` (重複グループの集約。`cross_organism_duplicate` を含む)
@@ -586,8 +587,8 @@ build と post-prep の処理は sidecar 内の Python パッケージが担当�
 ### 1. Python実行環境を作成 (uv)
 リポジトリルートで実行します。
 ```bash
-uv python install 3.11
-uv venv --python 3.11
+uv python install 3.12
+uv venv --python 3.12
 source .venv/bin/activate
 uv pip install -r requirements-dev.txt
 ```
