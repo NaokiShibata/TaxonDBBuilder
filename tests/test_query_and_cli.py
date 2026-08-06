@@ -3,6 +3,8 @@ from __future__ import annotations
 from datetime import date, datetime
 from pathlib import Path
 
+import pytest
+import typer
 from typer.testing import CliRunner
 
 from .conftest import read_golden
@@ -62,3 +64,24 @@ def test_cli_list_primer_sets_output_matches_golden(
     )
     assert result.exit_code == 0, result.stdout
     assert result.stdout == read_golden(golden_dir, "cli-list-primer-sets.txt")
+
+
+@pytest.mark.parametrize("post_prep_cfg", [{}, {"msa_tree_enable": False}])
+def test_resolve_post_prep_msa_tree_requires_enabled_config(
+    tmp_path: Path, post_prep_cfg: dict[str, object]
+) -> None:
+    from taxondbbuilder.cli import _resolve_post_prep_options
+    from taxondbbuilder.models import BuildSource, PostPrepStep
+
+    with pytest.raises(
+        typer.BadParameter,
+        match="post-prep step 'msa_tree' requires post_prep.msa_tree_enable",
+    ):
+        _resolve_post_prep_options(
+            True,
+            [PostPrepStep.MSA_TREE],
+            None,
+            post_prep_cfg,
+            tmp_path / "config.toml",
+            BuildSource.NCBI,
+        )
