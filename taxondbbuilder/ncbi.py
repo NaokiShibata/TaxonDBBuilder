@@ -91,6 +91,7 @@ def _build_ncbi_canonical_record(
     matched: _MatchedNCBIFeature,
     dup_index: int | None,
     source: BuildSource,
+    taxid: str,
 ) -> CanonicalRecord:
     acc_id = f"{acc}_dup{dup_index}" if dup_index else acc
     dup_tag = f"dup{dup_index}" if dup_index else ""
@@ -134,6 +135,7 @@ def _build_ncbi_canonical_record(
             "matched_type": matched.feature_type,
             "header_format": matched.header_format or DEFAULT_HEADER_FORMAT,
         },
+        taxid=taxid,
     )
 
 
@@ -148,6 +150,7 @@ def _append_ncbi_feature_record(
     dup_accessions: dict[str, int],
     lock: Lock,
     extracted_records: list[CanonicalRecord],
+    taxid: str,
 ) -> None:
     with lock:
         counters["matched_features"] += 1
@@ -163,7 +166,7 @@ def _append_ncbi_feature_record(
         seqs.add(matched.sequence)
         extracted_records.append(
             _build_ncbi_canonical_record(
-                acc, organism, organism_safe, matched, dup_index, source
+                acc, organism, organism_safe, matched, dup_index, source, taxid
             )
         )
 
@@ -203,6 +206,7 @@ def _extract_ncbi_record(
             dup_accessions,
             lock,
             extracted_records,
+            taxid,
         )
     if record_matched:
         with lock:
@@ -484,6 +488,8 @@ def _create_genbank_fetch_context(
     cache_root = None
     if dump_dir:
         cache_root = dump_dir / ".cache"
+        if taxid:
+            cache_root = cache_root / f"taxid{taxid}"
         cache_root.mkdir(parents=True, exist_ok=True)
     return _GenbankFetchContext(
         query=query,

@@ -156,6 +156,7 @@ def process_bold_taxon_to_spool(
                 continue
 
             record = build_bold_canonical_record(normalized, marker_map, output_cfg)
+            record.taxid = resolved_taxon.taxid
             accession_tokens = parse_accession_tokens(record.accession)
             if (
                 source == BuildSource.BOTH

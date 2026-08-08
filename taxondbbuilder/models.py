@@ -57,6 +57,7 @@ class CanonicalRecord:
     linked_to_ncbi: bool = False
     emitted_to_fasta: bool = True
     skip_reason: str | None = None
+    taxid: str | None = None
 
 
 POST_PREP_STEP_ORDER = [
@@ -80,6 +81,7 @@ def build_source_merge_row(record: CanonicalRecord, header: str = "") -> dict[st
     return {
         "source": record.source,
         "source_record_id": record.source_record_id,
+        "taxid": record.taxid or "",
         "acc_id": record.header_values.get("acc_id", ""),
         "accession": record.accession or "",
         "processid": record.processid or "",
@@ -103,7 +105,10 @@ def canonical_record_sort_key(record: CanonicalRecord) -> tuple[str, str, str]:
 
 
 def canonical_record_to_dict(record: CanonicalRecord) -> dict[str, Any]:
-    return asdict(record)
+    data = asdict(record)
+    if record.taxid is None:
+        data.pop("taxid", None)
+    return data
 
 
 def canonical_record_from_dict(data: dict[str, Any]) -> CanonicalRecord:
@@ -152,6 +157,7 @@ def write_source_merge_csv(fasta_path: Path, rows: list[dict[str, str]]) -> Path
             fieldnames=[
                 "source",
                 "source_record_id",
+                "taxid",
                 "acc_id",
                 "accession",
                 "processid",

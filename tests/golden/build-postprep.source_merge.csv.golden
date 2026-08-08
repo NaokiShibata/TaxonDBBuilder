@@ -1,4 +1,4 @@
-source,source_record_id,acc_id,accession,processid,sampleid,organism_name,marker_key,marker_label,linked_to_ncbi,emitted_to_fasta,skip_reason,header
-ncbi,TESTP001.1,TESTP001.1,TESTP001.1,,,Testus alpha other.,12s,12S,false,true,,TESTP001.1|Testus alpha other.|12s|12S|gene|5-16|1
-ncbi,TESTP002.1,TESTP002.1,TESTP002.1,,,Testus beta other.,12s,12S,false,true,,TESTP002.1|Testus beta other.|12s|12S|gene|5-16|1
-ncbi,TESTP003.1,TESTP003.1,TESTP003.1,,,Testus gamma other.,12s,12S,false,true,,TESTP003.1|Testus gamma other.|12s|12S|gene|5-12|1
+source,source_record_id,taxid,acc_id,accession,processid,sampleid,organism_name,marker_key,marker_label,linked_to_ncbi,emitted_to_fasta,skip_reason,header
+ncbi,TESTP001.1,999,TESTP001.1,TESTP001.1,,,Testus alpha other.,12s,12S,false,true,,TESTP001.1|Testus alpha other.|12s|12S|gene|5-16|1
+ncbi,TESTP002.1,999,TESTP002.1,TESTP002.1,,,Testus beta other.,12s,12S,false,true,,TESTP002.1|Testus beta other.|12s|12S|gene|5-16|1
+ncbi,TESTP003.1,999,TESTP003.1,TESTP003.1,,,Testus gamma other.,12s,12S,false,true,,TESTP003.1|Testus gamma other.|12s|12S|gene|5-12|1

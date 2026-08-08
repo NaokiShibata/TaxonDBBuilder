@@ -1,2 +1,2 @@
-source,source_record_id,acc_id,accession,processid,sampleid,organism_name,marker_key,marker_label,linked_to_ncbi,emitted_to_fasta,skip_reason,header
-ncbi,TEST0001.1,TEST0001.1,TEST0001.1,,,Testus alpha other.,12s,12S,false,true,,TEST0001.1|12s|5-20
+source,source_record_id,taxid,acc_id,accession,processid,sampleid,organism_name,marker_key,marker_label,linked_to_ncbi,emitted_to_fasta,skip_reason,header
+ncbi,TEST0001.1,999,TEST0001.1,TEST0001.1,,,Testus alpha other.,12s,12S,false,true,,TEST0001.1|12s|5-20

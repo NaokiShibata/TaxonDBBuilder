@@ -488,7 +488,9 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     )
     assert count == 5
     assert list(chunks) == [(0, "chunk-0"), (2, "chunk-2"), (4, "chunk-4")]
-    assert sorted(path.name for path in (dump_dir / ".cache").iterdir()) == [
+    assert sorted(
+        path.name for path in (dump_dir / ".cache" / "taxid999").iterdir()
+    ) == [
         "start000000000_count0002.cache",
         "start000000002_count0002.cache",
         "start000000004_count0002.cache",
@@ -503,3 +505,71 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     assert count == 5
     assert list(chunks) == [(0, "chunk-0"), (2, "chunk-2"), (4, "chunk-4")]
     assert fetch_calls == []
+
+
+def test_fetch_genbank_resume_cache_is_isolated_by_taxid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import taxondbbuilder as builder
+
+    fetch_calls: list[dict[str, Any]] = []
+
+    def esearch(**kwargs: Any):
+        return _FakeHandle(
+            {
+                "Count": "1",
+                "WebEnv": kwargs["term"],
+                "QueryKey": "1",
+            }
+        )
+
+    def read(handle: _FakeHandle):
+        return handle.payload
+
+    def efetch(**kwargs: Any):
+        fetch_calls.append(kwargs)
+        return _FakeHandle(f"chunk-{kwargs['webenv']}")
+
+    monkeypatch.setattr(builder.Entrez, "esearch", esearch)
+    monkeypatch.setattr(builder.Entrez, "read", read)
+    monkeypatch.setattr(builder.Entrez, "efetch", efetch)
+    monkeypatch.setattr(builder.time, "sleep", lambda _seconds: None)
+
+    cfg = {
+        "db": "nucleotide",
+        "rettype": "gb",
+        "retmode": "text",
+        "per_query": 100,
+    }
+    dump_dir = tmp_path / "gb-cache"
+
+    first_count, first_chunks = builder.fetch_genbank(
+        "query-first",
+        cfg,
+        0,
+        dump_dir=dump_dir,
+        resume=True,
+        taxid="111",
+    )
+    second_count, second_chunks = builder.fetch_genbank(
+        "query-second",
+        cfg,
+        0,
+        dump_dir=dump_dir,
+        resume=True,
+        taxid="222",
+    )
+
+    assert first_count == second_count == 1
+    assert list(first_chunks) == [(0, "chunk-query-first")]
+    assert list(second_chunks) == [(0, "chunk-query-second")]
+    assert [call["webenv"] for call in fetch_calls] == [
+        "query-first",
+        "query-second",
+    ]
+    assert (
+        dump_dir / ".cache" / "taxid111" / "start000000000_count0100.cache"
+    ).is_file()
+    assert (
+        dump_dir / ".cache" / "taxid222" / "start000000000_count0100.cache"
+    ).is_file()

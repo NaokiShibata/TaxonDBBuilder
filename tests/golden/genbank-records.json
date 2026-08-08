@@ -47,6 +47,7 @@
       "skip_reason": null,
       "source": "ncbi",
       "source_record_id": "TEST0001.1",
+      "taxid": "999",
       "taxon_name": "Testus alpha other."
     },
     {
@@ -86,6 +87,7 @@
       "skip_reason": null,
       "source": "ncbi",
       "source_record_id": "TEST0001.1",
+      "taxid": "999",
       "taxon_name": "Testus alpha other."
     },
     {
@@ -125,6 +127,7 @@
       "skip_reason": null,
       "source": "ncbi",
       "source_record_id": "TEST0002.1",
+      "taxid": "999",
       "taxon_name": "Testus beta other."
     }
   ]
