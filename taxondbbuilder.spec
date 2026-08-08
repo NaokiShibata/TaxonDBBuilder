@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_submodules
+from PyInstaller.utils.hooks import collect_submodules, copy_metadata
 
 
 project_root = Path(SPECPATH)
@@ -39,6 +39,11 @@ typer_rich_hiddenimports = [
 # Config files, marker definitions, and primer files are selected at runtime
 # by the GUI/CLI, so they must remain external rather than being bundled.
 datas = []
+# cogent3's citeable dependency reads its own version via importlib.metadata
+# at import time, which requires the dist-info to be bundled explicitly.
+for _pkg in ("citeable", "cogent3", "scinexus", "piqtree", "kalign-python"):
+    datas += copy_metadata(_pkg)
+
 hiddenimports = package_hiddenimports + biopython_hiddenimports
 hiddenimports += cogent3_hiddenimports
 hiddenimports += typer_rich_hiddenimports
