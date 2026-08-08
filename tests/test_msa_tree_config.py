@@ -30,6 +30,8 @@ def test_msa_tree_config_defaults_apply_when_keys_are_omitted(tmp_path: Path) ->
     assert post_prep["msa_tree_min_taxa"] == 3
     assert post_prep["msa_tree_max_samples"] == 500
     assert post_prep["msa_tree_model"] == "GTR+G"
+    assert post_prep["msa_tree_mode"] == "combined"
+    assert post_prep["msa_tree_bootstrap_replicates"] == 1000
 
 
 @pytest.mark.parametrize(
@@ -123,3 +125,32 @@ def test_msa_tree_model_accepts_a_non_empty_string(tmp_path: Path) -> None:
     _write_config(path, "msa_tree_model = 'HKY+G'\n")
 
     assert builder.load_config(path)["post_prep"]["msa_tree_model"] == "HKY+G"
+
+
+@pytest.mark.parametrize("mode", ["combined", "per_taxid"])
+def test_msa_tree_mode_accepts_supported_values(tmp_path: Path, mode: str) -> None:
+    import taxondbbuilder as builder
+
+    path = tmp_path / "mode.toml"
+    _write_config(path, f"msa_tree_mode = '{mode}'\n")
+
+    assert builder.load_config(path)["post_prep"]["msa_tree_mode"] == mode
+
+
+def test_msa_tree_mode_rejects_unknown_value(tmp_path: Path) -> None:
+    import taxondbbuilder as builder
+
+    path = tmp_path / "bad-mode.toml"
+    _write_config(path, "msa_tree_mode = 'per_marker'\n")
+
+    with pytest.raises(typer.BadParameter, match="post_prep.msa_tree_mode"):
+        builder.load_config(path)
+
+
+def test_msa_tree_disabled_mode_is_valid_when_disabled(tmp_path: Path) -> None:
+    import taxondbbuilder as builder
+
+    path = tmp_path / "disabled.toml"
+    _write_config(path, "msa_tree_mode = 'disabled'\n")
+
+    assert builder.load_config(path)["post_prep"]["msa_tree_mode"] == "disabled"

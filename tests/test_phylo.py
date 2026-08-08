@@ -24,6 +24,7 @@ def _options(*, min_taxa: int = 3, max_samples: int = 500) -> dict[str, object]:
         "min_taxa": min_taxa,
         "max_samples": max_samples,
         "model": "GTR+G",
+        "bootstrap_replicates": 1000,
     }
 
 
@@ -91,10 +92,11 @@ def test_apply_post_prep_msa_tree_happy_path(
         return aligned_records, None
 
     def fake_tree(
-        records: list[tuple[str, str]], model: str
+        records: list[tuple[str, str]], model: str, bootstrap_replicates: int
     ) -> tuple[str, None]:
         calls["tree_records"] = records
         calls["model"] = model
+        calls["bootstrap_replicates"] = bootstrap_replicates
         return "(taxon_0,taxon_1,taxon_2);\n", None
 
     monkeypatch.setattr(phylo, "run_msa", fake_msa)
@@ -119,6 +121,7 @@ def test_apply_post_prep_msa_tree_happy_path(
     ]
     assert calls["tree_records"] == aligned_records
     assert calls["model"] == "GTR+G"
+    assert calls["bootstrap_replicates"] == 1000
 
 
 def test_apply_post_prep_msa_tree_reports_msa_failure(
@@ -155,7 +158,9 @@ def test_apply_post_prep_msa_tree_keeps_msa_after_tree_failure(
         phylo, "run_msa", lambda _records: (aligned_records, None)
     )
     monkeypatch.setattr(
-        phylo, "run_tree", lambda _records, _model: (None, "tree_failed")
+        phylo,
+        "run_tree",
+        lambda _records, _model, _bootstrap: (None, "tree_failed"),
     )
 
     result = apply_post_prep_msa_tree(fasta_path, _options())
@@ -165,6 +170,53 @@ def test_apply_post_prep_msa_tree_keeps_msa_after_tree_failure(
     assert result["msa_path"] == str(fasta_path) + ".msa.fasta"
     assert Path(str(result["msa_path"])).exists()
     assert result["tree_path"] is None
+
+
+def test_apply_post_prep_msa_tree_builds_one_tree_per_taxid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fasta_path = tmp_path / "per-taxid.fasta"
+    fasta_path.write_text(
+        ">first\nACGT\n>second\nACGA\n>third\nACGG\n>fourth\nACGC\n",
+        encoding="utf-8",
+    )
+    calls: list[list[tuple[str, str]]] = []
+
+    monkeypatch.setattr(
+        phylo,
+        "run_msa",
+        lambda records: ([(record_id, sequence + "-") for record_id, sequence in records], None),
+    )
+
+    def fake_tree(
+        records: list[tuple[str, str]], _model: str, _bootstrap: int
+    ) -> tuple[str, None]:
+        calls.append(records)
+        return "(" + ",".join(record_id for record_id, _ in records) + ");\n", None
+
+    monkeypatch.setattr(phylo, "run_tree", fake_tree)
+
+    result = apply_post_prep_msa_tree(
+        fasta_path,
+        _options(min_taxa=2, max_samples=3) | {"mode": "per_taxid"},
+        taxid_by_header={
+            "first": "100",
+            "second": "100",
+            "third": "200",
+            "fourth": "200",
+        },
+    )
+
+    assert result["status"] == "ok"
+    assert result["taxa_count"] == 4
+    assert [item["taxid"] for item in result["tree_outputs"]] == ["100", "200"]
+    assert calls == [
+        [("first", "ACGT-"), ("second", "ACGA-")],
+        [("third", "ACGG-"), ("fourth", "ACGC-")],
+    ]
+    assert Path(str(result["tree_outputs"][0]["tree_path"])).name == (
+        "per-taxid.fasta.taxid100.tree.nwk"
+    )
 
 
 def test_run_msa_preserves_record_order(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -198,6 +250,9 @@ def test_run_tree_builds_newick(monkeypatch: pytest.MonkeyPatch) -> None:
     alignment = object()
 
     class FakeTree:
+        def postorder(self) -> list[object]:
+            return []
+
         def get_newick(self, *, with_distances: bool) -> str:
             calls["with_distances"] = with_distances
             return "(first:0.1,second:0.2);"
@@ -208,11 +263,16 @@ def test_run_tree_builds_newick(monkeypatch: pytest.MonkeyPatch) -> None:
         return alignment
 
     def fake_build_tree(
-        aln: object, model: str, *, rand_seed: int
+        aln: object,
+        model: str,
+        *,
+        rand_seed: int,
+        bootstrap_replicates: int,
     ) -> FakeTree:
         calls["alignment"] = aln
         calls["model"] = model
         calls["rand_seed"] = rand_seed
+        calls["bootstrap_replicates"] = bootstrap_replicates
         return FakeTree()
 
     monkeypatch.setattr(phylo, "make_aligned_seqs", fake_make_aligned_seqs)
@@ -228,8 +288,48 @@ def test_run_tree_builds_newick(monkeypatch: pytest.MonkeyPatch) -> None:
         "alignment": alignment,
         "model": "GTR+G",
         "rand_seed": 1,
+        "bootstrap_replicates": 1000,
         "with_distances": True,
     }
+
+
+def test_run_tree_preserves_sequences_with_duplicate_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: dict[str, object] = {}
+    alignment = object()
+
+    def fake_make_aligned_seqs(data: dict[str, str], *, moltype: str) -> object:
+        calls["data"] = data
+        calls["moltype"] = moltype
+        return alignment
+
+    class FakeTree:
+        def postorder(self) -> list[object]:
+            return []
+
+        def get_newick(self, *, with_distances: bool) -> str:
+            return "(taxon,taxon__2,other);"
+
+    monkeypatch.setattr(phylo, "make_aligned_seqs", fake_make_aligned_seqs)
+    monkeypatch.setattr(
+        phylo.piqtree,
+        "build_tree",
+        lambda *_args, **_kwargs: FakeTree(),
+    )
+
+    result = run_tree(
+        [("taxon", "ACGT"), ("taxon", "ACGA"), ("other", "TTTT")],
+        "GTR+G",
+    )
+
+    assert result == ("(taxon,taxon__2,other);", None)
+    assert calls["data"] == {
+        "taxon": "ACGT",
+        "taxon__2": "ACGA",
+        "other": "TTTT",
+    }
+    assert calls["moltype"] == "dna"
 
 
 def test_run_tree_catches_library_failure(monkeypatch: pytest.MonkeyPatch) -> None:

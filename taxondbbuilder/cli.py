@@ -142,6 +142,7 @@ class _BuildContext:
     emitted_records: list[dict[str, str]] = field(default_factory=list)
     source_merge_rows: list[dict[str, str]] = field(default_factory=list)
     progress: Progress | None = None
+    msa_tree_stats: dict[str, Any] | None = None
 
 
 def build_output_path(
@@ -282,9 +283,13 @@ def _log_build_inputs(ctx: _BuildContext) -> None:
             logger.info(f"# post_prep.sequence_length_max: {ctx.post_max}")
     if ctx.post_prep and ctx.has_msa_tree:
         options = ctx.post_msa_tree_options
+        logger.info(f"# post_prep.msa_tree_mode: {options['mode']}")
         logger.info(f"# post_prep.msa_tree_min_taxa: {options['min_taxa']}")
         logger.info(f"# post_prep.msa_tree_max_samples: {options['max_samples']}")
         logger.info(f"# post_prep.msa_tree_model: {options['model']}")
+        logger.info(
+            f"# post_prep.msa_tree_bootstrap_replicates: {options['bootstrap_replicates']}"
+        )
 
 
 def _log_primer_inputs(ctx: _BuildContext) -> None:
@@ -596,12 +601,29 @@ def _run_duplicate_post_prep(ctx: _BuildContext) -> None:
 def _run_msa_tree_post_prep(ctx: _BuildContext) -> None:
     if PostPrepStep.MSA_TREE.value not in ctx.post_prep_steps_run:
         return
-    stats = apply_post_prep_msa_tree(ctx.out_path, ctx.post_msa_tree_options)
+    taxid_by_header = {
+        row["header"]: row["taxid"]
+        for row in ctx.source_merge_rows
+        if row.get("header") and row.get("taxid")
+    }
+    stats = apply_post_prep_msa_tree(
+        ctx.out_path,
+        ctx.post_msa_tree_options,
+        taxid_by_header=taxid_by_header,
+    )
+    ctx.msa_tree_stats = stats
     ctx.run_logger.info(
         "# post_prep msa_tree:"
+        f" mode={stats.get('mode', ctx.post_msa_tree_options['mode'])}"
         f" status={stats['status']} taxa={stats['taxa_count']}"
-        f" msa={stats['msa_path'] or 'none'} tree={stats['tree_path'] or 'none'}"
+        f" msa={stats.get('msa_path') or 'none'} tree={stats.get('tree_path') or 'none'}"
     )
+    for output in stats.get("tree_outputs", []):
+        ctx.run_logger.info(
+            "# post_prep msa_tree output:"
+            f" taxid={output['taxid']} status={output['status']} taxa={output['taxa_count']}"
+            f" msa={output['msa_path'] or 'none'} tree={output['tree_path'] or 'none'}"
+        )
 
 
 def _run_post_prep(ctx: _BuildContext) -> None:
@@ -650,6 +672,7 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         ctx.counters["duplicated_diff"],
         ctx.out_path,
         ctx.log_path,
+        ctx.msa_tree_stats,
     )
     if ctx.dup_accessions:
         console.print(
@@ -859,6 +882,10 @@ def _build_post_prep_msa_tree_options(
         "min_taxa": int(post_prep_cfg.get("msa_tree_min_taxa", 3)),
         "max_samples": int(post_prep_cfg.get("msa_tree_max_samples", 500)),
         "model": post_prep_cfg.get("msa_tree_model", "GTR+G"),
+        "mode": post_prep_cfg.get("msa_tree_mode", "combined"),
+        "bootstrap_replicates": int(
+            post_prep_cfg.get("msa_tree_bootstrap_replicates", 1000)
+        ),
     }
 
 

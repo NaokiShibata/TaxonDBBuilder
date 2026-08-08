@@ -289,14 +289,34 @@ def _parse_msa_tree_options(post_prep: dict[str, Any]) -> dict[str, Any]:
         raise typer.BadParameter(
             "post_prep.msa_tree_min_taxa must be <= post_prep.msa_tree_max_samples."
         )
+    mode_raw = post_prep.get("msa_tree_mode", "combined")
+    if not isinstance(mode_raw, str):
+        raise typer.BadParameter("post_prep.msa_tree_mode must be a string.")
+    mode = mode_raw.strip().lower()
+    if mode not in {"disabled", "combined", "per_taxid"}:
+        raise typer.BadParameter(
+            "post_prep.msa_tree_mode must be one of: disabled, combined, per_taxid"
+        )
+    bootstrap_replicates = _parse_int_option(
+        "post_prep.msa_tree_bootstrap_replicates",
+        post_prep.get("msa_tree_bootstrap_replicates", 1000),
+        1000,
+    )
+    enable = _parse_bool_option(
+        "post_prep.msa_tree_enable",
+        post_prep.get("msa_tree_enable", False),
+    )
+    if enable and mode == "disabled":
+        raise typer.BadParameter(
+            "post_prep.msa_tree_mode = disabled requires post_prep.msa_tree_enable = false."
+        )
     return {
-        "enable": _parse_bool_option(
-            "post_prep.msa_tree_enable",
-            post_prep.get("msa_tree_enable", False),
-        ),
+        "enable": enable,
         "min_taxa": min_taxa,
         "max_samples": max_samples,
         "model": model_raw.strip(),
+        "mode": mode,
+        "bootstrap_replicates": bootstrap_replicates,
     }
 
 
