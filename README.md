@@ -193,6 +193,8 @@ file = "configs/markers_mitogenome.toml"
 # msa_tree_min_taxa = 3
 # msa_tree_max_samples = 500
 # msa_tree_model = "GTR+G"
+# msa_tree_mode = "combined" # or "per_taxid"
+# msa_tree_bootstrap_replicates = 1000
 ```
 
 ### 検索・抽出の考え方
@@ -449,7 +451,23 @@ primer_set の候補を一覧表示:
 python3 -m taxondbbuilder list-primer-sets -c configs/db.toml
 ```
 
+TaxIDごとの系統樹を作成する場合は、`[post_prep]` に以下を設定して実行します。
+
+```toml
+msa_tree_enable = true
+msa_tree_mode = "per_taxid"
+msa_tree_bootstrap_replicates = 1000
+```
+
+```bash
+python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 32443 -t 7777 -m 12s --post-prep --post-prep-step msa_tree
+```
+
 キャッシュは `Results/gb/.cache/` に保存されます。
+
+複数TaxIDを同じ実行で指定した場合、GenBankのresumeキャッシュはTaxIDごとに
+`Results/gb/.cache/taxid{ID}/` へ分離されます。
 
 ### taxid指定
 ```bash
@@ -493,6 +511,7 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
 - ファイル名: `taxid{ID}__{marker}.fasta` (複数指定時は `multi_taxon` / `multi_marker`)
 - 実行ログ: 出力FASTAと同名の `.log`
 - ACCと生物種名の対応表: `*.fasta.acc_organism.csv` (`acc_id, accession, organism_name, header`)
+- source merge 対応表: `*.fasta.source_merge.csv`（NCBI/BOLDのsource、TaxID、accession、出力ヘッダーを記録）
 
 `--post-prep` 指定時:
 - デフォルトでは、設定が存在するカテゴリを実行
@@ -510,6 +529,9 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
   - IUPAC塩基 (`R`, `Y`, `N` など) を利用可能
 - `[post_prep].sequence_length_min/max` 指定時、`length_filter` カテゴリで配列長フィルタを適用
 - `[post_prep].msa_tree_enable = true` 指定時、`kalign-python`によるDNA MSA (`*.msa.fasta`) と`piqtree`によるNewick系統樹 (`*.tree.nwk`) を出力
+- `[post_prep].msa_tree_mode = "combined"`（デフォルト）は全TaxIDをまとめて1本作成し、`"per_taxid"` はTaxIDごとに `*.taxid{ID}.msa.fasta` / `*.taxid{ID}.tree.nwk` を作成
+- `msa_tree_bootstrap_replicates`（デフォルト1000）でBootstrapを実行し、支持値をNewickの内部ノードラベルとして保存
+- GUIのResults画面では生成された系統樹をTaxIDごとのセレクタで切り替え、支持値を枝の上側に表示
 - FASTAヘッダーテンプレートに `{acc_id}` と `{organism_raw}` (または `{organism}`) が含まれる場合、同一配列の重複情報を以下に出力
 - `*.fasta.duplicate_acc.records.csv` (1レコード=1行の詳細)
 - `*.fasta.duplicate_acc.groups.csv` (重複グループの集約。`cross_organism_duplicate` を含む)
@@ -601,17 +623,17 @@ npm install
 ```
 
 ### 3. sidecar バイナリを作成
-まずリポジトリ直下で PyInstaller の sidecar バイナリを作成します。
-
-```bash
-.venv/bin/python -m PyInstaller taxondbbuilder.spec
-dist/taxondbbuilder --help
-```
-
-Tauri 用の名前と配置先にコピーする場合は、`tauri-gui/` から補助スクリプトを実行します。
+`build_sidecar.py` はPyInstallerで作成した実バイナリを、現在のOS/target triple用の
+`tauri-gui/src-tauri/bin/` へコピーします。
 
 ```bash
 python3 scripts/build_sidecar.py --repo-root .. --tauri-root .
+```
+
+実バイナリを作らずRust側だけを検証する場合はstubを配置できます。
+
+```bash
+python3 scripts/build_sidecar.py --repo-root .. --tauri-root . --stub
 ```
 
 ### 4. 開発モードで起動
