@@ -336,6 +336,34 @@ mod tests {
     }
 
     #[test]
+    fn build_args_preserve_every_selected_taxid() {
+        let params = BuildParams {
+            config_path: PathBuf::from("config.toml"),
+            taxids: vec!["111".to_string(), "222".to_string(), "333".to_string()],
+            markers: vec!["12s".to_string()],
+            source: "ncbi".to_string(),
+            output_file: PathBuf::from("output.fasta"),
+            dump_gb_dir: PathBuf::from("gb"),
+            from_gb_dir: None,
+            resume: false,
+            workers: 1,
+            output_prefix: "taxondbbuilder_".to_string(),
+            post_prep: false,
+            post_prep_steps: Vec::new(),
+            post_prep_primer_sets: Vec::new(),
+        };
+
+        let args = build_params_to_args(&params);
+        let taxids = args
+            .windows(2)
+            .filter(|pair| pair[0] == "--taxon")
+            .map(|pair| pair[1].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(taxids, ["111", "222", "333"]);
+    }
+
+    #[test]
     fn sidecar_from_gb_output_reaches_progress_events() {
         let sidecar = repo_path("dist/taxondbbuilder");
         if !sidecar.is_file() {

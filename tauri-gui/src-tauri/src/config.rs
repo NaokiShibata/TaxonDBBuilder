@@ -14,6 +14,7 @@ pub(crate) const DEFAULT_BUILD_SOURCE: &str = "ncbi";
 pub(crate) const DEFAULT_OUTPUT_HEADER_FORMAT: &str =
     "{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}";
 pub(crate) const DEFAULT_OUTPUT_MIFISH_HEADER_FORMAT: &str = "{db}|{acc_id}|{organism}";
+pub(crate) const DEFAULT_MSA_TREE_MODE: &str = "disabled";
 
 pub(crate) static MARKERS_TEMPLATE: &str =
     include_str!("../../resources/templates/markers_mitogenome.toml");
@@ -79,6 +80,8 @@ pub(crate) struct PostPrepInput {
     pub(crate) enable: bool,
     #[serde(default, rename = "msaTree", alias = "msaTreeEnable")]
     pub(crate) msa_tree_enable: bool,
+    #[serde(default = "default_msa_tree_mode")]
+    pub(crate) msa_tree_mode: String,
     pub(crate) primer_file: String,
     pub(crate) primer_set: Vec<String>,
     pub(crate) steps: Vec<String>,
@@ -99,6 +102,10 @@ pub(crate) struct PostPrepInput {
     pub(crate) primer_recheck_min_identity: Option<f64>,
     pub(crate) primer_recheck_min_query_cov: Option<f64>,
     pub(crate) primer_sidecar_format: Option<String>,
+}
+
+fn default_msa_tree_mode() -> String {
+    DEFAULT_MSA_TREE_MODE.to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -396,10 +403,18 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
     toml.push('\n');
 
     toml.push_str("[post_prep]\n");
+    let msa_tree_mode = match req.post_prep.msa_tree_mode.trim() {
+        "combined" => "combined",
+        "per_taxid" => "per_taxid",
+        "disabled" => "disabled",
+        _ if req.post_prep.msa_tree_enable => "combined",
+        _ => "disabled",
+    };
     toml.push_str(&format!(
         "msa_tree_enable = {}\n",
-        req.post_prep.msa_tree_enable
+        msa_tree_mode != "disabled"
     ));
+    toml.push_str(&format!("msa_tree_mode = {}\n", toml_quote(msa_tree_mode)));
     toml.push_str(&format!("primer_file = {}\n", toml_quote(&primer_file)));
     if !req.post_prep.primer_set.is_empty() {
         let sets = req
@@ -669,6 +684,16 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
             .get("msa_tree_enable")
             .and_then(|v| v.as_bool())
             .unwrap_or(false);
+        imported.post_prep.msa_tree_mode = post
+            .get("msa_tree_mode")
+            .and_then(|v| v.as_str())
+            .unwrap_or(if imported.post_prep.msa_tree_enable {
+                "combined"
+            } else {
+                DEFAULT_MSA_TREE_MODE
+            })
+            .trim()
+            .to_string();
         imported.post_prep.primer_file = post
             .get("primer_file")
             .and_then(|v| v.as_str())

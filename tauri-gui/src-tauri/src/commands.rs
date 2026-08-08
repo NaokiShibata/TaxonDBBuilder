@@ -166,6 +166,19 @@ pub(crate) fn read_text_file(path: String) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub(crate) fn save_svg_file(content: String) -> Result<Option<String>, String> {
+    if content.trim().is_empty() {
+        return Err("SVG content is required".to_string());
+    }
+    let selected = FileDialog::new().add_filter("SVG", &["svg"]).save_file();
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+    fs::write(&path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 pub(crate) fn cancel_run(state: State<AppState>) -> Result<(), String> {
     let run = {
         let slot = state
@@ -315,6 +328,7 @@ pub(crate) fn start_run(
 
         emit_event(&app_for_thread, progress_event(&parser));
 
+        let config_path_for_files = config_path_for_thread.clone();
         let build_params = BuildParams {
             config_path: config_path_for_thread,
             taxids: taxids_for_thread,
@@ -350,7 +364,7 @@ pub(crate) fn start_run(
         let was_cancelled = cancelled.load(Ordering::Relaxed);
         let files = collect_files(
             &results_dir_for_thread,
-            std::slice::from_ref(&log_path_for_thread),
+            &[log_path_for_thread.clone(), config_path_for_files],
         );
 
         match (was_cancelled, exit_code) {

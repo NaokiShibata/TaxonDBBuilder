@@ -550,6 +550,21 @@ select:focus {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.radio-group {
+  display: grid;
+  gap: 6px;
+  margin: 8px 0 0;
+  padding: 9px 10px;
+  border: 1px solid #d2e5f5;
+  border-radius: 10px;
+}
+
+.radio-group legend {
+  padding: 0 4px;
+  color: #315d79;
+  font-size: 12px;
+}
+
 .actions {
   display: flex;
   justify-content: flex-end;
@@ -614,6 +629,31 @@ progress {
   margin-bottom: 12px;
 }
 
+.disclosure-summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  list-style: none;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.disclosure-summary::-webkit-details-marker {
+  display: none;
+}
+
+.disclosure-summary::before {
+  content: "▸";
+  color: #4b86ae;
+  font-size: 14px;
+  transition: transform 120ms ease;
+}
+
+.disclosure[open] .disclosure-summary::before {
+  transform: rotate(90deg);
+}
+
 #metrics-list,
 #result-files {
   margin: 0;
@@ -643,13 +683,96 @@ progress {
   font-size: 12px;
 }
 
+.tree-view-toolbar {
+  display: grid;
+  grid-template-columns: auto minmax(120px, 1fr) auto minmax(160px, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+}
+
+.tree-view-toolbar label {
+  white-space: nowrap;
+}
+
+.tree-view-toolbar input,
+.tree-view-toolbar select {
+  min-width: 0;
+  padding: 7px 9px;
+}
+
+.tree-view-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tree-view-actions button {
+  padding: 7px 10px;
+  white-space: nowrap;
+}
+
 #tree-view-container {
+  position: relative;
   min-height: 100px;
-  overflow-x: auto;
+  overflow: hidden;
   border: 1px solid #dbeaf7;
   border-radius: 10px;
   padding: 8px;
   background: rgba(255, 255, 255, 0.78);
+}
+
+#tree-view-container svg {
+  display: block;
+  touch-action: none;
+  user-select: none;
+}
+
+.tree-node-label {
+  font-family: "Noto Sans JP", sans-serif;
+}
+
+.tree-node-point {
+  stroke: #fff;
+  stroke-width: 1;
+}
+
+.tree-view-tooltip {
+  position: absolute;
+  z-index: 2;
+  display: grid;
+  gap: 3px;
+  max-width: 220px;
+  padding: 8px 10px;
+  border: 1px solid #b7d4e8;
+  border-radius: 8px;
+  background: rgba(30, 57, 75, 0.95);
+  color: #fff;
+  font-size: 11px;
+  line-height: 1.35;
+  pointer-events: none;
+  box-shadow: 0 5px 16px rgba(35, 78, 108, 0.2);
+}
+
+.tree-view-tooltip[hidden] {
+  display: none;
+}
+
+.tree-node-support {
+  paint-order: stroke;
+  stroke: #fff;
+  stroke-width: 3px;
+  stroke-linejoin: round;
+}
+
+@media (max-width: 760px) {
+  .tree-view-toolbar {
+    grid-template-columns: auto 1fr;
+  }
+
+  .tree-view-toolbar input,
+  .tree-view-actions {
+    grid-column: 2;
+  }
 }
 
 #log-view {
@@ -681,15 +804,12 @@ progress {
 
 .file-row {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr);
   align-items: start;
-  gap: 8px;
+  gap: 6px;
   width: 100%;
   min-width: 0;
-  border: 1px solid #dbeaf7;
-  border-radius: 10px;
-  padding: 8px 10px;
-  background: rgba(255, 255, 255, 0.78);
+  padding: 2px 0;
 }
 
 .file-row::before {
@@ -700,28 +820,47 @@ progress {
   margin-top: 1px;
 }
 
-.file-row code {
+.link-button {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 4px;
+  min-width: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: #2f6fb0;
+  text-decoration: underline;
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  line-height: 1.4;
+}
+
+.link-button:hover {
+  color: #1d4e82;
+}
+
+.link-button code {
   min-width: 0;
   display: inline;
   white-space: normal;
   overflow-wrap: anywhere;
   word-break: break-word;
-  line-height: 1.4;
-  color: #4a6983;
+  color: inherit;
+  background: none;
 }
 
-.file-row > code {
-  grid-column: 2;
+.link-mark {
+  text-decoration: none;
+  color: #446b88;
 }
 
-.file-row > button {
-  grid-column: 3;
-  grid-row: 1;
-  align-self: start;
+.result-job-dir-row {
+  margin: 0 0 8px;
 }
 
-.file-row button {
-  white-space: nowrap;
+.result-job-dir-row .link-button code {
+  white-space: normal;
 }
 
 @media (max-width: 1080px) {

@@ -76,7 +76,8 @@
                     Enable post prep when you need trimmed/filtered output.
                   </li>
                   <li id="flow-post-primer" class="flow-item neutral">
-                    If primer_trim is selected, choose primer candidates (or set primer_file + primer_set for a custom set).
+                    If primer_trim is selected, choose primer candidates (or set
+                    primer_file + primer_set for a custom set).
                   </li>
                   <li id="flow-post-length" class="flow-item neutral">
                     If length_filter is selected, set post min or post max.
@@ -291,14 +292,10 @@
                   <label class="check"
                     ><input id="post-enable" type="checkbox" /> enable</label
                   >
-                  <label class="check"
-                    ><input
-                      id="postprep-msa-tree-enable"
-                      type="checkbox"
-                    />
-                    MSA / 系統樹構築を実行</label
+                  <label for="primer-file"
+                    >primer_file (optional — not needed when using primer
+                    candidates)</label
                   >
-                  <label for="primer-file">primer_file (optional — not needed when using primer candidates)</label>
                   <div class="inline">
                     <input
                       id="primer-file"
@@ -381,6 +378,38 @@
                     placeholder="mifish_u,mifish_ev2,mifish_u2"
                   />
 
+                  <fieldset class="radio-group">
+                    <legend>MSA / 系統樹構築</legend>
+                    <label class="check"
+                      ><input
+                        class="msa-tree-mode"
+                        type="radio"
+                        name="msa-tree-mode"
+                        value="disabled"
+                        checked
+                      />
+                      実行しない</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="msa-tree-mode"
+                        type="radio"
+                        name="msa-tree-mode"
+                        value="combined"
+                      />
+                      全TaxIDをまとめて1本</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="msa-tree-mode"
+                        type="radio"
+                        name="msa-tree-mode"
+                        value="per_taxid"
+                      />
+                      TaxIDごとに作成</label
+                    >
+                  </fieldset>
+
                   <label>steps</label>
                   <div class="step-grid">
                     <label class="check"
@@ -437,10 +466,10 @@
             </div>
           </div>
 
-          <div class="card metrics">
-            <h3>Metrics</h3>
+          <details id="metrics-disclosure" class="card disclosure metrics">
+            <summary class="disclosure-summary">Metrics</summary>
             <ul id="metrics-list"></ul>
-          </div>
+          </details>
 
           <div class="card logs">
             <h3>Realtime Log</h3>
@@ -453,13 +482,18 @@
         </section>
 
         <section id="view-results" class="view">
-          <div class="card">
-            <h3>Output Files</h3>
+          <details id="output-files-disclosure" class="card disclosure output-files">
+            <summary class="disclosure-summary">Output Files</summary>
+            <p class="result-job-dir-row">
+              <button id="open-job-dir" type="button" class="link-button">
+                <code id="result-job-dir-path"></code>
+                <span class="link-mark" aria-hidden="true">➚</span>
+              </button>
+            </p>
             <ul id="result-files"></ul>
-            <div class="actions">
-              <button id="open-job-dir">Open folder</button>
-              <button id="new-job" class="primary">New job</button>
-            </div>
+          </details>
+          <div class="actions result-actions">
+            <button id="new-job" class="primary">New job</button>
           </div>
           <section id="tree-view-panel" class="view active">
             <div class="card tree-view-card">
@@ -467,6 +501,43 @@
               <p id="tree-view-status" class="tree-view-status">
                 実行完了後に系統樹を表示します。
               </p>
+              <div class="tree-view-toolbar" aria-label="系統樹ビューア操作">
+                <label for="tree-select">表示する系統樹</label>
+                <select id="tree-select" disabled>
+                  <option value="">実行後に選択</option>
+                </select>
+                <label for="tree-search">葉を検索</label>
+                <input
+                  id="tree-search"
+                  type="search"
+                  placeholder="葉ノード名の一部"
+                  disabled
+                />
+                <div class="tree-view-actions">
+                  <button
+                    id="tree-zoom-in"
+                    type="button"
+                    disabled
+                    aria-label="ズームイン"
+                  >
+                    ＋
+                  </button>
+                  <button
+                    id="tree-zoom-out"
+                    type="button"
+                    disabled
+                    aria-label="ズームアウト"
+                  >
+                    −
+                  </button>
+                  <button id="tree-zoom-reset" type="button" disabled>
+                    リセット
+                  </button>
+                  <button id="tree-export" type="button" disabled>
+                    SVGを保存
+                  </button>
+                </div>
+              </div>
               <div id="tree-view-container"></div>
             </div>
           </section>

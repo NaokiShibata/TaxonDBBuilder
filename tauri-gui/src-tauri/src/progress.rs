@@ -56,6 +56,12 @@ static RE_DUP_GROUPS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"groups=(\d+)").expect("duplicate groups regex"));
 static RE_DUP_CROSS: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"cross_organism_groups=(\d+)").expect("cross organism groups regex"));
+static RE_MSA_TREE: Lazy<Regex> = Lazy::new(|| {
+    Regex::new(
+        r"^# post_prep msa_tree: (?:mode=(?P<mode>\S+) )?status=(?P<status>\S+) taxa=(?P<taxa>\d+) msa=(?P<msa>\S+) tree=(?P<tree>\S+)$",
+    )
+        .expect("msa tree regex")
+});
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RunMetrics {
@@ -73,6 +79,10 @@ pub(crate) struct RunMetrics {
     length_filter_removed: Option<u64>,
     duplicate_groups: Option<u64>,
     cross_organism_groups: Option<u64>,
+    msa_tree_status: Option<String>,
+    msa_tree_taxa: Option<u64>,
+    msa_tree_msa_path: Option<String>,
+    msa_tree_tree_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Default)]
@@ -350,6 +360,19 @@ impl ProgressParser {
                 .captures(line)
                 .and_then(|c| c.get(1))
                 .and_then(|m| m.as_str().parse::<u64>().ok());
+            changed = true;
+        }
+
+        if let Some(caps) = RE_MSA_TREE.captures(line) {
+            self.post_steps_seen.insert("msa_tree".to_string());
+            self.metrics.msa_tree_status = caps.name("status").map(|m| m.as_str().to_string());
+            self.metrics.msa_tree_taxa = caps
+                .name("taxa")
+                .and_then(|m| m.as_str().parse::<u64>().ok());
+            let msa_path = caps.name("msa").map(|m| m.as_str()).unwrap_or("none");
+            let tree_path = caps.name("tree").map(|m| m.as_str()).unwrap_or("none");
+            self.metrics.msa_tree_msa_path = (msa_path != "none").then(|| msa_path.to_string());
+            self.metrics.msa_tree_tree_path = (tree_path != "none").then(|| tree_path.to_string());
             changed = true;
         }
 

@@ -31,9 +31,18 @@ const els = {
   logs: document.querySelector("#log-view"),
   metricsList: document.querySelector("#metrics-list"),
   resultFiles: document.querySelector("#result-files"),
+  openJobDir: document.querySelector("#open-job-dir"),
+  resultJobDirPath: document.querySelector("#result-job-dir-path"),
+  metricsDisclosure: document.querySelector("#metrics-disclosure"),
+  outputFilesDisclosure: document.querySelector("#output-files-disclosure"),
   treeViewContainer: document.querySelector("#tree-view-container"),
   treeViewStatus: document.querySelector("#tree-view-status"),
-  openJobDir: document.querySelector("#open-job-dir"),
+  treeSelect: document.querySelector("#tree-select"),
+  treeSearch: document.querySelector("#tree-search"),
+  treeZoomIn: document.querySelector("#tree-zoom-in"),
+  treeZoomOut: document.querySelector("#tree-zoom-out"),
+  treeZoomReset: document.querySelector("#tree-zoom-reset"),
+  treeExport: document.querySelector("#tree-export"),
   newJob: document.querySelector("#new-job"),
   pickOutput: document.querySelector("#pick-output"),
   pickPrimer: document.querySelector("#pick-primer"),
@@ -68,7 +77,7 @@ const els = {
   filterLengthMinInput: document.querySelector("#f-length-min"),
   filterLengthMaxInput: document.querySelector("#f-length-max"),
   postEnableInput: document.querySelector("#post-enable"),
-  postMsaTreeEnableInput: document.querySelector("#postprep-msa-tree-enable"),
+  msaTreeModeEls: Array.from(document.querySelectorAll(".msa-tree-mode")),
   primerFileInput: document.querySelector("#primer-file"),
   primerSetInput: document.querySelector("#primer-set"),
   postLengthMinInput: document.querySelector("#post-length-min"),
@@ -94,6 +103,8 @@ const state = {
   outputPath: "",
   files: [],
   msaTreeStatus: "",
+  treePaths: [],
+  selectedTreePath: "",
   unlisten: null,
   taxids: [],
   markers: [],
@@ -101,6 +112,8 @@ const state = {
   taxonSearchSeq: 0,
   taxonSearchTimer: null
 };
+
+let treeViewController = null;
 
 const postStepEls = Array.from(document.querySelectorAll(".post-step"));
 const primerCandidateEls = Array.from(document.querySelectorAll(".primer-candidate"));
@@ -135,6 +148,12 @@ function setMonitorEnabled(enabled) {
 
 function setResultsEnabled(enabled) {
   els.tabResults.disabled = !enabled;
+}
+
+function renderResultJobDir() {
+  els.resultJobDirPath.textContent = state.jobDir;
+  els.openJobDir.title = state.jobDir;
+  els.openJobDir.disabled = !state.jobDir;
 }
 
 function parseTaxidTokens(raw) {
@@ -205,6 +224,11 @@ function addTaxids(raw) {
   state.taxids = mergeUniqueValues(state.taxids, tokens);
   renderTaxids();
   syncTaxidsHidden();
+}
+
+function commitTaxidInput() {
+  addTaxids(els.taxidInput.value);
+  els.taxidInput.value = "";
 }
 
 function clearTaxonCandidates() {
@@ -340,7 +364,7 @@ function applyImportedDbToml(imported) {
 
   const postPrep = imported.postPrep || {};
   els.postEnableInput.checked = Boolean(postPrep.enable);
-  els.postMsaTreeEnableInput.checked = Boolean(postPrep.msaTree);
+  setMsaTreeMode(postPrep.msaTreeMode || (postPrep.msaTree ? "combined" : "disabled"));
   els.primerFileInput.value = postPrep.primerFile || "";
   els.primerSetInput.value = (postPrep.primerSet || []).join(",");
   setPrimerCandidateSelection(postPrep.primerSet);
@@ -411,44 +435,100 @@ function updateGuidanceState() {
 }
 
 function getSelectedPostPrepSteps() {
-  return readCheckedValues(postStepEls);
+  const steps = readCheckedValues(postStepEls);
+  if (getSelectedMsaTreeMode() !== "disabled" && !steps.includes("msa_tree")) {
+    steps.push("msa_tree");
+  }
+  return steps;
+}
+
+function getSelectedMsaTreeMode() {
+  return els.msaTreeModeEls.find((element) => element.checked)?.value || "disabled";
+}
+
+function setMsaTreeMode(mode) {
+  const selected = ["disabled", "combined", "per_taxid"].includes(mode)
+    ? mode
+    : "disabled";
+  els.msaTreeModeEls.forEach((element) => {
+    element.checked = element.value === selected;
+  });
 }
 
 function treePathForOutput(outputPath) {
   if (!outputPath) return "";
-  return outputPath.toLowerCase().endsWith(".fasta")
-    ? `${outputPath.slice(0, -".fasta".length)}.tree.nwk`
-    : `${outputPath}.tree.nwk`;
+  return `${outputPath}.tree.nwk`;
+}
+
+function setTreeViewControlsEnabled(enabled) {
+  [
+    els.treeSelect,
+    els.treeSearch,
+    els.treeZoomIn,
+    els.treeZoomOut,
+    els.treeZoomReset,
+    els.treeExport,
+  ].forEach((element) => {
+    element.disabled = !enabled;
+  });
 }
 
 async function renderRunTree() {
-  const collectedTreePath = state.files.find((path) =>
+  const collectedTreePaths = state.files.filter((path) =>
     path.toLowerCase().endsWith(".tree.nwk"),
   );
-  const treePath = collectedTreePath || treePathForOutput(state.outputPath);
+  state.treePaths = collectedTreePaths.length
+    ? collectedTreePaths
+    : (treePathForOutput(state.outputPath) ? [treePathForOutput(state.outputPath)] : []);
+  els.treeSelect.replaceChildren();
+  for (const path of state.treePaths) {
+    const filename = path.split(/[\\/]/).pop() || path;
+    const taxidMatch = filename.match(/\.taxid([^\.]+)\.tree\.nwk$/i);
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = taxidMatch ? `TaxID ${taxidMatch[1]}` : filename;
+    els.treeSelect.appendChild(option);
+  }
+  els.treeSelect.disabled = state.treePaths.length === 0;
+  const treePath = state.treePaths.includes(state.selectedTreePath)
+    ? state.selectedTreePath
+    : state.treePaths[0] || "";
+  state.selectedTreePath = treePath;
+  els.treeSelect.value = treePath;
+  const treeFilename = treePath ? treePath.split(/[\\/]/).pop() || treePath : "";
   const unavailableMessage = state.msaTreeStatus && state.msaTreeStatus !== "ok"
     ? `系統樹は生成されませんでした（理由: ${state.msaTreeStatus}）`
     : "系統樹は生成されませんでした。";
 
   if (!treePath) {
+    treeViewController?.dispose();
+    treeViewController = null;
+    setTreeViewControlsEnabled(false);
     els.treeViewStatus.textContent = "系統樹ファイルを特定できませんでした。";
     renderTreeStatus(els.treeViewContainer, unavailableMessage);
     return;
   }
 
-  els.treeViewStatus.textContent = `読み込み中: ${treePath}`;
+  els.treeViewStatus.textContent = `読み込み中: ${treeFilename}`;
   try {
     const newickText = await invoke("read_text_file", { path: treePath });
     const root = parseNewick(newickText);
-    renderTreeSVG(root, els.treeViewContainer);
-    els.treeViewStatus.textContent = treePath;
+    treeViewController?.dispose();
+    treeViewController = renderTreeSVG(root, els.treeViewContainer);
+    els.treeSearch.value = "";
+    setTreeViewControlsEnabled(true);
+    els.treeViewStatus.textContent = treeFilename;
   } catch (error) {
+    treeViewController?.dispose();
+    treeViewController = null;
+    setTreeViewControlsEnabled(false);
     els.treeViewStatus.textContent = "系統樹ファイルを読み込めませんでした。";
     renderTreeStatus(els.treeViewContainer, unavailableMessage);
   }
 }
 
 function collectRequest() {
+  commitTaxidInput();
   const steps = getSelectedPostPrepSteps();
   const primerSet = parseCommaSeparatedList(els.primerSetInput.value);
 
@@ -469,8 +549,9 @@ function collectRequest() {
       lengthMax: parseIntOrNull(els.filterLengthMaxInput.value)
     },
     postPrep: {
-      enable: els.postEnableInput.checked,
-      msaTree: els.postMsaTreeEnableInput.checked,
+      enable: els.postEnableInput.checked || getSelectedMsaTreeMode() !== "disabled",
+      msaTree: getSelectedMsaTreeMode() !== "disabled",
+      msaTreeMode: getSelectedMsaTreeMode(),
       primerFile: els.primerFileInput.value.trim(),
       primerSet,
       steps,
@@ -507,7 +588,7 @@ async function setupEventListener() {
     if (payload.eventType === "log" && payload.line) {
       monitorView.appendLog(payload.line);
       const msaTreeMatch = payload.line.match(
-        /post_prep msa_tree: status=([a-z_]+)/,
+        /post_prep msa_tree:.*status=([a-z_]+)/,
       );
       if (msaTreeMatch) state.msaTreeStatus = msaTreeMatch[1];
     }
@@ -524,6 +605,7 @@ async function setupEventListener() {
       state.jobDir = payload.jobDir || "";
       state.files = payload.files || [];
       setResultsEnabled(true);
+      renderResultJobDir();
       monitorView.renderResultFiles(state.files);
       switchView("results");
       renderRunTree();
@@ -583,9 +665,18 @@ async function runJob() {
   await setupEventListener();
   monitorView.reset();
   state.jobDir = "";
+  renderResultJobDir();
   state.outputPath = "";
   state.files = [];
   state.msaTreeStatus = "";
+  state.treePaths = [];
+  state.selectedTreePath = "";
+  els.metricsDisclosure.open = false;
+  els.outputFilesDisclosure.open = false;
+  treeViewController?.dispose();
+  treeViewController = null;
+  setTreeViewControlsEnabled(false);
+  els.treeSearch.value = "";
   els.treeViewStatus.textContent = "系統樹の生成結果を確認しています。";
   renderTreeStatus(els.treeViewContainer, "実行完了後に系統樹を表示します。");
   setMonitorEnabled(true);
@@ -614,7 +705,7 @@ function resetForm() {
   els.primerFileInput.value = "";
   els.primerSetInput.value = "";
   els.postEnableInput.checked = false;
-  els.postMsaTreeEnableInput.checked = false;
+  setMsaTreeMode("disabled");
   setPostPrepStepSelection([]);
   syncSourceMode();
   updateGuidanceState();
@@ -671,8 +762,7 @@ els.loadDbTomlBtn.addEventListener("click", async () => {
 });
 
 els.addTaxid.addEventListener("click", () => {
-  addTaxids(els.taxidInput.value);
-  els.taxidInput.value = "";
+  commitTaxidInput();
   els.taxidInput.focus();
   updateGuidanceState();
 });
@@ -680,8 +770,7 @@ els.addTaxid.addEventListener("click", () => {
 els.taxidInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    addTaxids(els.taxidInput.value);
-    els.taxidInput.value = "";
+    commitTaxidInput();
     updateGuidanceState();
   }
 });
@@ -727,6 +816,12 @@ els.sourceInput.addEventListener("change", () => {
   updateGuidanceState();
 });
 els.postEnableInput.addEventListener("change", updateGuidanceState);
+els.msaTreeModeEls.forEach((el) => {
+  el.addEventListener("change", () => {
+    if (el.checked && el.value !== "disabled") els.postEnableInput.checked = true;
+    updateGuidanceState();
+  });
+});
 els.primerFileInput.addEventListener("input", updateGuidanceState);
 els.primerSetInput.addEventListener("input", updateGuidanceState);
 els.postLengthMinInput.addEventListener("input", updateGuidanceState);
@@ -741,14 +836,37 @@ primerCandidateEls.forEach((el) => {
   });
 });
 
-els.openJobDir.addEventListener("click", async () => {
-  if (state.jobDir) {
-    await invoke("open_path", { path: state.jobDir });
-  }
-});
-
 els.newJob.addEventListener("click", () => {
   switchView("setup");
+});
+
+els.openJobDir.addEventListener("click", async () => {
+  if (state.jobDir) await invoke("open_path", { path: state.jobDir });
+});
+
+els.treeSearch.addEventListener("input", () => {
+  treeViewController?.setSearch(els.treeSearch.value);
+});
+
+els.treeSelect.addEventListener("change", () => {
+  state.selectedTreePath = els.treeSelect.value;
+  renderRunTree();
+});
+
+els.treeZoomIn.addEventListener("click", () => treeViewController?.zoomIn());
+els.treeZoomOut.addEventListener("click", () => treeViewController?.zoomOut());
+els.treeZoomReset.addEventListener("click", () => treeViewController?.resetView());
+
+els.treeExport.addEventListener("click", async () => {
+  if (!treeViewController) return;
+  const content = treeViewController.getSVGMarkup();
+  if (!content) return;
+  try {
+    const savedPath = await invoke("save_svg_file", { content });
+    if (savedPath) els.treeViewStatus.textContent = `SVGを保存しました: ${savedPath}`;
+  } catch (error) {
+    els.treeViewStatus.textContent = "SVGを保存できませんでした。";
+  }
 });
 
 els.tabSetup.addEventListener("click", () => switchView("setup"));
@@ -760,4 +878,6 @@ renderTaxids();
 syncTaxidsHidden();
 syncSourceMode();
 loadSavedConfig();
+renderResultJobDir();
+setTreeViewControlsEnabled(false);
 updateGuidanceState();

@@ -67,6 +67,13 @@ function buildMetricItems(metrics) {
   if (metrics?.crossOrganismGroups != null) {
     items.push(`cross_organism_groups: ${metrics.crossOrganismGroups}`);
   }
+  if (metrics?.msaTreeStatus != null) {
+    items.push(
+      `msa_tree: status=${metrics.msaTreeStatus} taxa=${metrics.msaTreeTaxa ?? "-"}`,
+    );
+    if (metrics.msaTreeMsaPath) items.push(`msa file: ${metrics.msaTreeMsaPath}`);
+    if (metrics.msaTreeTreePath) items.push(`tree file: ${metrics.msaTreeTreePath}`);
+  }
 
   return items;
 }
@@ -198,23 +205,36 @@ export function createMonitorView({
     progressDetailEl.textContent = buildProgressDetail(phase, percent, metrics);
   }
 
+  function basenameForPath(path) {
+    if (typeof path !== "string") return "";
+    return path.replace(/[\\/]+$/, "").split(/[\\/]/).pop() || "";
+  }
+
   function renderResultFiles(files) {
     resultFilesEl.innerHTML = "";
     for (const path of files) {
+      const basename = basenameForPath(path) || path;
+
       const li = document.createElement("li");
       const row = document.createElement("div");
       row.className = "file-row";
 
+      const link = document.createElement("button");
+      link.type = "button";
+      link.className = "link-button";
+      link.title = path;
       const text = document.createElement("code");
-      text.textContent = path;
-
-      const button = document.createElement("button");
-      button.textContent = "Open";
-      button.addEventListener("click", async () => {
+      text.textContent = basename;
+      const mark = document.createElement("span");
+      mark.className = "link-mark";
+      mark.setAttribute("aria-hidden", "true");
+      mark.textContent = "➚";
+      link.append(text, mark);
+      link.addEventListener("click", async () => {
         await openPath(path);
       });
 
-      row.append(text, button);
+      row.append(link);
       li.appendChild(row);
       resultFilesEl.appendChild(li);
     }
