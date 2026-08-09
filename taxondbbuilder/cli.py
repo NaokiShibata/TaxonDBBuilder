@@ -75,7 +75,6 @@ from .postprep.duplicates import (
     write_duplicate_acc_reports_csv,
 )
 from .postprep.length_filter import apply_post_prep_length_filter
-from .postprep.phylo import apply_post_prep_msa_tree
 from .postprep.primer_trim import apply_post_prep_primer_trim
 
 app = typer.Typer(
@@ -601,6 +600,8 @@ def _run_duplicate_post_prep(ctx: _BuildContext) -> None:
 def _run_msa_tree_post_prep(ctx: _BuildContext) -> None:
     if PostPrepStep.MSA_TREE.value not in ctx.post_prep_steps_run:
         return
+    from .postprep.phylo import apply_post_prep_msa_tree
+
     taxid_by_header = {
         row["header"]: row["taxid"]
         for row in ctx.source_merge_rows
