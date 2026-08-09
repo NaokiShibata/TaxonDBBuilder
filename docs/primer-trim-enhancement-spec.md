@@ -53,16 +53,11 @@ primer_iter_stop_delta = 0.002   # 改善率閾値 (0.2%)
 primer_iter_target_conf = 0.98   # high confidence率の目標
 
 # optional external recheck
-primer_recheck_tool = "vsearch"  # off | vsearch | blast (vsearch first)
+primer_recheck_tool = "vsearch"  # off | vsearch
 primer_recheck_min_identity = 0.85
 primer_recheck_min_query_cov = 0.7
 
 # optional phylogeny check
-primer_phylo_check = "flag_only" # off | flag_only
-primer_phylo_target_confidence = "medium" # low | medium
-primer_phylo_min_taxa = 20
-primer_phylo_max_samples = 2000
-
 # sidecar
 primer_sidecar_format = "tsv"   # tsv | jsonl
 ```
@@ -157,27 +152,12 @@ primer_sidecar_format = "tsv"   # tsv | jsonl
 - 想定: `--usearch_global` で primer DB へ照合
 - 出力: top hit の `id`, `qcov`, `strand`, `qstart/qend`
 
-## 8.2 blast mode
-
-- 用途: short primer の曖昧一致再評価
-- 想定: `blastn-short` とローカル primer DB
-- 出力: top hit の `pident`, `qcovs`, `qstart/qend`, `sstart/send`
-
-## 8.3 seqkit utilities
+## 8.2 seqkit utilities
 
 - 前処理・集計補助に使用可能
 - 本体ロジックを seqkit に依存させず、補助ツールとして扱う
 
-## 9. MSA and Phylogeny Mismatch Check
-
-`primer_phylo_check=flag_only` 時の挙動。
-
-- 対象は `low confidence` と `orientation ambiguous` を優先
-- retained FASTA を入力に MSA を構築
-- 系統樹と種名の整合性を簡易評価して `phylo_mismatch_flag` を sidecar に付与
-- フラグは除外判定に直結させず、再判定優先度に使う
-
-## 10. Outputs
+## 9. Outputs
 
 同一 basename で 3 系統の成果物を出力する。
 
@@ -202,7 +182,7 @@ sidecar の最低限カラム。
 - `recheck_status`
 - `phylo_mismatch_flag`
 
-## 11. Logging
+## 10. Logging
 
 既存ログに加えて以下を出力する。
 
@@ -213,7 +193,7 @@ sidecar の最低限カラム。
 
 GUI パーサは round ごとの集計を読めるように更新する。
 
-## 12. CLI/Rust Unification Requirements
+## 11. CLI/Rust Unification Requirements
 
 - 同一入力 FASTA + 同一 config + 同一 primer sets で統計値一致
 - 一致対象:
@@ -223,7 +203,7 @@ GUI パーサは round ごとの集計を読めるように更新する。
   - `orientation histogram`
 - Python の基準テストベクトルを Rust 側でも共有する
 
-## 13. Backward Compatibility
+## 12. Backward Compatibility
 
 - 既定値で現行挙動に近づける:
   - `primer_max_mismatch=0`
@@ -233,15 +213,14 @@ GUI パーサは round ごとの集計を読めるように更新する。
   - `primer_iter_enable=false`
 - 新機能は opt-in とする
 
-## 14. Implementation Phases
+## 13. Implementation Phases
 
 1. Phase 1: fuzzy match + trim mode + sidecar
 2. Phase 2: iteration loop + confidence
-3. Phase 3: vsearch/blast recheck
-4. Phase 4: phylo mismatch flag
-5. Phase 5: CLI/Rust parity test in CI
+3. Phase 3: vsearch recheck
+4. Phase 4: CLI/Rust parity test in CI
 
-## 15. Test Plan (minimum)
+## 14. Test Plan (minimum)
 
 - 単体:
   - IUPAC + mismatch + overlap の境界値
@@ -254,7 +233,7 @@ GUI パーサは round ごとの集計を読めるように更新する。
 - 回帰:
   - 現行設定で結果が大きく変わらないこと
 
-## 16. Fixed Decisions
+## 15. Fixed Decisions
 
 1. `primer_trim_mode` 既定値は `one_or_both`
 2. sidecar 標準フォーマットは `TSV`

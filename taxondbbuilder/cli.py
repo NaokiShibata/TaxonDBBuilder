@@ -869,9 +869,6 @@ def _build_post_prep_trim_options(
         "recheck_min_query_cov": float(
             post_prep_cfg.get("primer_recheck_min_query_cov", 0.7)
         ),
-        "phylo_target_confidence": post_prep_cfg.get(
-            "primer_phylo_target_confidence", "medium"
-        ),
     }
 
 
