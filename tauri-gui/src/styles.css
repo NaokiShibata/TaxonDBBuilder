@@ -572,6 +572,10 @@ select:focus {
   padding: 2px 4px;
 }
 
+.result-actions {
+  margin-top: 10px;
+}
+
 button {
   border: 1px solid var(--line);
   border-radius: 11px;
