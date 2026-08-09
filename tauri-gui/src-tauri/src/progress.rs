@@ -1,5 +1,3 @@
-use once_cell::sync::Lazy;
-use regex::Regex;
 use serde::Serialize;
 use std::collections::{BTreeMap, HashSet};
 use std::fs::{self, File};
@@ -8,60 +6,22 @@ use std::path::{Path, PathBuf};
 use tauri::{AppHandle, Emitter};
 
 pub(crate) const RUN_EVENT: &str = "run-event";
-static RE_LOG_LINE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^(?P<ts>\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2}))\s+(?P<level>TRACE|DEBUG|INFO|WARN|ERROR)\s+(?P<body>.*)$",
-    )
-    .expect("log line regex")
-});
-static RE_LOG_PREFIX: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})\s+(?:TRACE|DEBUG|INFO|WARN|ERROR)\s+",
-    )
-    .expect("log prefix regex")
-});
 
-static RE_QUERY_START: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^# query taxid=([^:]+):\s*(.+)$").expect("query start regex"));
+fn split_log_line(line: &str) -> Option<(&str, &str, &str)> {
+    let (timestamp, rest) = line.split_once(char::is_whitespace)?;
+    let (level, body) = rest.trim_start().split_once(char::is_whitespace)?;
+    (timestamp.contains('T') && matches!(level, "TRACE" | "DEBUG" | "INFO" | "WARN" | "ERROR"))
+        .then_some((timestamp, level, body.trim_start()))
+}
 
-static RE_NETWORK_RETRY: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^#?\s*(?:esearch|efetch)\s+retry\b").expect("network retry regex"));
+fn field_value<'a>(line: &'a str, name: &str) -> Option<&'a str> {
+    line.split_whitespace()
+        .find_map(|token| token.strip_prefix(name)?.strip_prefix('='))
+}
 
-static RE_QUERY_COUNT: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^# query count taxid=([^:]+):\s*(.+)$").expect("query count regex"));
-static RE_FETCH_PROGRESS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^# fetch progress taxid=([^:]+):\s*(\d+)\s*/\s*(\d+)$")
-        .expect("fetch progress regex")
-});
-static RE_BOLD_PROGRESS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^# bold progress: taxon=(.+?) phase=([a-z_]+)(?:\s+(.*))?$")
-        .expect("bold progress regex")
-});
-static RE_BOLD_QUERY: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^# bold query: taxon=(.+?) normalized=.* specimens=(\d+)(?: .*?)? downloaded=(\d+) matched=(\d+)$",
-    )
-    .expect("bold query regex")
-});
-static RE_TOTAL_RECORDS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^# total records:\s*(\d+)").expect("total records regex"));
-static RE_MATCHED_RECORDS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"^# matched records:\s*(\d+)").expect("matched records regex"));
-static RE_KEPT_BEFORE_POST: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"^# kept records before post_prep:\s*(\d+)").expect("kept before post regex")
-});
-static RE_PRIMER_REMOVED: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"removed=(\d+)").expect("primer removed regex"));
-static RE_DUP_GROUPS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"groups=(\d+)").expect("duplicate groups regex"));
-static RE_DUP_CROSS: Lazy<Regex> =
-    Lazy::new(|| Regex::new(r"cross_organism_groups=(\d+)").expect("cross organism groups regex"));
-static RE_MSA_TREE: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"^# post_prep msa_tree: (?:mode=(?P<mode>\S+) )?status=(?P<status>\S+) taxa=(?P<taxa>\d+) msa=(?P<msa>\S+) tree=(?P<tree>\S+)$",
-    )
-        .expect("msa tree regex")
-});
+fn number_after(line: &str, prefix: &str) -> Option<u64> {
+    line.strip_prefix(prefix)?.trim().parse().ok()
+}
 #[derive(Debug, Clone, Serialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct RunMetrics {
@@ -150,9 +110,10 @@ impl ProgressParser {
         let mut bold_progress_changed = false;
         let mut record_progress_changed = false;
 
-        if let Some(caps) = RE_QUERY_START.captures(line) {
-            let taxid = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
-
+        if let Some(taxid) = line
+            .strip_prefix("# query taxid=")
+            .and_then(|rest| rest.split_once(':').map(|(taxid, _)| taxid.trim()))
+        {
             if !taxid.is_empty() {
                 self.metrics.active_taxid = Some(taxid.to_string());
                 self.phase = "NCBI Query".to_string();
@@ -161,7 +122,10 @@ impl ProgressParser {
             }
         }
 
-        if RE_NETWORK_RETRY.is_match(line) {
+        let retry_line = line.trim_start_matches('#').trim_start();
+        if (retry_line.starts_with("esearch ") || retry_line.starts_with("efetch "))
+            && retry_line.contains(" retry")
+        {
             self.metrics.network_retries = self.metrics.network_retries.saturating_add(1);
 
             self.phase = "NCBI Query (retry)".to_string();
@@ -169,13 +133,11 @@ impl ProgressParser {
             changed = true;
         }
 
-        if let Some(caps) = RE_QUERY_COUNT.captures(line) {
-            let taxid = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
-
-            let count_raw = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
-
-            let count = count_raw.parse::<u64>().ok();
-
+        if let Some((taxid, count)) = line
+            .strip_prefix("# query count taxid=")
+            .and_then(|rest| rest.split_once(':'))
+            .map(|(taxid, count)| (taxid.trim(), count.trim().parse::<u64>().ok()))
+        {
             if !taxid.is_empty() {
                 if let Some(value) = count {
                     self.metrics
@@ -194,16 +156,18 @@ impl ProgressParser {
             }
         }
 
-        if let Some(caps) = RE_FETCH_PROGRESS.captures(line) {
-            let taxid = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
-            let fetched = caps
-                .get(2)
-                .and_then(|m| m.as_str().parse::<u64>().ok())
-                .unwrap_or(0);
-            let total = caps
-                .get(3)
-                .and_then(|m| m.as_str().parse::<u64>().ok())
-                .unwrap_or(0);
+        if let Some((taxid, fetched, total)) = line
+            .strip_prefix("# fetch progress taxid=")
+            .and_then(|rest| rest.split_once(':'))
+            .and_then(|(taxid, counts)| {
+                let (fetched, total) = counts.split_once('/')?;
+                Some((
+                    taxid.trim(),
+                    fetched.trim().parse::<u64>().ok()?,
+                    total.trim().parse::<u64>().ok()?,
+                ))
+            })
+        {
             if !taxid.is_empty() && total > 0 {
                 self.metrics
                     .query_count_by_taxid
@@ -218,10 +182,16 @@ impl ProgressParser {
             }
         }
 
-        if let Some(caps) = RE_BOLD_PROGRESS.captures(line) {
-            let taxon = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
-            let phase = caps.get(2).map(|m| m.as_str()).unwrap_or("").trim();
-            let detail = caps.get(3).map(|m| m.as_str()).unwrap_or("").trim();
+        if let Some((taxon, phase, detail)) = line
+            .strip_prefix("# bold progress: taxon=")
+            .and_then(|rest| rest.split_once(" phase="))
+            .map(|(taxon, phase_and_detail)| {
+                let (phase, detail) = phase_and_detail
+                    .split_once(char::is_whitespace)
+                    .unwrap_or((phase_and_detail, ""));
+                (taxon.trim(), phase.trim(), detail.trim())
+            })
+        {
             if !taxon.is_empty() {
                 let stage_ratio = match phase {
                     "preprocess" => 0.15,
@@ -276,19 +246,18 @@ impl ProgressParser {
             }
         }
 
-        if let Some(caps) = RE_BOLD_QUERY.captures(line) {
-            let taxon = caps.get(1).map(|m| m.as_str()).unwrap_or("").trim();
-            let specimens = caps
-                .get(2)
-                .and_then(|m| m.as_str().parse::<u64>().ok())
+        if let Some(taxon) = line.strip_prefix("# bold query: taxon=").and_then(|rest| {
+            rest.split_once(" normalized=")
+                .map(|(taxon, _)| taxon.trim())
+        }) {
+            let specimens = field_value(line, "specimens")
+                .and_then(|value| value.parse().ok())
                 .unwrap_or(0);
-            let downloaded = caps
-                .get(3)
-                .and_then(|m| m.as_str().parse::<u64>().ok())
+            let downloaded = field_value(line, "downloaded")
+                .and_then(|value| value.parse().ok())
                 .unwrap_or(0);
-            let matched = caps
-                .get(4)
-                .and_then(|m| m.as_str().parse::<u64>().ok())
+            let matched = field_value(line, "matched")
+                .and_then(|value| value.parse().ok())
                 .unwrap_or(0);
             if !taxon.is_empty() {
                 self.metrics
@@ -307,26 +276,22 @@ impl ProgressParser {
             }
         }
 
-        if let Some(caps) = RE_TOTAL_RECORDS.captures(line) {
-            self.total_records = caps.get(1).and_then(|m| m.as_str().parse::<u64>().ok());
+        if let Some(total) = number_after(line, "# total records:") {
+            self.total_records = Some(total);
+            record_progress_changed = true;
+            changed = true;
+        }
+
+        if let Some(matched) = number_after(line, "# matched records:") {
+            self.matched_records = Some(matched);
+            self.metrics.matched_records = Some(matched);
 
             record_progress_changed = true;
             changed = true;
         }
 
-        if let Some(caps) = RE_MATCHED_RECORDS.captures(line) {
-            let matched = caps.get(1).and_then(|m| m.as_str().parse::<u64>().ok());
-
-            self.matched_records = matched;
-            self.metrics.matched_records = matched;
-
-            record_progress_changed = true;
-            changed = true;
-        }
-
-        if let Some(caps) = RE_KEPT_BEFORE_POST.captures(line) {
-            self.metrics.kept_records_before_post_prep =
-                caps.get(1).and_then(|m| m.as_str().parse::<u64>().ok());
+        if let Some(kept) = number_after(line, "# kept records before post_prep:") {
+            self.metrics.kept_records_before_post_prep = Some(kept);
             self.phase = "Post-Prep".to_string();
             self.percent = self.percent.max(80.0);
             changed = true;
@@ -334,43 +299,34 @@ impl ProgressParser {
 
         if line.starts_with("# post_prep primer trim:") {
             self.post_steps_seen.insert("primer_trim".to_string());
-            self.metrics.primer_trim_removed = RE_PRIMER_REMOVED
-                .captures(line)
-                .and_then(|c| c.get(1))
-                .and_then(|m| m.as_str().parse::<u64>().ok());
+            self.metrics.primer_trim_removed =
+                field_value(line, "removed").and_then(|value| value.parse().ok());
             changed = true;
         }
 
         if line.starts_with("# post_prep length filter:") {
             self.post_steps_seen.insert("length_filter".to_string());
-            self.metrics.length_filter_removed = RE_PRIMER_REMOVED
-                .captures(line)
-                .and_then(|c| c.get(1))
-                .and_then(|m| m.as_str().parse::<u64>().ok());
+            self.metrics.length_filter_removed =
+                field_value(line, "removed").and_then(|value| value.parse().ok());
             changed = true;
         }
 
         if line.starts_with("# post_prep duplicate_acc_report:") {
             self.post_steps_seen.insert("duplicate_report".to_string());
-            self.metrics.duplicate_groups = RE_DUP_GROUPS
-                .captures(line)
-                .and_then(|c| c.get(1))
-                .and_then(|m| m.as_str().parse::<u64>().ok());
-            self.metrics.cross_organism_groups = RE_DUP_CROSS
-                .captures(line)
-                .and_then(|c| c.get(1))
-                .and_then(|m| m.as_str().parse::<u64>().ok());
+            self.metrics.duplicate_groups =
+                field_value(line, "groups").and_then(|value| value.parse().ok());
+            self.metrics.cross_organism_groups =
+                field_value(line, "cross_organism_groups").and_then(|value| value.parse().ok());
             changed = true;
         }
 
-        if let Some(caps) = RE_MSA_TREE.captures(line) {
+        if line.starts_with("# post_prep msa_tree:") {
             self.post_steps_seen.insert("msa_tree".to_string());
-            self.metrics.msa_tree_status = caps.name("status").map(|m| m.as_str().to_string());
-            self.metrics.msa_tree_taxa = caps
-                .name("taxa")
-                .and_then(|m| m.as_str().parse::<u64>().ok());
-            let msa_path = caps.name("msa").map(|m| m.as_str()).unwrap_or("none");
-            let tree_path = caps.name("tree").map(|m| m.as_str()).unwrap_or("none");
+            self.metrics.msa_tree_status = field_value(line, "status").map(str::to_string);
+            self.metrics.msa_tree_taxa =
+                field_value(line, "taxa").and_then(|value| value.parse().ok());
+            let msa_path = field_value(line, "msa").unwrap_or("none");
+            let tree_path = field_value(line, "tree").unwrap_or("none");
             self.metrics.msa_tree_msa_path = (msa_path != "none").then(|| msa_path.to_string());
             self.metrics.msa_tree_tree_path = (tree_path != "none").then(|| tree_path.to_string());
             changed = true;
@@ -501,12 +457,8 @@ pub(crate) fn log_event(line: String) -> RunEvent {
 }
 
 pub(crate) fn format_monitor_log_line(line: &str) -> String {
-    let (timestamp, level, body) = if let Some(caps) = RE_LOG_LINE.captures(line) {
-        (
-            caps.name("ts").map(|m| m.as_str()).unwrap_or("").trim(),
-            caps.name("level").map(|m| m.as_str()).unwrap_or("").trim(),
-            caps.name("body").map(|m| m.as_str()).unwrap_or("").trim(),
-        )
+    let (timestamp, level, body) = if let Some(parts) = split_log_line(line) {
+        parts
     } else {
         ("", "", line.trim())
     };
@@ -554,11 +506,7 @@ pub(crate) fn error_event(message: String) -> RunEvent {
     }
 }
 pub(crate) fn strip_log_prefix(line: &str) -> &str {
-    if let Some(matched) = RE_LOG_PREFIX.find(line) {
-        &line[matched.end()..]
-    } else {
-        line
-    }
+    split_log_line(line).map_or(line, |(_, _, body)| body)
 }
 pub(crate) fn collect_files(results_dir: &Path, extra: &[PathBuf]) -> Vec<String> {
     let mut out = Vec::new();

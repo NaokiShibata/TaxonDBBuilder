@@ -144,41 +144,23 @@ pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
     args
 }
 
-fn add_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
-    if !candidates.contains(&path) {
-        candidates.push(path);
-    }
-}
-
 fn sidecar_candidates(app: &AppHandle) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
     if let Ok(path) = env::var("TAXONDBBUILDER_SIDECAR") {
-        add_candidate(&mut candidates, PathBuf::from(path));
+        candidates.push(PathBuf::from(path));
     }
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        add_candidate(&mut candidates, resource_dir.join("bin").join(SIDECAR_NAME));
-        add_candidate(&mut candidates, resource_dir.join(SIDECAR_NAME));
+        candidates.push(resource_dir.join("bin").join(SIDECAR_NAME));
+        candidates.push(resource_dir.join(SIDECAR_NAME));
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     if let Some(repo_dir) = manifest_dir.parent().and_then(Path::parent) {
-        add_candidate(&mut candidates, repo_dir.join("dist").join(SIDECAR_NAME));
+        candidates.push(repo_dir.join("dist").join(SIDECAR_NAME));
     }
-    add_candidate(&mut candidates, manifest_dir.join("bin").join(SIDECAR_NAME));
-
-    if let Ok(cwd) = env::current_dir() {
-        add_candidate(&mut candidates, cwd.join("dist").join(SIDECAR_NAME));
-        add_candidate(&mut candidates, cwd.join("bin").join(SIDECAR_NAME));
-    }
-
-    if let Ok(exe) = env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            add_candidate(&mut candidates, exe_dir.join("bin").join(SIDECAR_NAME));
-            add_candidate(&mut candidates, exe_dir.join(SIDECAR_NAME));
-        }
-    }
+    candidates.push(manifest_dir.join("bin").join(SIDECAR_NAME));
 
     candidates
 }
