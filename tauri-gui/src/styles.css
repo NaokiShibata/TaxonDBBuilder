@@ -731,6 +731,11 @@ progress {
   font-family: "Noto Sans JP", sans-serif;
 }
 
+.msa-sequence,
+.msa-ruler {
+  font-variant-ligatures: none;
+}
+
 .tree-node-point {
   stroke: #fff;
   stroke-width: 1;

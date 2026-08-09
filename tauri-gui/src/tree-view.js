@@ -74,6 +74,38 @@ export function parseNewick(newickText) {
   return root;
 }
 
+export function parseFasta(fastaText) {
+  const records = new Map();
+  let id = "";
+  let sequence = "";
+
+  function saveRecord() {
+    if (!id) return;
+    if (records.has(id)) throw new Error(`Duplicate FASTA ID: ${id}`);
+    records.set(id, sequence);
+  }
+
+  for (const rawLine of `${fastaText ?? ""}`.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    if (line.startsWith(">")) {
+      saveRecord();
+      id = line.slice(1).trim().split(/\s+/, 1)[0];
+      if (!id) throw new Error("FASTA header has no ID");
+      sequence = "";
+    } else {
+      if (!id) throw new Error("FASTA sequence appears before a header");
+      sequence += line.replace(/\s/g, "");
+    }
+  }
+  saveRecord();
+  if (!records.size) throw new Error("FASTA has no records");
+
+  const lengths = new Set(Array.from(records.values(), (value) => value.length));
+  if (lengths.size !== 1) throw new Error("FASTA records are not aligned");
+  return records;
+}
+
 function svgElement(name, attributes = {}) {
   const element = document.createElementNS(SVG_NS, name);
   for (const [key, value] of Object.entries(attributes)) {
@@ -129,17 +161,26 @@ function inspectTree(root) {
   return { leaves, nodes, positions, maxDepth, maxDistance, usableLengths };
 }
 
-function createRectangularLayout(tree, containerEl) {
+function createRectangularLayout(tree, containerEl, alignment) {
   const rowHeight = 28;
-  const top = 20;
+  const top = alignment.size ? 36 : 20;
   const left = 20;
   const labelWidth = Math.min(
     300,
     Math.max(90, ...tree.leaves.map((leaf) => nodeName(leaf).length * 7 + 16)),
   );
-  const width = Math.max(560, containerEl.clientWidth || 0);
+  const treeWidth = Math.max(560, containerEl.clientWidth || 0);
+  const alignmentLength = Math.max(
+    0,
+    ...Array.from(alignment.values(), (sequence) => sequence.length),
+  );
+  const alignmentStart = treeWidth + 16;
+  const width = treeWidth + (alignmentLength ? alignmentLength * 8 + 36 : 0);
+  const viewportWidth = alignmentLength
+    ? treeWidth + Math.min(Math.max(320, treeWidth * 0.7), alignmentLength * 8 + 36)
+    : width;
   const height = Math.max(220, top * 2 + Math.max(1, tree.leaves.length - 1) * rowHeight);
-  const plotWidth = Math.max(180, width - left - labelWidth);
+  const plotWidth = Math.max(180, treeWidth - left - labelWidth);
   const useLengths = tree.usableLengths && tree.maxDistance > 0;
   const xScale = plotWidth / (useLengths ? tree.maxDistance : Math.max(1, tree.maxDepth));
 
@@ -167,6 +208,10 @@ function createRectangularLayout(tree, containerEl) {
     tree,
     useLengths,
     root: tree.nodes[0],
+    alignment,
+    alignmentLength,
+    alignmentStart,
+    viewportWidth,
   };
 }
 
@@ -178,7 +223,7 @@ function viewBoxString(viewBox) {
   return [viewBox.x, viewBox.y, viewBox.width, viewBox.height].join(" ");
 }
 
-export function renderTreeSVG(root, containerEl) {
+export function renderTreeSVG(root, containerEl, alignment = new Map()) {
   containerEl.replaceChildren();
   const tree = inspectTree(root);
   const state = {
@@ -357,12 +402,76 @@ export function renderTreeSVG(root, containerEl) {
       svg.appendChild(group);
     }
     draw(data.root);
+
+    if (!data.alignmentLength) return;
+    const ruler = svgElement("text", {
+      x: data.alignmentStart,
+      y: 16,
+      fill: "#4b708c",
+      "font-family": "monospace",
+      "font-size": 12,
+      textLength: data.alignmentLength * 8,
+      lengthAdjust: "spacingAndGlyphs",
+      "xml:space": "preserve",
+      class: "msa-ruler",
+    });
+    ruler.textContent = Array.from({ length: data.alignmentLength }, (_, index) =>
+      (index + 1) % 10 === 0 ? "│" : " ",
+    ).join("");
+    svg.appendChild(ruler);
+
+    const colors = [
+      [/[Aa]/, "#3b8f5a"],
+      [/[Cc]/, "#3879b9"],
+      [/[Gg]/, "#d08a25"],
+      [/[TtUu]/, "#c95555"],
+      [/[-.]/, "#9aa9b3"],
+      [/[^AaCcGgTtUu.\-]/, "#584c74"],
+    ];
+    for (const leaf of data.tree.leaves) {
+      const sequence = data.alignment.get(nodeName(leaf));
+      const y = data.tree.positions.get(leaf).y + 4;
+      if (sequence == null) {
+        const missing = svgElement("text", {
+          x: data.alignmentStart,
+          y,
+          fill: "#b04a4a",
+          "font-size": 11,
+          class: "msa-missing",
+        });
+        missing.textContent = "MSAに対応する配列がありません";
+        svg.appendChild(missing);
+        continue;
+      }
+      for (const [pattern, fill] of colors) {
+        const masked = Array.from(sequence, (character) =>
+          pattern.test(character) ? character : " ",
+        ).join("");
+        if (!masked.trim()) continue;
+        const row = svgElement("text", {
+          x: data.alignmentStart,
+          y,
+          fill,
+          "font-family": "monospace",
+          "font-size": 12,
+          textLength: sequence.length * 8,
+          lengthAdjust: "spacingAndGlyphs",
+          "xml:space": "preserve",
+          class: "msa-sequence",
+        });
+        row.textContent = masked;
+        svg.appendChild(row);
+      }
+    }
   }
 
   function redraw() {
     state.tree = inspectTree(state.root);
-    state.layoutData = createRectangularLayout(state.tree, containerEl);
-    state.baseViewBox = makeViewBox(state.layoutData.width, state.layoutData.height);
+    state.layoutData = createRectangularLayout(state.tree, containerEl, alignment);
+    state.baseViewBox = makeViewBox(
+      state.layoutData.viewportWidth,
+      state.layoutData.height,
+    );
     state.viewBox = { ...state.baseViewBox };
     state.tooltip = document.createElement("div");
     state.tooltip.className = "tree-view-tooltip";
@@ -374,13 +483,13 @@ export function renderTreeSVG(root, containerEl) {
       width: state.layoutData.width,
       height: state.layoutData.height,
       role: "img",
-      "aria-label": "系統樹",
+      "aria-label": alignment.size ? "系統樹とMultiple sequence alignment" : "系統樹",
     });
     svg.style.width = "100%";
     svg.style.height = `${Math.min(720, Math.max(260, state.layoutData.height))}px`;
     svg.style.cursor = "grab";
     const title = svgElement("title");
-    title.textContent = "系統樹";
+    title.textContent = alignment.size ? "系統樹とMultiple sequence alignment" : "系統樹";
     svg.appendChild(title);
     drawRectangular(svg, state.layoutData);
     state.svg = svg;
@@ -403,7 +512,15 @@ export function renderTreeSVG(root, containerEl) {
       setViewBox({ ...state.baseViewBox });
     },
     getSVGMarkup() {
-      return state.svg ? new XMLSerializer().serializeToString(state.svg) : "";
+      if (!state.svg) return "";
+      const exported = state.svg.cloneNode(true);
+      exported.setAttribute("viewBox", viewBoxString(makeViewBox(
+        state.layoutData.width,
+        state.layoutData.height,
+      )));
+      exported.setAttribute("width", state.layoutData.width);
+      exported.setAttribute("height", state.layoutData.height);
+      return new XMLSerializer().serializeToString(exported);
     },
     dispose() {
       containerEl.replaceChildren();

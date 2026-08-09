@@ -11,7 +11,7 @@ import {
 } from "./lib/form-utils.js";
 import { createMonitorView } from "./lib/monitor-view.js";
 import { mergeUniqueValues, parseDelimitedTokens, renderTokenPills } from "./lib/token-list.js";
-import { parseNewick, renderTreeStatus, renderTreeSVG } from "./tree-view.js";
+import { parseFasta, parseNewick, renderTreeStatus, renderTreeSVG } from "./tree-view.js";
 
 const els = {
   tabSetup: document.querySelector("#tab-setup"),
@@ -460,6 +460,10 @@ function treePathForOutput(outputPath) {
   return `${outputPath}.tree.nwk`;
 }
 
+function msaPathForTree(treePath) {
+  return treePath.replace(/\.tree\.nwk$/i, ".msa.fasta");
+}
+
 function setTreeViewControlsEnabled(enabled) {
   [
     els.treeSelect,
@@ -513,11 +517,20 @@ async function renderRunTree() {
   try {
     const newickText = await invoke("read_text_file", { path: treePath });
     const root = parseNewick(newickText);
+    const msaPath = msaPathForTree(treePath);
+    let alignment = new Map();
+    let msaStatus = "MSAなし";
+    try {
+      alignment = parseFasta(await invoke("read_text_file", { path: msaPath }));
+      msaStatus = `${alignment.size}配列 × ${alignment.values().next().value.length}塩基`;
+    } catch (error) {
+      console.warn(`MSAを読み込めませんでした: ${msaPath}`, error);
+    }
     treeViewController?.dispose();
-    treeViewController = renderTreeSVG(root, els.treeViewContainer);
+    treeViewController = renderTreeSVG(root, els.treeViewContainer, alignment);
     els.treeSearch.value = "";
     setTreeViewControlsEnabled(true);
-    els.treeViewStatus.textContent = treeFilename;
+    els.treeViewStatus.textContent = `${treeFilename} / ${msaStatus}`;
   } catch (error) {
     treeViewController?.dispose();
     treeViewController = null;
