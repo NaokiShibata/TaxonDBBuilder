@@ -218,9 +218,9 @@ def _parse_primer_recheck_options(post_prep: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tool_raw, str):
         raise typer.BadParameter("post_prep.primer_recheck_tool must be a string.")
     tool = tool_raw.strip().lower()
-    if tool not in {"off", "vsearch", "blast"}:
+    if tool not in {"off", "vsearch"}:
         raise typer.BadParameter(
-            "post_prep.primer_recheck_tool must be one of: off, vsearch, blast"
+            "post_prep.primer_recheck_tool must be one of: off, vsearch"
         )
     return {
         "recheck_tool": tool,
@@ -239,25 +239,7 @@ def _parse_primer_recheck_options(post_prep: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_primer_reporting_options(post_prep: dict[str, Any]) -> dict[str, str]:
-    phylo_raw = post_prep.get("primer_phylo_check", "off")
-    if not isinstance(phylo_raw, str):
-        raise typer.BadParameter("post_prep.primer_phylo_check must be a string.")
-    phylo = phylo_raw.strip().lower()
-    if phylo not in {"off", "flag_only"}:
-        raise typer.BadParameter(
-            "post_prep.primer_phylo_check must be one of: off, flag_only"
-        )
-    target_raw = post_prep.get("primer_phylo_target_confidence", "medium")
-    if not isinstance(target_raw, str):
-        raise typer.BadParameter(
-            "post_prep.primer_phylo_target_confidence must be a string."
-        )
-    target = target_raw.strip().lower()
-    if target not in {"low", "medium"}:
-        raise typer.BadParameter(
-            "post_prep.primer_phylo_target_confidence must be one of: low, medium"
-        )
+def _parse_primer_sidecar_option(post_prep: dict[str, Any]) -> dict[str, str]:
     sidecar_raw = post_prep.get("primer_sidecar_format", "tsv")
     if not isinstance(sidecar_raw, str):
         raise typer.BadParameter("post_prep.primer_sidecar_format must be a string.")
@@ -267,8 +249,6 @@ def _parse_primer_reporting_options(post_prep: dict[str, Any]) -> dict[str, str]
             "post_prep.primer_sidecar_format must be one of: tsv, jsonl"
         )
     return {
-        "phylo_check": phylo,
-        "phylo_target_confidence": target,
         "sidecar_format": sidecar,
     }
 
@@ -325,7 +305,7 @@ def _normalize_primer_trim_config(post_prep: dict[str, Any], path: Path) -> None
     options = _parse_primer_numeric_options(post_prep)
     options.update(_parse_primer_mode_options(post_prep))
     options.update(_parse_primer_recheck_options(post_prep))
-    options.update(_parse_primer_reporting_options(post_prep))
+    options.update(_parse_primer_sidecar_option(post_prep))
     post_prep.update({f"primer_{key}": value for key, value in options.items()})
     if primer_file is None and primer_sets is None:
         return

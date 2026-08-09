@@ -14,8 +14,8 @@ use std::thread;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub(crate) fn load_gui_config() -> Result<GuiConfig, String> {
-    let path = ensure_gui_config_parent()?;
+pub(crate) fn load_gui_config(app: AppHandle) -> Result<GuiConfig, String> {
+    let path = ensure_gui_config_parent(&app)?;
     if !path.exists() {
         return Ok(GuiConfig::default());
     }
@@ -31,8 +31,8 @@ pub(crate) fn load_gui_config() -> Result<GuiConfig, String> {
 }
 
 #[tauri::command]
-pub(crate) fn save_gui_config(config: GuiConfig) -> Result<(), String> {
-    save_gui_config_internal(&config)
+pub(crate) fn save_gui_config(app: AppHandle, config: GuiConfig) -> Result<(), String> {
+    save_gui_config_internal(&app, &config)
 }
 
 #[tauri::command]
@@ -251,7 +251,7 @@ pub(crate) fn start_run(
         output_default_header_format: req.output_options.default_header_format.clone(),
         output_mifish_header_format: req.output_options.mifish_header_format.clone(),
     };
-    save_gui_config_internal(&gui_config)?;
+    save_gui_config_internal(&app, &gui_config)?;
 
     let output_root = PathBuf::from(req.output_root.trim());
     fs::create_dir_all(&output_root)
@@ -268,7 +268,11 @@ pub(crate) fn start_run(
 
     let config_path = write_job_config(&req, &config_dir)?;
 
-    let output_prefix = sanitize_file_name(&req.output_prefix);
+    let output_prefix = sanitize_file_name(if req.output_prefix.trim().is_empty() {
+        DEFAULT_OUTPUT_PREFIX
+    } else {
+        &req.output_prefix
+    });
     let output_file = results_dir.join(format!(
         "{}_{}.fasta",
         output_prefix,

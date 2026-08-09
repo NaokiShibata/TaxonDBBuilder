@@ -2,7 +2,6 @@ import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
-  DEFAULTS,
   parseCommaSeparatedList,
   parseFloatOrNull,
   parseIntOrNull,
@@ -373,18 +372,18 @@ function applyImportedDbToml(imported) {
   setPostPrepStepSelection(postPrep.steps || []);
 
   const ncbiOptions = imported.ncbiOptions || {};
-  els.ncbiDbInput.value = ncbiOptions.db || DEFAULTS.ncbiDb;
-  els.ncbiRettypeInput.value = ncbiOptions.rettype || DEFAULTS.ncbiRettype;
-  els.ncbiRetmodeInput.value = ncbiOptions.retmode || DEFAULTS.ncbiRetmode;
-  els.ncbiPerQueryInput.value = ncbiOptions.perQuery || DEFAULTS.ncbiPerQuery;
+  els.ncbiDbInput.value = ncbiOptions.db || els.ncbiDbInput.value;
+  els.ncbiRettypeInput.value = ncbiOptions.rettype || els.ncbiRettypeInput.value;
+  els.ncbiRetmodeInput.value = ncbiOptions.retmode || els.ncbiRetmodeInput.value;
+  els.ncbiPerQueryInput.value = ncbiOptions.perQuery || els.ncbiPerQueryInput.value;
   els.ncbiUseHistoryInput.checked = ncbiOptions.useHistory !== false;
   els.ncbiDelaySecInput.value = ncbiOptions.delaySec ?? "";
 
   const outputOptions = imported.outputOptions || {};
   els.outputDefaultHeaderFormatInput.value =
-    outputOptions.defaultHeaderFormat || DEFAULTS.defaultHeaderFormat;
+    outputOptions.defaultHeaderFormat || els.outputDefaultHeaderFormatInput.value;
   els.outputMifishHeaderFormatInput.value =
-    outputOptions.mifishHeaderFormat || DEFAULTS.mifishHeaderFormat;
+    outputOptions.mifishHeaderFormat || els.outputMifishHeaderFormatInput.value;
   syncSourceMode();
 }
 
@@ -549,7 +548,7 @@ function collectRequest() {
     taxids: [...state.taxids],
     markers: [...state.markers],
     source: currentBuildSource(),
-    outputPrefix: els.outputPrefixInput.value.trim() || DEFAULTS.outputPrefix,
+    outputPrefix: els.outputPrefixInput.value.trim(),
     outputRoot: els.outputRootInput.value.trim(),
     email: els.emailInput.value.trim(),
     apiKey: els.apiKeyInput.value.trim(),
@@ -572,16 +571,20 @@ function collectRequest() {
       sequenceLengthMax: parseIntOrNull(els.postLengthMaxInput.value)
     },
     ncbiOptions: {
-      db: els.ncbiDbInput.value.trim() || DEFAULTS.ncbiDb,
-      rettype: els.ncbiRettypeInput.value.trim() || DEFAULTS.ncbiRettype,
-      retmode: els.ncbiRetmodeInput.value.trim() || DEFAULTS.ncbiRetmode,
-      perQuery: Math.max(1, Number.parseInt(els.ncbiPerQueryInput.value, 10) || DEFAULTS.ncbiPerQuery),
+      db: els.ncbiDbInput.value.trim(),
+      rettype: els.ncbiRettypeInput.value.trim(),
+      retmode: els.ncbiRetmodeInput.value.trim(),
+      perQuery: Math.max(
+        1,
+        Number.parseInt(els.ncbiPerQueryInput.value, 10) ||
+          Number(els.ncbiPerQueryInput.defaultValue),
+      ),
       useHistory: els.ncbiUseHistoryInput.checked,
       delaySec: parseFloatOrNull(els.ncbiDelaySecInput.value)
     },
     outputOptions: {
-      defaultHeaderFormat: els.outputDefaultHeaderFormatInput.value.trim() || DEFAULTS.defaultHeaderFormat,
-      mifishHeaderFormat: els.outputMifishHeaderFormatInput.value.trim() || DEFAULTS.mifishHeaderFormat
+      defaultHeaderFormat: els.outputDefaultHeaderFormatInput.value.trim(),
+      mifishHeaderFormat: els.outputMifishHeaderFormatInput.value.trim()
     },
     workers: Number.parseInt(els.speedInput.value, 10),
     resume: els.resumeInput.checked
@@ -635,7 +638,7 @@ async function loadSavedConfig() {
     const saved = await invoke("load_gui_config");
     if (!saved) return;
     els.outputRootInput.value = saved.outputRoot || "";
-    els.outputPrefixInput.value = saved.outputPrefix || DEFAULTS.outputPrefix;
+    els.outputPrefixInput.value = saved.outputPrefix || els.outputPrefixInput.value;
     els.emailInput.value = saved.email || "";
     els.apiKeyInput.value = saved.saveApiKey ? saved.apiKey || "" : "";
     els.saveApiKeyInput.checked = Boolean(saved.saveApiKey);
