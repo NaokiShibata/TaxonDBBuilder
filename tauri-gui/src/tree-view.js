@@ -125,6 +125,17 @@ function nodeSupport(node) {
   return node.name;
 }
 
+const MSA_FONT_FAMILY = '"Noto Sans Mono", "Liberation Mono", monospace';
+
+function msaBaseColor(character) {
+  if (/[Aa]/.test(character)) return "#3b8f5a";
+  if (/[Cc]/.test(character)) return "#3879b9";
+  if (/[Gg]/.test(character)) return "#d08a25";
+  if (/[TtUu]/.test(character)) return "#c95555";
+  if (/[-.]/.test(character)) return "#9aa9b3";
+  return "#584c74";
+}
+
 function inspectTree(root) {
   const leaves = [];
   const nodes = [];
@@ -174,11 +185,15 @@ function createRectangularLayout(tree, containerEl, alignment) {
     0,
     ...Array.from(alignment.values(), (sequence) => sequence.length),
   );
+  const alignmentViewport = Math.max(320, treeWidth * 0.7);
+  const alignmentCellWidth = alignmentLength
+    ? (alignmentViewport - 36) / alignmentLength
+    : 0;
+  const alignmentFontSize = alignmentLength ? 12 : 0;
   const alignmentStart = treeWidth + 16;
-  const width = treeWidth + (alignmentLength ? alignmentLength * 8 + 36 : 0);
-  const viewportWidth = alignmentLength
-    ? treeWidth + Math.min(Math.max(320, treeWidth * 0.7), alignmentLength * 8 + 36)
-    : width;
+  const alignmentWidth = alignmentLength ? alignmentViewport : 0;
+  const width = treeWidth + alignmentWidth;
+  const viewportWidth = width;
   const height = Math.max(220, top * 2 + Math.max(1, tree.leaves.length - 1) * rowHeight);
   const plotWidth = Math.max(180, treeWidth - left - labelWidth);
   const useLengths = tree.usableLengths && tree.maxDistance > 0;
@@ -211,6 +226,8 @@ function createRectangularLayout(tree, containerEl, alignment) {
     alignment,
     alignmentLength,
     alignmentStart,
+    alignmentCellWidth,
+    alignmentFontSize,
     viewportWidth,
   };
 }
@@ -404,30 +421,23 @@ export function renderTreeSVG(root, containerEl, alignment = new Map()) {
     draw(data.root);
 
     if (!data.alignmentLength) return;
-    const ruler = svgElement("text", {
-      x: data.alignmentStart,
-      y: 16,
-      fill: "#4b708c",
-      "font-family": "monospace",
-      "font-size": 12,
-      textLength: data.alignmentLength * 8,
-      lengthAdjust: "spacingAndGlyphs",
-      "xml:space": "preserve",
-      class: "msa-ruler",
-    });
-    ruler.textContent = Array.from({ length: data.alignmentLength }, (_, index) =>
-      (index + 1) % 10 === 0 ? "│" : " ",
-    ).join("");
-    svg.appendChild(ruler);
+    const rulerStep = data.alignmentCellWidth >= 2.4
+      ? 10
+      : Math.ceil(24 / data.alignmentCellWidth / 10) * 10;
+    for (let index = rulerStep - 1; index < data.alignmentLength; index += rulerStep) {
+      const tick = svgElement("text", {
+        x: data.alignmentStart + index * data.alignmentCellWidth,
+        y: 16,
+        fill: "#4b708c",
+        "font-family": MSA_FONT_FAMILY,
+        "font-size": 10,
+        "text-anchor": "middle",
+        class: "msa-ruler",
+      });
+      tick.textContent = "│";
+      svg.appendChild(tick);
+    }
 
-    const colors = [
-      [/[Aa]/, "#3b8f5a"],
-      [/[Cc]/, "#3879b9"],
-      [/[Gg]/, "#d08a25"],
-      [/[TtUu]/, "#c95555"],
-      [/[-.]/, "#9aa9b3"],
-      [/[^AaCcGgTtUu.\-]/, "#584c74"],
-    ];
     for (const leaf of data.tree.leaves) {
       const sequence = data.alignment.get(nodeName(leaf));
       const y = data.tree.positions.get(leaf).y + 4;
@@ -443,25 +453,28 @@ export function renderTreeSVG(root, containerEl, alignment = new Map()) {
         svg.appendChild(missing);
         continue;
       }
-      for (const [pattern, fill] of colors) {
-        const masked = Array.from(sequence, (character) =>
-          pattern.test(character) ? character : " ",
-        ).join("");
-        if (!masked.trim()) continue;
-        const row = svgElement("text", {
-          x: data.alignmentStart,
-          y,
-          fill,
-          "font-family": "monospace",
-          "font-size": 12,
-          textLength: sequence.length * 8,
-          lengthAdjust: "spacingAndGlyphs",
-          "xml:space": "preserve",
-          class: "msa-sequence",
-        });
-        row.textContent = masked;
-        svg.appendChild(row);
+      const row = svgElement("text", {
+        x: data.alignmentStart,
+        y,
+        "font-family": MSA_FONT_FAMILY,
+        "font-size": data.alignmentFontSize,
+        textLength: sequence.length * data.alignmentCellWidth,
+        lengthAdjust: "spacingAndGlyphs",
+        "xml:space": "preserve",
+        class: "msa-sequence",
+      });
+      let runStart = 0;
+      let runColor = msaBaseColor(sequence[0] || "");
+      for (let index = 1; index <= sequence.length; index += 1) {
+        const color = index < sequence.length ? msaBaseColor(sequence[index]) : null;
+        if (color === runColor) continue;
+        const base = svgElement("tspan", { fill: runColor });
+        base.textContent = sequence.slice(runStart, index);
+        row.appendChild(base);
+        runStart = index;
+        runColor = color;
       }
+      svg.appendChild(row);
     }
   }
 
