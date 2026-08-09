@@ -241,6 +241,25 @@
                       type="text"
                       value="gb|{acc_id}|{organism}"
                     />
+                    <label>downstream exports</label>
+                    <div class="step-grid">
+                      <label class="check"
+                        ><input
+                          class="output-export-format"
+                          type="checkbox"
+                          value="qiime2"
+                        />
+                        QIIME 2 (FASTA + taxonomy TSV)</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="output-export-format"
+                          type="checkbox"
+                          value="dada2_species"
+                        />
+                        DADA2 assignSpecies</label
+                      >
+                    </div>
                   </details>
                 </section>
 

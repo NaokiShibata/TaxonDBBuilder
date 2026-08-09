@@ -39,6 +39,7 @@ pub(crate) struct GuiConfig {
     pub(crate) ncbi_delay_sec: Option<f64>,
     pub(crate) output_default_header_format: String,
     pub(crate) output_mifish_header_format: String,
+    pub(crate) output_export_formats: Vec<String>,
 }
 
 impl Default for GuiConfig {
@@ -60,6 +61,7 @@ impl Default for GuiConfig {
             ncbi_delay_sec: None,
             output_default_header_format: DEFAULT_OUTPUT_HEADER_FORMAT.to_string(),
             output_mifish_header_format: DEFAULT_OUTPUT_MIFISH_HEADER_FORMAT.to_string(),
+            output_export_formats: Vec::new(),
         }
     }
 }
@@ -137,6 +139,7 @@ impl Default for NcbiOptionsInput {
 pub(crate) struct OutputOptionsInput {
     pub(crate) default_header_format: String,
     pub(crate) mifish_header_format: String,
+    pub(crate) export_formats: Vec<String>,
 }
 
 #[derive(Debug, Default, Serialize, Deserialize)]
@@ -193,6 +196,8 @@ impl Default for NcbiToml {
 struct OutputToml {
     default_header_format: String,
     header_formats: HeaderFormatsToml,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    export_formats: Vec<String>,
 }
 
 impl Default for OutputToml {
@@ -200,6 +205,7 @@ impl Default for OutputToml {
         Self {
             default_header_format: DEFAULT_OUTPUT_HEADER_FORMAT.to_string(),
             header_formats: HeaderFormatsToml::default(),
+            export_formats: Vec::new(),
         }
     }
 }
@@ -340,6 +346,7 @@ impl Default for OutputOptionsInput {
         Self {
             default_header_format: DEFAULT_OUTPUT_HEADER_FORMAT.to_string(),
             mifish_header_format: DEFAULT_OUTPUT_MIFISH_HEADER_FORMAT.to_string(),
+            export_formats: Vec::new(),
         }
     }
 }
@@ -508,6 +515,7 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
                     DEFAULT_OUTPUT_MIFISH_HEADER_FORMAT,
                 ),
             },
+            export_formats: req.output_options.export_formats.clone(),
         },
         taxon: TaxonToml { noexp: false },
         markers: MarkersToml {
@@ -673,6 +681,7 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
             .mifish_pipeline
             .trim()
             .to_string(),
+        export_formats: config.output.export_formats,
     };
     imported.filters = FiltersInput {
         mitochondrion: config
@@ -794,7 +803,10 @@ mod tests {
             workers: 1,
             resume: false,
             ncbi_options: NcbiOptionsInput::default(),
-            output_options: OutputOptionsInput::default(),
+            output_options: OutputOptionsInput {
+                export_formats: vec!["qiime2".to_string()],
+                ..OutputOptionsInput::default()
+            },
         };
 
         let path = write_job_config(&request, &dir).expect("write config");
@@ -804,6 +816,7 @@ mod tests {
         let post_prep = config.post_prep.expect("post_prep");
         assert!(post_prep.msa_tree_enable);
         assert_eq!(post_prep.msa_tree_mode, "combined");
+        assert_eq!(config.output.export_formats, vec!["qiime2"]);
         assert!(fs::read_to_string(dir.join("primers.toml"))
             .expect("primers template")
             .contains("primer_sets.libird"));

@@ -122,6 +122,9 @@ let treeViewController = null;
 
 const postStepEls = Array.from(document.querySelectorAll(".post-step"));
 const primerCandidateEls = Array.from(document.querySelectorAll(".primer-candidate"));
+const outputExportFormatEls = Array.from(
+  document.querySelectorAll(".output-export-format"),
+);
 const monitorView = createMonitorView({
   statusEl: els.status,
   phaseEl: els.phase,
@@ -348,6 +351,10 @@ function setPrimerCandidateSelection(primerSets) {
   setCheckedValues(primerCandidateEls, primerSets);
 }
 
+function setOutputExportFormatSelection(formats) {
+  setCheckedValues(outputExportFormatEls, formats || []);
+}
+
 function applyImportedDbToml(imported) {
   els.sourceInput.value = imported.source || "ncbi";
   els.emailInput.value = imported.email || "";
@@ -386,6 +393,7 @@ function applyImportedDbToml(imported) {
     outputOptions.defaultHeaderFormat || els.outputDefaultHeaderFormatInput.value;
   els.outputMifishHeaderFormatInput.value =
     outputOptions.mifishHeaderFormat || els.outputMifishHeaderFormatInput.value;
+  setOutputExportFormatSelection(outputOptions.exportFormats);
   syncSourceMode();
 }
 
@@ -578,7 +586,8 @@ function collectRequest() {
     },
     outputOptions: {
       defaultHeaderFormat: els.outputDefaultHeaderFormatInput.value.trim(),
-      mifishHeaderFormat: els.outputMifishHeaderFormatInput.value.trim()
+      mifishHeaderFormat: els.outputMifishHeaderFormatInput.value.trim(),
+      exportFormats: readCheckedValues(outputExportFormatEls),
     },
     workers: Number.parseInt(els.speedInput.value, 10),
     resume: els.resumeInput.checked
@@ -661,6 +670,7 @@ async function loadSavedConfig() {
     if (saved.outputMifishHeaderFormat) {
       els.outputMifishHeaderFormatInput.value = saved.outputMifishHeaderFormat;
     }
+    setOutputExportFormatSelection(saved.outputExportFormats);
     updateGuidanceState();
   } catch (error) {
     monitorView.appendLog(`[warn] load config failed: ${error}`);
@@ -720,6 +730,7 @@ function resetForm() {
   els.postEnableInput.checked = false;
   setMsaTreeMode("disabled");
   setPostPrepStepSelection([]);
+  setOutputExportFormatSelection([]);
   syncSourceMode();
   updateGuidanceState();
 }

@@ -250,6 +250,7 @@ pub(crate) fn start_run(
         ncbi_delay_sec: req.ncbi_options.delay_sec,
         output_default_header_format: req.output_options.default_header_format.clone(),
         output_mifish_header_format: req.output_options.mifish_header_format.clone(),
+        output_export_formats: req.output_options.export_formats.clone(),
     };
     save_gui_config_internal(&app, &gui_config)?;
 
