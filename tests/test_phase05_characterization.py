@@ -159,6 +159,7 @@ def test_build_bold_download_stub_matches_golden(
     fixture_dir: Path, golden_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder import bold, cli, ncbi
 
     payload = (
         "marker_code\tnucleotides\tprocessid\tsampleid\tinsdcacs\tspecies\n"
@@ -166,15 +167,15 @@ def test_build_bold_download_stub_matches_golden(
         "unknown\tTTTT\tBOLD002\tS002\t\tTestus beta\n"
     )
     monkeypatch.setattr(
-        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+        ncbi, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
     )
     monkeypatch.setattr(
-        builder,
+        cli,
         "prepare_bold_query",
         lambda *_args, **_kwargs: _stub_prepared_query(builder),
     )
     monkeypatch.setattr(
-        builder, "download_documents_to_path", _bold_download_stub(payload)
+        bold, "download_documents_to_path", _bold_download_stub(payload)
     )
 
     output = tmp_path / "bold.fasta"
@@ -208,6 +209,7 @@ def test_build_both_strict_link_suppression_and_unlinked_record(
     fixture_dir: Path, golden_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder import bold, cli, ncbi
 
     gb_dir = tmp_path / "both-gb"
     gb_dir.mkdir()
@@ -218,15 +220,15 @@ def test_build_both_strict_link_suppression_and_unlinked_record(
         "12S\tCCCC\tBOLD-KEEP\tS002\tUNLINKED\tTestus beta\n"
     )
     monkeypatch.setattr(
-        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+        ncbi, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
     )
     monkeypatch.setattr(
-        builder,
+        cli,
         "prepare_bold_query",
         lambda *_args, **_kwargs: _stub_prepared_query(builder),
     )
     monkeypatch.setattr(
-        builder, "download_documents_to_path", _bold_download_stub(payload)
+        bold, "download_documents_to_path", _bold_download_stub(payload)
     )
 
     output = tmp_path / "both.fasta"
@@ -323,9 +325,10 @@ def test_build_rejects_invalid_cache_options(
     monkeypatch: pytest.MonkeyPatch,
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder import ncbi
 
     monkeypatch.setattr(
-        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+        ncbi, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
     )
     kwargs = {
         "config": fixture_dir / "minimal_config.toml",
@@ -402,11 +405,12 @@ def test_apply_post_prep_primer_trim_vsearch_branch_is_stubbed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder.postprep import primer_trim
 
     fasta = tmp_path / "vsearch.fasta"
     fasta.write_text(">record\nACGTGGGG\n", encoding="utf-8")
     monkeypatch.setattr(
-        builder,
+        primer_trim,
         "run_vsearch_endpoint_recheck",
         lambda *args, **kwargs: (1, 0, "stubbed"),
     )

@@ -5,11 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python < 3.11
-    import tomli as tomllib
+import tomllib
 
 from .models import (
     IUPAC_DNA_VALUES,
@@ -374,19 +370,7 @@ def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> dict:
     if markers_file:
         if not isinstance(markers_file, str):
             raise typer.BadParameter("markers.file must be a string path.")
-        markers_path = Path(os.path.expandvars(os.path.expanduser(markers_file)))
-        candidates: list[Path] = []
-        if markers_path.is_absolute():
-            candidates.append(markers_path)
-        else:
-            candidates.append(path.parent / markers_path)
-            candidates.append(Path.cwd() / markers_path)
-            candidates.append(Path(__file__).resolve().parent.parent / markers_path)
-
-        markers_path = next((p for p in candidates if p.exists()), None)
-        if not markers_path:
-            tried = ", ".join(str(p) for p in candidates)
-            raise typer.BadParameter(f"Markers file not found. Tried: {tried}")
+        markers_path = resolve_support_file_path(markers_file, path, "Markers file")
         with markers_path.open("rb") as f:
             markers_data = tomllib.load(f)
         markers_from_file = markers_data.get("markers")

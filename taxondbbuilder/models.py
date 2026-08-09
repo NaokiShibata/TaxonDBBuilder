@@ -5,7 +5,6 @@ import json
 from dataclasses import asdict, dataclass
 from enum import Enum
 from pathlib import Path
-from string import Formatter
 from threading import Lock
 from typing import Any
 
@@ -15,7 +14,6 @@ DEFAULT_FEATURE_TYPES = ["rRNA", "gene", "CDS"]
 DEFAULT_FEATURE_FIELDS = ["gene", "product", "note", "standard_name"]
 DEFAULT_HEADER_FORMAT = "{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}"
 DEFAULT_BOLD_HEADER_FORMAT = "bold|{acc_id}|{organism}"
-FORMATTER = Formatter()
 IUPAC_DNA_VALUES = {k.upper(): v.upper() for k, v in ambiguous_dna_values.items()}
 IUPAC_DNA_VALUES["U"] = "T"
 

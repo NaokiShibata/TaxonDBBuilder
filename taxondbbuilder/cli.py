@@ -848,27 +848,23 @@ def _build_post_prep_trim_options(
         "trim_mode": post_prep_cfg.get(
             "primer_trim_mode", PRIMER_TRIM_MODE_ONE_OR_BOTH
         ),
-        "max_mismatch": int(post_prep_cfg.get("primer_max_mismatch", 0)),
-        "max_error_rate": float(post_prep_cfg.get("primer_max_error_rate", 0.0)),
+        "max_mismatch": post_prep_cfg.get("primer_max_mismatch", 0),
+        "max_error_rate": post_prep_cfg.get("primer_max_error_rate", 0.0),
         "min_overlap_bp": post_prep_cfg.get("primer_min_overlap_bp"),
-        "min_overlap_ratio": float(post_prep_cfg.get("primer_min_overlap_ratio", 1.0)),
-        "end_max_offset": int(post_prep_cfg.get("primer_end_max_offset", 0)),
-        "keep_retained_fasta": bool(
-            post_prep_cfg.get("primer_keep_retained_fasta", True)
+        "min_overlap_ratio": post_prep_cfg.get("primer_min_overlap_ratio", 1.0),
+        "end_max_offset": post_prep_cfg.get("primer_end_max_offset", 0),
+        "keep_retained_fasta": post_prep_cfg.get("primer_keep_retained_fasta", True),
+        "iter_enable": post_prep_cfg.get("primer_iter_enable", False),
+        "iter_max_rounds": post_prep_cfg.get(
+            "primer_iter_max_rounds", 3 if enabled else 1
         ),
-        "iter_enable": bool(post_prep_cfg.get("primer_iter_enable", False)),
-        "iter_max_rounds": int(
-            post_prep_cfg.get("primer_iter_max_rounds", 3 if enabled else 1)
-        ),
-        "iter_stop_delta": float(post_prep_cfg.get("primer_iter_stop_delta", 0.002)),
-        "iter_target_conf": float(post_prep_cfg.get("primer_iter_target_conf", 0.98)),
+        "iter_stop_delta": post_prep_cfg.get("primer_iter_stop_delta", 0.002),
+        "iter_target_conf": post_prep_cfg.get("primer_iter_target_conf", 0.98),
         "sidecar_format": post_prep_cfg.get("primer_sidecar_format", "tsv"),
         "recheck_tool": post_prep_cfg.get("primer_recheck_tool", "off"),
-        "recheck_min_identity": float(
-            post_prep_cfg.get("primer_recheck_min_identity", 0.85)
-        ),
-        "recheck_min_query_cov": float(
-            post_prep_cfg.get("primer_recheck_min_query_cov", 0.7)
+        "recheck_min_identity": post_prep_cfg.get("primer_recheck_min_identity", 0.85),
+        "recheck_min_query_cov": post_prep_cfg.get(
+            "primer_recheck_min_query_cov", 0.7
         ),
     }
 
@@ -877,12 +873,12 @@ def _build_post_prep_msa_tree_options(
     post_prep_cfg: dict[str, Any],
 ) -> dict[str, Any]:
     return {
-        "min_taxa": int(post_prep_cfg.get("msa_tree_min_taxa", 3)),
-        "max_samples": int(post_prep_cfg.get("msa_tree_max_samples", 500)),
+        "min_taxa": post_prep_cfg.get("msa_tree_min_taxa", 3),
+        "max_samples": post_prep_cfg.get("msa_tree_max_samples", 500),
         "model": post_prep_cfg.get("msa_tree_model", "GTR+G"),
         "mode": post_prep_cfg.get("msa_tree_mode", "combined"),
-        "bootstrap_replicates": int(
-            post_prep_cfg.get("msa_tree_bootstrap_replicates", 1000)
+        "bootstrap_replicates": post_prep_cfg.get(
+            "msa_tree_bootstrap_replicates", 1000
         ),
     }
 
