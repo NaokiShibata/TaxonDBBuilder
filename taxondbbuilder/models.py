@@ -31,6 +31,11 @@ class BuildSource(str, Enum):
     BOTH = "both"
 
 
+class ExportFormat(str, Enum):
+    QIIME2 = "qiime2"
+    DADA2_SPECIES = "dada2_species"
+
+
 @dataclass(frozen=True)
 class ResolvedTaxon:
     input_value: str

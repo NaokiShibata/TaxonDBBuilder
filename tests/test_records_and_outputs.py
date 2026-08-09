@@ -193,3 +193,65 @@ def test_length_filter_characterization(tmp_path: Path):
         "removed": 2,
     }
     assert path.read_text(encoding="utf-8") == ">keep\nAAAA\n"
+
+
+def test_interoperability_exports_preserve_primary_fasta(tmp_path: Path):
+    import taxondbbuilder as builder
+
+    fasta_path = tmp_path / "sample.fasta"
+    fasta_text = (
+        ">gb|AB123.1|Alpha_fish\nAACCGGTT\n"
+        ">bold|BOLD_PRC002|unknown\nTTTTGGGG\n"
+        ">gb|AB123.1_dup|Beta_fish\nCCCCAAAA\n"
+    )
+    fasta_path.write_text(fasta_text, encoding="utf-8")
+    emitted = [
+        {
+            "header": "gb|AB123.1|Alpha_fish",
+            "acc_id": "AB123.1",
+            "organism_name": "Alpha fish",
+        },
+        {
+            "header": "bold|BOLD_PRC002|unknown",
+            "acc_id": "BOLD_PRC002",
+            "organism_name": "unknown",
+        },
+        {
+            "header": "gb|AB123.1_dup|Beta_fish",
+            "acc_id": "AB123.1",
+            "organism_name": "Beta fish subspecies",
+        },
+    ]
+
+    results = builder.write_interoperability_exports(
+        fasta_path,
+        emitted,
+        [builder.ExportFormat.QIIME2, builder.ExportFormat.DADA2_SPECIES],
+    )
+
+    assert fasta_path.read_text(encoding="utf-8") == fasta_text
+    assert results[0]["exported_records"] == 3
+    assert results[0]["skipped_records"] == 0
+    assert results[1]["exported_records"] == 2
+    assert results[1]["skipped_records"] == 1
+    assert (
+        tmp_path / "sample.fasta.qiime2.sequences.fasta"
+    ).read_text(encoding="utf-8") == (
+        ">AB123.1\nAACCGGTT\n"
+        ">BOLD_PRC002\nTTTTGGGG\n"
+        ">AB123.1__2\nCCCCAAAA\n"
+    )
+    assert (tmp_path / "sample.fasta.qiime2.taxonomy.tsv").read_text(
+        encoding="utf-8"
+    ) == (
+        "Feature ID\tTaxon\n"
+        "AB123.1\tAlpha fish\n"
+        "BOLD_PRC002\tunknown\n"
+        "AB123.1__2\tBeta fish subspecies\n"
+    )
+    assert (tmp_path / "sample.fasta.dada2.species.fasta").read_text(
+        encoding="utf-8"
+    ) == (
+        ">AB123.1 Alpha fish\nAACCGGTT\n"
+        ">AB123.1__2 Beta fish\nCCCCAAAA\n"
+    )

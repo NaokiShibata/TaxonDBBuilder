@@ -66,6 +66,27 @@ def test_cli_list_primer_sets_output_matches_golden(
     assert result.stdout == read_golden(golden_dir, "cli-list-primer-sets.txt")
 
 
+def test_resolve_export_formats_supports_config_and_cli_override() -> None:
+    from taxondbbuilder.cli import _resolve_export_formats
+    from taxondbbuilder.models import ExportFormat
+
+    assert _resolve_export_formats(
+        {"export_formats": ["qiime2", "dada2_species", "qiime2"]}, None
+    ) == [ExportFormat.QIIME2, ExportFormat.DADA2_SPECIES]
+    assert _resolve_export_formats(
+        {"export_formats": ["qiime2"]}, [ExportFormat.DADA2_SPECIES]
+    ) == [ExportFormat.DADA2_SPECIES]
+
+
+def test_resolve_export_formats_rejects_unknown_config_value() -> None:
+    import typer
+
+    from taxondbbuilder.cli import _resolve_export_formats
+
+    with pytest.raises(typer.BadParameter, match="Unsupported output export format"):
+        _resolve_export_formats({"export_formats": ["unknown"]}, None)
+
+
 @pytest.mark.parametrize("post_prep_cfg", [{}, {"msa_tree_enable": False}])
 def test_resolve_post_prep_msa_tree_requires_enabled_config(
     tmp_path: Path, post_prep_cfg: dict[str, object]

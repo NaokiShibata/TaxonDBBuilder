@@ -7,7 +7,7 @@ from datetime import datetime
 from pathlib import Path
 from queue import Queue
 from threading import Event, Lock, Thread
-from typing import Any
+from typing import Annotated, Any
 
 import typer
 from rich.progress import (
@@ -31,6 +31,7 @@ from .config import (
 )
 from .console import console, print_header, render_result_table, render_run_table
 from .fasta import emit_records_to_fasta
+from .exports import write_interoperability_exports
 from .headers import resolve_header_format
 from .logging_utils import (
     close_run_logger,
@@ -50,6 +51,7 @@ from .models import (
     POST_PREP_STEP_ORDER,
     PRIMER_TRIM_MODE_ONE_OR_BOTH,
     BuildSource,
+    ExportFormat,
     PostPrepStep,
     ResolvedTaxon,
     append_records_to_spool,
@@ -142,6 +144,7 @@ class _BuildContext:
     source_merge_rows: list[dict[str, str]] = field(default_factory=list)
     progress: Progress | None = None
     msa_tree_stats: dict[str, Any] | None = None
+    export_formats: list[ExportFormat] = field(default_factory=list)
 
 
 def build_output_path(
@@ -266,6 +269,11 @@ def _log_build_inputs(ctx: _BuildContext) -> None:
     )
     logger.info(f"# markers: {ctx.marker_keys}")
     logger.info(f"# output_prefix: {ctx.output_prefix}")
+    if ctx.export_formats:
+        logger.info(
+            "# output.export_formats: "
+            + ", ".join(item.value for item in ctx.export_formats)
+        )
     logger.info(f"# dump_gb: {ctx.dump_gb}" if ctx.dump_gb else "# dump_gb: none")
     logger.info(f"# from_gb: {ctx.from_gb}" if ctx.from_gb else "# from_gb: none")
     logger.info(f"# resume: {ctx.resume}")
@@ -649,6 +657,16 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         f" unique_accessions={stats['unique_accessions']} unique_organisms={stats['unique_organisms']}"
     )
     ctx.run_logger.info(f"# acc_organism_map_csv: {acc_species_map_path}")
+    export_results = write_interoperability_exports(
+        ctx.out_path, ctx.emitted_records, ctx.export_formats
+    )
+    for result in export_results:
+        paths = ", ".join(str(path) for path in result["paths"])
+        ctx.run_logger.info(
+            "# interoperability_export:"
+            f" format={result['format']} exported={result['exported_records']}"
+            f" skipped={result['skipped_records']} paths={paths}"
+        )
     for label, key in (
         ("total records", "total_records"),
         ("matched records", "matched_records"),
@@ -681,6 +699,9 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         )
     console.print(f"ACC-organism mapping CSV: {acc_species_map_path}")
     console.print(f"Source merge CSV: {source_merge_path}")
+    for result in export_results:
+        for path in result["paths"]:
+            console.print(f"{result['format']} export: {path}")
     if stats["unmapped_records"] > 0:
         console.print(
             "[yellow]WARNING:[/yellow] Some final FASTA records could not be mapped to source ACC/organism. "
@@ -822,6 +843,28 @@ def _resolve_build_markers(
         "selected_header_formats": selected_header_formats,
         "marker_rules": marker_rules,
     }
+
+
+def _resolve_export_formats(
+    output_cfg: dict[str, Any], requested: list[ExportFormat] | None
+) -> list[ExportFormat]:
+    if requested:
+        return list(dict.fromkeys(requested))
+    configured = output_cfg.get("export_formats") or []
+    if not isinstance(configured, list):
+        raise typer.BadParameter("[output].export_formats must be an array of strings.")
+    resolved: list[ExportFormat] = []
+    for value in configured:
+        try:
+            export_format = ExportFormat(str(value).strip())
+        except ValueError as error:
+            choices = ", ".join(item.value for item in ExportFormat)
+            raise typer.BadParameter(
+                f"Unsupported output export format '{value}'. Choices: {choices}."
+            ) from error
+        if export_format not in resolved:
+            resolved.append(export_format)
+    return resolved
 
 
 def _normalize_post_prep_requests(
@@ -1075,6 +1118,13 @@ def build(
         "--output-prefix",
         help="Prefix added to output FASTA filename.",
     ),
+    export_format: Annotated[
+        list[ExportFormat] | None,
+        typer.Option(
+            "--export-format",
+            help="Additional downstream format. Repeat for multiple: qiime2, dada2_species.",
+        ),
+    ] = None,
     post_prep: bool = typer.Option(
         False,
         "--post-prep",
@@ -1114,6 +1164,7 @@ def build(
         settings["uses_ncbi"],
         output_prefix,
     )
+    export_formats = _resolve_export_formats(settings["output_cfg"], export_format)
     post_settings = _resolve_post_prep_options(
         post_prep,
         post_prep_step,
@@ -1142,6 +1193,7 @@ def build(
         **marker_settings,
         **post_settings,
         **target_settings,
+        export_formats=export_formats,
         dump_gb=dump_gb,
         from_gb=from_gb,
         resume=resume,
