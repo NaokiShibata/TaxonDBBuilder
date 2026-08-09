@@ -28,6 +28,9 @@ simple = "{acc_id}|{marker}|{loc}"
 verbose = "{acc_id}|{organism_raw}|{marker_raw}|{label_raw}|{type_raw}|{loc}|{strand}"
 mifish_pipeline = "{db}|{acc_id}|{organism}"
 
+# Optional downstream exports. The primary PMiFish-compatible FASTA is unchanged.
+# export_formats = ["qiime2", "dada2_species"]
+
 # Taxon options
 [taxon]
 # If true, do not expand descendants in taxon search.

@@ -149,6 +149,9 @@ simple = "{acc_id}|{marker}|{loc}"
 verbose = "{acc_id}|{organism_raw}|{marker_raw}|{label_raw}|{type_raw}|{loc}|{strand}"
 mifish_pipeline = "{db}|{acc_id}|{organism}"
 
+# 必要な場合だけ追加生成。元のFASTAとheaderは変更されません。
+# export_formats = ["qiime2", "dada2_species"]
+
 [taxon]
 noexp = false
 
@@ -375,6 +378,7 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 | `--workers` | なし | 抽出処理の並列数 |
 | `--out` | なし | 出力先 (省略時は `Results/db/YYYYMMDD/`) |
 | `--output-prefix` | なし | 出力FASTAファイル名のプレフィックス (default: `taxondbbuilder_`) |
+| `--export-format` | `[output].export_formats` | 下流ツール向け副生成物を追加 (`qiime2` / `dada2_species`、複数指定可) |
 | `--dump-gb` | なし | GenBankチャンクを保存 (キャッシュ) |
 | `--from-gb` | なし | 保存済みGenBankチャンクから抽出 |
 | `--resume` | なし | キャッシュを優先して利用 |
@@ -424,6 +428,20 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dump-gb Re
 生成されるNCBIクエリだけを確認 (`--dry-run`):
 ```bash
 python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dry-run
+```
+
+既存FASTAを保ったままQIIME 2用ファイルも生成:
+```bash
+python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 117570 -m 12s --export-format qiime2
+```
+
+QIIME 2とDADA2 `assignSpecies`用を同時に生成:
+```bash
+python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 117570 -m 12s \
+  --export-format qiime2 \
+  --export-format dada2_species
 ```
 
 post-prep を有効化 (primer trim + 長さフィルタ + 重複ACCレポート):
@@ -512,6 +530,18 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
 - 実行ログ: 出力FASTAと同名の `.log`
 - ACCと生物種名の対応表: `*.fasta.acc_organism.csv` (`acc_id, accession, organism_name, header`)
 - source merge 対応表: `*.fasta.source_merge.csv`（NCBI/BOLDのsource、TaxID、accession、出力ヘッダーを記録）
+
+`[output].export_formats` または `--export-format` 指定時:
+
+- `qiime2`
+  - `*.fasta.qiime2.sequences.fasta`: 一意なFeature IDを持つ配列
+  - `*.fasta.qiime2.taxonomy.tsv`: `Feature ID<TAB>Taxon`形式
+  - 現時点のTaxonは取得レコードの生物名1階層です。多階級lineageは補完しません。
+- `dada2_species`
+  - `*.fasta.dada2.species.fasta`: `>ID Genus species`形式
+  - 二名法として判定できないレコードは出力せず、件数をログに記録します。
+
+どちらを指定しても、PMiFish向けを含む元のFASTA headerと内容は変更しません。
 
 `--post-prep` 指定時:
 - デフォルトでは、設定が存在するカテゴリを実行
