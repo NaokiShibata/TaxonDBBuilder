@@ -308,6 +308,7 @@ export function renderTreeSVG(root, containerEl, alignment = new Map()) {
 
     svg.addEventListener("pointerdown", (event) => {
       if (event.button !== 0) return;
+      event.preventDefault();
       state.dragging = {
         clientX: event.clientX,
         clientY: event.clientY,
