@@ -143,6 +143,35 @@ function msaBaseColor(character) {
   return "#584c74";
 }
 
+function normalizedMsaBase(character) {
+  const base = `${character || ""}`.toUpperCase();
+  if (base === "-" || base === ".") return "";
+  return base === "U" ? "T" : base;
+}
+
+export function calculateAlignmentAgreement(alignment) {
+  const sequences = [...alignment.values()];
+  const length = sequences[0]?.length || 0;
+  return Array.from({ length }, (_, index) => {
+    const counts = new Map();
+    let total = 0;
+    for (const sequence of sequences) {
+      const base = normalizedMsaBase(sequence[index]);
+      if (!base) continue;
+      counts.set(base, (counts.get(base) || 0) + 1);
+      total += 1;
+    }
+    return new Map(
+      [...counts].map(([base, count]) => [base, (count / total) * 100]),
+    );
+  });
+}
+
+export function showMsaBackground(character, columnAgreement, threshold) {
+  const base = normalizedMsaBase(character);
+  return !base || (columnAgreement.get(base) || 0) < threshold;
+}
+
 function inspectTree(root) {
   const leaves = [];
   const nodes = [];
@@ -254,7 +283,12 @@ function viewBoxString(viewBox) {
   return [viewBox.x, viewBox.y, viewBox.width, viewBox.height].join(" ");
 }
 
-export function renderTreeSVG(root, containerEl, alignment = new Map()) {
+export function renderTreeSVG(
+  root,
+  containerEl,
+  alignment = new Map(),
+  conservationThreshold = 100,
+) {
   containerEl.replaceChildren();
   const tree = inspectTree(root);
   const state = {
@@ -268,6 +302,8 @@ export function renderTreeSVG(root, containerEl, alignment = new Map()) {
     baseViewBox: null,
     viewBox: null,
     dragging: null,
+    alignmentAgreement: calculateAlignmentAgreement(alignment),
+    conservationThreshold,
   };
 
   function showTooltip(node, event) {
@@ -494,6 +530,52 @@ export function renderTreeSVG(root, containerEl, alignment = new Map()) {
       svg.appendChild(tick);
     }
 
+    const backgroundPaths = new Map();
+    for (const leaf of data.tree.leaves) {
+      const sequence = data.alignment.get(nodeName(leaf));
+      if (sequence == null) continue;
+      const y = data.tree.positions.get(leaf).y - 9;
+      let runStart = 0;
+      let runColor = showMsaBackground(
+        sequence[0],
+        state.alignmentAgreement[0] || new Map(),
+        state.conservationThreshold,
+      )
+        ? msaBaseColor(sequence[0] || "")
+        : null;
+      for (let index = 1; index <= sequence.length; index += 1) {
+        const color =
+          index < sequence.length &&
+          showMsaBackground(
+            sequence[index],
+            state.alignmentAgreement[index],
+            state.conservationThreshold,
+          )
+            ? msaBaseColor(sequence[index])
+            : null;
+        if (color === runColor) continue;
+        if (runColor) {
+          const x = data.alignmentStart + runStart * data.alignmentCellWidth;
+          const width = (index - runStart) * data.alignmentCellWidth;
+          const commands = backgroundPaths.get(runColor) || [];
+          commands.push(`M${x} ${y}h${width}v18h-${width}v-18z`);
+          backgroundPaths.set(runColor, commands);
+        }
+        runStart = index;
+        runColor = color;
+      }
+    }
+    for (const [color, commands] of backgroundPaths) {
+      svg.appendChild(
+        svgElement("path", {
+          d: commands.join(""),
+          fill: color,
+          "fill-opacity": 0.24,
+          class: "msa-background",
+        }),
+      );
+    }
+
     for (const leaf of data.tree.leaves) {
       const sequence = data.alignment.get(nodeName(leaf));
       const y = data.tree.positions.get(leaf).y + 4;
@@ -578,6 +660,13 @@ export function renderTreeSVG(root, containerEl, alignment = new Map()) {
   const controller = {
     setSearch(query) {
       state.searchQuery = `${query || ""}`.trim().toLocaleLowerCase();
+      redraw();
+    },
+    setConservationThreshold(threshold) {
+      const value = Number(threshold);
+      state.conservationThreshold = Number.isFinite(value)
+        ? Math.min(100, Math.max(50, value))
+        : 100;
       redraw();
     },
     zoomIn() {

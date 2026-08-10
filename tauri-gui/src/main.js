@@ -43,6 +43,7 @@ const els = {
   treeViewStatus: document.querySelector("#tree-view-status"),
   treeSelect: document.querySelector("#tree-select"),
   treeSearch: document.querySelector("#tree-search"),
+  msaConservation: document.querySelector("#msa-conservation"),
   treeZoomIn: document.querySelector("#tree-zoom-in"),
   treeZoomOut: document.querySelector("#tree-zoom-out"),
   treeZoomReset: document.querySelector("#tree-zoom-reset"),
@@ -468,6 +469,7 @@ function setTreeViewControlsEnabled(enabled) {
   [
     els.treeSelect,
     els.treeSearch,
+    els.msaConservation,
     els.treeZoomIn,
     els.treeZoomOut,
     els.treeZoomReset,
@@ -529,9 +531,15 @@ async function renderRunTree() {
       console.warn(`MSAを読み込めませんでした: ${msaPath}`, error);
     }
     treeViewController?.dispose();
-    treeViewController = renderTreeSVG(root, els.treeViewContainer, alignment);
+    treeViewController = renderTreeSVG(
+      root,
+      els.treeViewContainer,
+      alignment,
+      Number(els.msaConservation.value),
+    );
     els.treeSearch.value = "";
     setTreeViewControlsEnabled(true);
+    els.msaConservation.disabled = alignment.size === 0;
     els.treeViewStatus.textContent = `${treeFilename} / ${msaStatus}`;
   } catch (error) {
     treeViewController?.dispose();
@@ -870,6 +878,10 @@ els.openJobDir.addEventListener("click", async () => {
 
 els.treeSearch.addEventListener("input", () => {
   treeViewController?.setSearch(els.treeSearch.value);
+});
+
+els.msaConservation.addEventListener("change", () => {
+  treeViewController?.setConservationThreshold(els.msaConservation.value);
 });
 
 els.treeSelect.addEventListener("change", () => {

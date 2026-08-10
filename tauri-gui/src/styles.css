@@ -720,7 +720,7 @@ progress {
 
 .tree-view-toolbar {
   display: grid;
-  grid-template-columns: auto minmax(120px, 1fr) auto minmax(160px, 1fr) auto;
+  grid-template-columns: auto minmax(120px, 1fr) auto minmax(160px, 1fr) auto 90px auto;
   align-items: center;
   gap: 8px;
 }
@@ -729,10 +729,14 @@ progress {
   white-space: nowrap;
 }
 
-.tree-view-toolbar input,
-.tree-view-toolbar select {
+.tree-view-toolbar input {
   min-width: 0;
   padding: 7px 9px;
+}
+
+.tree-view-toolbar select {
+  min-width: 0;
+  padding: 7px 30px 7px 9px;
 }
 
 .tree-view-actions {
@@ -810,6 +814,7 @@ progress {
   }
 
   .tree-view-toolbar input,
+  .tree-view-toolbar select,
   .tree-view-actions {
     grid-column: 2;
   }
