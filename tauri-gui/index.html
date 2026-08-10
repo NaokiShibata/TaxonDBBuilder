@@ -171,32 +171,40 @@
 
                 <section class="card card-filters">
                   <h3>Filters</h3>
-                  <label class="check"
-                    ><input id="f-mito" type="checkbox" checked />
-                    mitochondrion</label
-                  >
-                  <label class="check"
-                    ><input id="f-ddbj" type="checkbox" checked />
-                    ddbj_embl_genbank</label
-                  >
-                  <label class="check"
-                    ><input id="f-biomol" type="checkbox" checked />
-                    biomol_genomic</label
-                  >
-                  <label for="f-length-min">length_min</label>
-                  <input
-                    id="f-length-min"
-                    type="text"
-                    inputmode="numeric"
-                    placeholder="example: 120"
-                  />
-                  <label for="f-length-max">length_max</label>
-                  <input
-                    id="f-length-max"
-                    type="text"
-                    inputmode="numeric"
-                    placeholder="example: 20000"
-                  />
+                  <div class="step-grid filter-options">
+                    <label class="check"
+                      ><input id="f-mito" type="checkbox" checked />
+                      mitochondrion</label
+                    >
+                    <label class="check"
+                      ><input id="f-ddbj" type="checkbox" checked />
+                      ddbj_embl_genbank</label
+                    >
+                    <label class="check"
+                      ><input id="f-biomol" type="checkbox" checked />
+                      biomol_genomic</label
+                    >
+                  </div>
+                  <div class="field-pair">
+                    <label for="f-length-min">
+                      length_min
+                      <input
+                        id="f-length-min"
+                        type="text"
+                        inputmode="numeric"
+                        placeholder="example: 120"
+                      />
+                    </label>
+                    <label for="f-length-max">
+                      length_max
+                      <input
+                        id="f-length-max"
+                        type="text"
+                        inputmode="numeric"
+                        placeholder="example: 20000"
+                      />
+                    </label>
+                  </div>
                 </section>
               </div>
 
@@ -439,10 +447,24 @@
                     >
                   </div>
 
-                  <label for="post-length-min">post sequence_length_min</label>
-                  <input id="post-length-min" type="text" inputmode="numeric" />
-                  <label for="post-length-max">post sequence_length_max</label>
-                  <input id="post-length-max" type="text" inputmode="numeric" />
+                  <div class="field-pair">
+                    <label for="post-length-min"
+                      >post sequence_length_min
+                      <input
+                        id="post-length-min"
+                        type="text"
+                        inputmode="numeric"
+                      />
+                    </label>
+                    <label for="post-length-max"
+                      >post sequence_length_max
+                      <input
+                        id="post-length-max"
+                        type="text"
+                        inputmode="numeric"
+                      />
+                    </label>
+                  </div>
                 </section>
               </div>
             </div>

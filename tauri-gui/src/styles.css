@@ -550,6 +550,24 @@ select:focus {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.filter-options {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 6px 16px;
+}
+
+.field-pair {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.field-pair label {
+  display: grid;
+  gap: 6px;
+}
+
 .radio-group {
   display: grid;
   gap: 6px;
@@ -891,7 +909,8 @@ progress {
     grid-template-columns: 1fr;
   }
 
-  .step-grid {
+  .step-grid,
+  .field-pair {
     grid-template-columns: 1fr;
   }
 
