@@ -70,12 +70,19 @@ def test_resolve_export_formats_supports_config_and_cli_override() -> None:
     from taxondbbuilder.cli import _resolve_export_formats
     from taxondbbuilder.models import ExportFormat
 
-    assert _resolve_export_formats(
-        {"export_formats": ["qiime2", "dada2_species", "qiime2"]}, None
-    ) == [ExportFormat.QIIME2, ExportFormat.DADA2_SPECIES]
+    assert _resolve_export_formats({"export_formats": ["qiime2", "qiime2"]}, None) == [
+        ExportFormat.QIIME2
+    ]
     assert _resolve_export_formats(
         {"export_formats": ["qiime2"]}, [ExportFormat.DADA2_SPECIES]
     ) == [ExportFormat.DADA2_SPECIES]
+
+    import typer
+
+    with pytest.raises(typer.BadParameter, match="Only one output export format"):
+        _resolve_export_formats(
+            {"export_formats": ["qiime2", "dada2_species"]}, None
+        )
 
 
 def test_resolve_export_formats_rejects_unknown_config_value() -> None:

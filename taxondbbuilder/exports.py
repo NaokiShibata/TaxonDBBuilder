@@ -130,9 +130,11 @@ def write_interoperability_exports(
     formats: Iterable[ExportFormat | str],
 ) -> list[dict[str, Any]]:
     """Write selected downstream formats without changing the primary FASTA."""
-    selected = [ExportFormat(value) for value in formats]
+    selected = list(dict.fromkeys(ExportFormat(value) for value in formats))
     if not selected:
         return []
+    if len(selected) > 1:
+        raise ValueError("Only one output export format can be selected.")
     records, unmapped = _collect_final_records(fasta_path, emitted_records)
     results: list[dict[str, Any]] = []
     for export_format in selected:

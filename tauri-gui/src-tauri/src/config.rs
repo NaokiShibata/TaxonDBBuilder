@@ -477,6 +477,9 @@ pub(crate) fn prepare_job_dir(output_root: &Path) -> Result<(String, PathBuf), S
 }
 
 pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<PathBuf, String> {
+    if req.output_options.export_formats.len() > 1 {
+        return Err("only one output export format can be selected".to_string());
+    }
     fs::create_dir_all(config_dir)
         .map_err(|e| format!("failed to create {}: {e}", config_dir.display()))?;
 
@@ -786,7 +789,7 @@ mod tests {
             .expect("clock")
             .as_nanos();
         let dir = std::env::temp_dir().join(format!("taxondb-config-{stamp}"));
-        let request = RunRequest {
+        let mut request = RunRequest {
             taxids: vec!["999".to_string()],
             markers: vec!["12s".to_string()],
             source: "ncbi".to_string(),
@@ -820,6 +823,11 @@ mod tests {
         assert!(fs::read_to_string(dir.join("primers.toml"))
             .expect("primers template")
             .contains("primer_sets.libird"));
+        request.output_options.export_formats =
+            vec!["qiime2".to_string(), "dada2_species".to_string()];
+        assert!(write_job_config(&request, &dir)
+            .expect_err("reject multiple export formats")
+            .contains("only one output export format"));
         fs::remove_dir_all(dir).expect("remove test directory");
     }
 }

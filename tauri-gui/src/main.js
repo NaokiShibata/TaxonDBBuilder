@@ -126,6 +126,14 @@ const primerCandidateEls = Array.from(document.querySelectorAll(".primer-candida
 const outputExportFormatEls = Array.from(
   document.querySelectorAll(".output-export-format"),
 );
+const outputHeaderFormatChoiceEls = Array.from(
+  document.querySelectorAll(".output-header-format-choice"),
+);
+const outputExportHeaderFormats = {
+  mifish_pipeline: "gb|{acc_id}|{organism}",
+  qiime2: "{acc_id}",
+  dada2_species: "{acc_id} {organism_raw}",
+};
 const monitorView = createMonitorView({
   statusEl: els.status,
   phaseEl: els.phase,
@@ -352,8 +360,19 @@ function setPrimerCandidateSelection(primerSets) {
   setCheckedValues(primerCandidateEls, primerSets);
 }
 
-function setOutputExportFormatSelection(formats) {
-  setCheckedValues(outputExportFormatEls, formats || []);
+function setOutputExportFormatSelection(formats, inferMifish = false) {
+  const requested = (formats || []).find(
+    (format) => outputExportHeaderFormats[format],
+  );
+  const isMifish =
+    els.outputMifishHeaderFormatInput.value ===
+    outputExportHeaderFormats.mifish_pipeline;
+  const selected =
+    requested || (inferMifish && isMifish ? "mifish_pipeline" : "");
+  setCheckedValues(outputHeaderFormatChoiceEls, selected ? [selected] : []);
+  if (requested) {
+    els.outputMifishHeaderFormatInput.value = outputExportHeaderFormats[requested];
+  }
 }
 
 function applyImportedDbToml(imported) {
@@ -394,7 +413,7 @@ function applyImportedDbToml(imported) {
     outputOptions.defaultHeaderFormat || els.outputDefaultHeaderFormatInput.value;
   els.outputMifishHeaderFormatInput.value =
     outputOptions.mifishHeaderFormat || els.outputMifishHeaderFormatInput.value;
-  setOutputExportFormatSelection(outputOptions.exportFormats);
+  setOutputExportFormatSelection(outputOptions.exportFormats, true);
   syncSourceMode();
 }
 
@@ -678,7 +697,7 @@ async function loadSavedConfig() {
     if (saved.outputMifishHeaderFormat) {
       els.outputMifishHeaderFormatInput.value = saved.outputMifishHeaderFormat;
     }
-    setOutputExportFormatSelection(saved.outputExportFormats);
+    setOutputExportFormatSelection(["mifish_pipeline"]);
     updateGuidanceState();
   } catch (error) {
     monitorView.appendLog(`[warn] load config failed: ${error}`);
@@ -865,6 +884,11 @@ primerCandidateEls.forEach((el) => {
   el.addEventListener("change", () => {
     els.primerSetInput.value = readCheckedValues(primerCandidateEls).join(",");
     updateGuidanceState();
+  });
+});
+outputHeaderFormatChoiceEls.forEach((el) => {
+  el.addEventListener("change", () => {
+    setOutputExportFormatSelection(el.checked ? [el.value] : []);
   });
 });
 

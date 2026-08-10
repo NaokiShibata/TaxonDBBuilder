@@ -149,8 +149,8 @@ simple = "{acc_id}|{marker}|{loc}"
 verbose = "{acc_id}|{organism_raw}|{marker_raw}|{label_raw}|{type_raw}|{loc}|{strand}"
 mifish_pipeline = "{db}|{acc_id}|{organism}"
 
-# 必要な場合だけ追加生成。元のFASTAとheaderは変更されません。
-# export_formats = ["qiime2", "dada2_species"]
+# 必要な場合だけ、どちらか一方を追加生成。
+# export_formats = ["qiime2"]  # qiime2 または dada2_species
 
 [taxon]
 noexp = false
@@ -378,7 +378,7 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 | `--workers` | なし | 抽出処理の並列数 |
 | `--out` | なし | 出力先 (省略時は `Results/db/YYYYMMDD/`) |
 | `--output-prefix` | なし | 出力FASTAファイル名のプレフィックス (default: `taxondbbuilder_`) |
-| `--export-format` | `[output].export_formats` | 下流ツール向け副生成物を追加 (`qiime2` / `dada2_species`、複数指定可) |
+| `--export-format` | `[output].export_formats` | 下流ツール向け副生成物を追加 (`qiime2` / `dada2_species`のどちらか一方) |
 | `--dump-gb` | なし | GenBankチャンクを保存 (キャッシュ) |
 | `--from-gb` | なし | 保存済みGenBankチャンクから抽出 |
 | `--resume` | なし | キャッシュを優先して利用 |
@@ -436,11 +436,10 @@ python3 -m taxondbbuilder build -c configs/db.toml \
   -t 117570 -m 12s --export-format qiime2
 ```
 
-QIIME 2とDADA2 `assignSpecies`用を同時に生成:
+DADA2 `assignSpecies`用ファイルを生成:
 ```bash
 python3 -m taxondbbuilder build -c configs/db.toml \
   -t 117570 -m 12s \
-  --export-format qiime2 \
   --export-format dada2_species
 ```
 
@@ -533,6 +532,8 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
 
 `[output].export_formats` または `--export-format` 指定時:
 
+指定できる形式は一つだけです。
+
 - `qiime2`
   - `*.fasta.qiime2.sequences.fasta`: 一意なFeature IDを持つ配列
   - `*.fasta.qiime2.taxonomy.tsv`: `Feature ID<TAB>Taxon`形式
@@ -541,7 +542,9 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
   - `*.fasta.dada2.species.fasta`: `>ID Genus species`形式
   - 二名法として判定できないレコードは出力せず、件数をログに記録します。
 
-どちらを指定しても、PMiFish向けを含む元のFASTA headerと内容は変更しません。
+GUIではPMiFish、QIIME 2、DADA2から一つを選択でき、選択に合わせて
+`output.header_formats.mifish_pipeline`を`gb|{acc_id}|{organism}`、
+`{acc_id}`、または`{acc_id} {organism_raw}`へ切り替えます。
 
 `--post-prep` 指定時:
 - デフォルトでは、設定が存在するカテゴリを実行

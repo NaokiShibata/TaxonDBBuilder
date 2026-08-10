@@ -241,11 +241,20 @@
                       type="text"
                       value="gb|{acc_id}|{organism}"
                     />
-                    <label>downstream exports</label>
+                    <label>FASTA output format (select one)</label>
                     <div class="step-grid">
                       <label class="check"
                         ><input
-                          class="output-export-format"
+                          class="output-header-format-choice"
+                          type="checkbox"
+                          value="mifish_pipeline"
+                          checked
+                        />
+                        PMiFish</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="output-header-format-choice output-export-format"
                           type="checkbox"
                           value="qiime2"
                         />
@@ -253,7 +262,7 @@
                       >
                       <label class="check"
                         ><input
-                          class="output-export-format"
+                          class="output-header-format-choice output-export-format"
                           type="checkbox"
                           value="dada2_species"
                         />

@@ -849,21 +849,26 @@ def _resolve_export_formats(
     output_cfg: dict[str, Any], requested: list[ExportFormat] | None
 ) -> list[ExportFormat]:
     if requested:
-        return list(dict.fromkeys(requested))
-    configured = output_cfg.get("export_formats") or []
-    if not isinstance(configured, list):
-        raise typer.BadParameter("[output].export_formats must be an array of strings.")
-    resolved: list[ExportFormat] = []
-    for value in configured:
-        try:
-            export_format = ExportFormat(str(value).strip())
-        except ValueError as error:
-            choices = ", ".join(item.value for item in ExportFormat)
+        resolved = list(dict.fromkeys(requested))
+    else:
+        configured = output_cfg.get("export_formats") or []
+        if not isinstance(configured, list):
             raise typer.BadParameter(
-                f"Unsupported output export format '{value}'. Choices: {choices}."
-            ) from error
-        if export_format not in resolved:
-            resolved.append(export_format)
+                "[output].export_formats must be an array of strings."
+            )
+        resolved = []
+        for value in configured:
+            try:
+                export_format = ExportFormat(str(value).strip())
+            except ValueError as error:
+                choices = ", ".join(item.value for item in ExportFormat)
+                raise typer.BadParameter(
+                    f"Unsupported output export format '{value}'. Choices: {choices}."
+                ) from error
+            if export_format not in resolved:
+                resolved.append(export_format)
+    if len(resolved) > 1:
+        raise typer.BadParameter("Only one output export format can be selected.")
     return resolved
 
 
@@ -1122,7 +1127,7 @@ def build(
         list[ExportFormat] | None,
         typer.Option(
             "--export-format",
-            help="Additional downstream format. Repeat for multiple: qiime2, dada2_species.",
+            help="Additional downstream format. Choose one: qiime2 or dada2_species.",
         ),
     ] = None,
     post_prep: bool = typer.Option(

@@ -4,6 +4,7 @@ import io
 from pathlib import Path
 from threading import Lock
 
+import pytest
 from rich.progress import Progress
 
 from .conftest import json_text, read_golden
@@ -223,17 +224,18 @@ def test_interoperability_exports_preserve_primary_fasta(tmp_path: Path):
         },
     ]
 
-    results = builder.write_interoperability_exports(
-        fasta_path,
-        emitted,
-        [builder.ExportFormat.QIIME2, builder.ExportFormat.DADA2_SPECIES],
-    )
+    qiime2_result = builder.write_interoperability_exports(
+        fasta_path, emitted, [builder.ExportFormat.QIIME2]
+    )[0]
+    dada2_result = builder.write_interoperability_exports(
+        fasta_path, emitted, [builder.ExportFormat.DADA2_SPECIES]
+    )[0]
 
     assert fasta_path.read_text(encoding="utf-8") == fasta_text
-    assert results[0]["exported_records"] == 3
-    assert results[0]["skipped_records"] == 0
-    assert results[1]["exported_records"] == 2
-    assert results[1]["skipped_records"] == 1
+    assert qiime2_result["exported_records"] == 3
+    assert qiime2_result["skipped_records"] == 0
+    assert dada2_result["exported_records"] == 2
+    assert dada2_result["skipped_records"] == 1
     assert (
         tmp_path / "sample.fasta.qiime2.sequences.fasta"
     ).read_text(encoding="utf-8") == (
@@ -255,3 +257,9 @@ def test_interoperability_exports_preserve_primary_fasta(tmp_path: Path):
         ">AB123.1 Alpha fish\nAACCGGTT\n"
         ">AB123.1__2 Beta fish\nCCCCAAAA\n"
     )
+    with pytest.raises(ValueError, match="Only one output export format"):
+        builder.write_interoperability_exports(
+            fasta_path,
+            emitted,
+            [builder.ExportFormat.QIIME2, builder.ExportFormat.DADA2_SPECIES],
+        )

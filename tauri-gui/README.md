@@ -205,9 +205,10 @@ primer_set = ["mifish_u","mifish_ev2","mifish_u2","mifish_l"]
 
 情報を入力できたら**Run**をクリックしてダウンロードを開始します。
 
-`Output Options > Advanced output format`では、元のPMiFish互換FASTAを変更せずに
-QIIME 2用のFASTA/Taxonomy TSV、またはDADA2 `assignSpecies`用FASTAを追加生成できます。
-必要な形式だけをチェックしてください。
+`Output Options > Advanced output format`では、PMiFish、QIIME 2、DADA2から
+一つを選択できます。選択すると`output.header_formats.mifish_pipeline`が
+PMiFishの`gb|{acc_id}|{organism}`、QIIME 2の`{acc_id}`、または
+DADA2の`{acc_id} {organism_raw}`へ切り替わります。
 
 Post Prepの `MSA / 系統樹構築` では、`実行しない`、`全TaxIDをまとめて1本`、
 `TaxIDごとに作成` を選択できます。
