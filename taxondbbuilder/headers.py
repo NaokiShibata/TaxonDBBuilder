@@ -1,6 +1,7 @@
 """Header formatting and extraction helpers."""
 
 import re
+from collections import defaultdict
 from collections.abc import Iterable
 from dataclasses import dataclass
 from string import Formatter
@@ -38,13 +39,8 @@ def resolve_header_format(cfg: dict, output_cfg: dict) -> str:
     return header_key
 
 
-class SafeFormatDict(dict):
-    def __missing__(self, key: str) -> str:
-        return ""
-
-
 def build_header(template: str, values: dict[str, str]) -> str:
-    return template.format_map(SafeFormatDict(values))
+    return template.format_map(defaultdict(str, values))
 
 
 def template_has_field(template: str, field_name: str) -> bool:

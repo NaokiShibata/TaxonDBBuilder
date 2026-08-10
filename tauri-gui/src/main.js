@@ -2,7 +2,6 @@ import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
-  parseCommaSeparatedList,
   parseFloatOrNull,
   parseIntOrNull,
   readCheckedValues,
@@ -155,10 +154,6 @@ function renderResultJobDir() {
   els.openJobDir.disabled = !state.jobDir;
 }
 
-function parseTaxidTokens(raw) {
-  return parseDelimitedTokens(raw);
-}
-
 function currentBuildSource() {
   const raw = `${els.sourceInput?.value || ""}`.trim().toLowerCase();
   if (raw === "bold" || raw === "both") return raw;
@@ -218,7 +213,7 @@ function renderTaxids() {
 }
 
 function addTaxids(raw) {
-  const tokens = parseTaxidTokens(raw);
+  const tokens = parseDelimitedTokens(raw);
   if (!tokens.length) return;
   state.taxids = mergeUniqueValues(state.taxids, tokens);
   renderTaxids();
@@ -363,7 +358,7 @@ function applyImportedDbToml(imported) {
 
   const postPrep = imported.postPrep || {};
   els.postEnableInput.checked = Boolean(postPrep.enable);
-  setMsaTreeMode(postPrep.msaTreeMode || (postPrep.msaTree ? "combined" : "disabled"));
+  setMsaTreeMode(postPrep.msaTreeMode);
   els.primerFileInput.value = postPrep.primerFile || "";
   els.primerSetInput.value = (postPrep.primerSet || []).join(",");
   setPrimerCandidateSelection(postPrep.primerSet);
@@ -410,7 +405,7 @@ function updatePostPrepGuidance() {
   setFlowItemState(els.flowPostEnable, true);
 
   if (selectedSteps.has("primer_trim")) {
-    const hasPrimerSet = parseCommaSeparatedList(els.primerSetInput.value).length > 0;
+    const hasPrimerSet = parseDelimitedTokens(els.primerSetInput.value, /,+/).length > 0;
     setFlowItemState(els.flowPostPrimer, hasPrimerSet);
   } else {
     setFlowItemNeutral(els.flowPostPrimer);
@@ -454,15 +449,6 @@ function setMsaTreeMode(mode) {
   });
 }
 
-function treePathForOutput(outputPath) {
-  if (!outputPath) return "";
-  return `${outputPath}.tree.nwk`;
-}
-
-function msaPathForTree(treePath) {
-  return treePath.replace(/\.tree\.nwk$/i, ".msa.fasta");
-}
-
 function setTreeViewControlsEnabled(enabled) {
   [
     els.treeSelect,
@@ -480,9 +466,10 @@ async function renderRunTree() {
   const collectedTreePaths = state.files.filter((path) =>
     path.toLowerCase().endsWith(".tree.nwk"),
   );
+  const fallbackTreePath = state.outputPath ? `${state.outputPath}.tree.nwk` : "";
   state.treePaths = collectedTreePaths.length
     ? collectedTreePaths
-    : (treePathForOutput(state.outputPath) ? [treePathForOutput(state.outputPath)] : []);
+    : (fallbackTreePath ? [fallbackTreePath] : []);
   els.treeSelect.replaceChildren();
   for (const path of state.treePaths) {
     const filename = path.split(/[\\/]/).pop() || path;
@@ -516,7 +503,7 @@ async function renderRunTree() {
   try {
     const newickText = await invoke("read_text_file", { path: treePath });
     const root = parseNewick(newickText);
-    const msaPath = msaPathForTree(treePath);
+    const msaPath = treePath.replace(/\.tree\.nwk$/i, ".msa.fasta");
     let alignment = new Map();
     let msaStatus = "MSAなし";
     try {
@@ -542,7 +529,7 @@ async function renderRunTree() {
 function collectRequest() {
   commitTaxidInput();
   const steps = getSelectedPostPrepSteps();
-  const primerSet = parseCommaSeparatedList(els.primerSetInput.value);
+  const primerSet = parseDelimitedTokens(els.primerSetInput.value, /,+/);
 
   return {
     taxids: [...state.taxids],
@@ -562,7 +549,6 @@ function collectRequest() {
     },
     postPrep: {
       enable: els.postEnableInput.checked || getSelectedMsaTreeMode() !== "disabled",
-      msaTree: getSelectedMsaTreeMode() !== "disabled",
       msaTreeMode: getSelectedMsaTreeMode(),
       primerFile: els.primerFileInput.value.trim(),
       primerSet,

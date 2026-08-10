@@ -12,13 +12,6 @@ export function parseFloatOrNull(value) {
   return Number.isNaN(parsed) ? null : parsed;
 }
 
-export function parseCommaSeparatedList(value) {
-  return `${value}`
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
-}
-
 export function readCheckedValues(elements) {
   return elements.filter((el) => el.checked).map((el) => el.value);
 }

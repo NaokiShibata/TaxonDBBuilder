@@ -78,8 +78,6 @@ pub(crate) struct FiltersInput {
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PostPrepInput {
     pub(crate) enable: bool,
-    #[serde(default, rename = "msaTree", alias = "msaTreeEnable")]
-    pub(crate) msa_tree_enable: bool,
     #[serde(default = "default_msa_tree_mode")]
     pub(crate) msa_tree_mode: String,
     pub(crate) primer_file: String,
@@ -486,7 +484,6 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
         "combined" => "combined",
         "per_taxid" => "per_taxid",
         "disabled" => "disabled",
-        _ if req.post_prep.msa_tree_enable => "combined",
         _ => "disabled",
     };
     let config = DbToml {
@@ -726,7 +723,6 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
 
         imported.post_prep = PostPrepInput {
             enable: true,
-            msa_tree_enable: post.msa_tree_enable,
             msa_tree_mode,
             primer_file,
             primer_set,
@@ -791,7 +787,10 @@ mod tests {
             api_key: String::new(),
             save_api_key: false,
             filters: FiltersInput::default(),
-            post_prep: PostPrepInput::default(),
+            post_prep: PostPrepInput {
+                msa_tree_mode: "combined".to_string(),
+                ..PostPrepInput::default()
+            },
             workers: 1,
             resume: false,
             ncbi_options: NcbiOptionsInput::default(),
@@ -802,6 +801,9 @@ mod tests {
         let config: DbToml = toml::from_str(&fs::read_to_string(path).expect("read config"))
             .expect("parse generated config");
         assert_eq!(config.ncbi.expect("ncbi").email, "test@example.com");
+        let post_prep = config.post_prep.expect("post_prep");
+        assert!(post_prep.msa_tree_enable);
+        assert_eq!(post_prep.msa_tree_mode, "combined");
         assert!(fs::read_to_string(dir.join("primers.toml"))
             .expect("primers template")
             .contains("primer_sets.libird"));

@@ -8,12 +8,6 @@ import subprocess
 import sys
 from pathlib import Path
 
-
-def run(cmd: list[str], cwd: Path) -> None:
-    print("+", " ".join(cmd))
-    subprocess.run(cmd, cwd=str(cwd), check=True)
-
-
 def detect_os_key() -> str:
     name = platform.system().lower()
     if "linux" in name:
@@ -103,15 +97,9 @@ def main() -> int:
             "PyInstaller is not available. Install it first, or use --stub for offline cargo check."
         ) from exc
 
-    run(
-        [
-            sys.executable,
-            "-m",
-            "PyInstaller",
-            str(spec_path),
-        ],
-        cwd=repo_root,
-    )
+    cmd = [sys.executable, "-m", "PyInstaller", str(spec_path)]
+    print("+", " ".join(cmd))
+    subprocess.run(cmd, cwd=str(repo_root), check=True)
 
     dist_bin = repo_root / "dist" / bin_name
     if not dist_bin.exists():
