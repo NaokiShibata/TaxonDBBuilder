@@ -9,7 +9,13 @@ import {
 } from "./lib/form-utils.js";
 import { createMonitorView } from "./lib/monitor-view.js";
 import { mergeUniqueValues, parseDelimitedTokens, renderTokenPills } from "./lib/token-list.js";
-import { parseFasta, parseNewick, renderTreeStatus, renderTreeSVG } from "./tree-view.js";
+import {
+  formatTreeUnavailableMessage,
+  parseFasta,
+  parseNewick,
+  renderTreeStatus,
+  renderTreeSVG
+} from "./tree-view.js";
 
 const els = {
   tabSetup: document.querySelector("#tab-setup"),
@@ -101,6 +107,7 @@ const state = {
   outputPath: "",
   files: [],
   msaTreeStatus: "",
+  msaTreeTaxa: null,
   treePaths: [],
   selectedTreePath: "",
   unlisten: null,
@@ -486,9 +493,10 @@ async function renderRunTree() {
   state.selectedTreePath = treePath;
   els.treeSelect.value = treePath;
   const treeFilename = treePath ? treePath.split(/[\\/]/).pop() || treePath : "";
-  const unavailableMessage = state.msaTreeStatus && state.msaTreeStatus !== "ok"
-    ? `系統樹は生成されませんでした（理由: ${state.msaTreeStatus}）`
-    : "系統樹は生成されませんでした。";
+  const unavailableMessage = formatTreeUnavailableMessage(
+    state.msaTreeStatus,
+    state.msaTreeTaxa,
+  );
 
   if (!treePath) {
     treeViewController?.dispose();
@@ -589,10 +597,6 @@ async function setupEventListener() {
 
     if (payload.eventType === "log" && payload.line) {
       monitorView.appendLog(payload.line);
-      const msaTreeMatch = payload.line.match(
-        /post_prep msa_tree:.*status=([a-z_]+)/,
-      );
-      if (msaTreeMatch) state.msaTreeStatus = msaTreeMatch[1];
     }
     if (payload.eventType === "status" && payload.status) {
       els.status.textContent = payload.status;
@@ -601,7 +605,13 @@ async function setupEventListener() {
       if (payload.phase) els.phase.textContent = payload.phase;
       if (payload.percent != null) els.progress.value = payload.percent;
       monitorView.renderProgressDetail(payload.phase, payload.percent, payload.metrics);
-      if (payload.metrics) monitorView.renderMetrics(payload.metrics);
+      if (payload.metrics) {
+        monitorView.renderMetrics(payload.metrics);
+        if (payload.metrics.msaTreeStatus) {
+          state.msaTreeStatus = payload.metrics.msaTreeStatus;
+          state.msaTreeTaxa = payload.metrics.msaTreeTaxa ?? null;
+        }
+      }
     }
     if (payload.eventType === "result") {
       state.jobDir = payload.jobDir || "";
@@ -671,6 +681,7 @@ async function runJob() {
   state.outputPath = "";
   state.files = [];
   state.msaTreeStatus = "";
+  state.msaTreeTaxa = null;
   state.treePaths = [];
   state.selectedTreePath = "";
   els.metricsDisclosure.open = false;

@@ -551,3 +551,13 @@ export function renderTreeStatus(containerEl, statusText) {
   message.textContent = statusText;
   containerEl.replaceChildren(message);
 }
+
+export function formatTreeUnavailableMessage(status, taxa) {
+  if (status === "skipped_too_many_taxa") {
+    const count = taxa == null ? "" : `（対象配列数: ${taxa}）`;
+    return `対象配列数が上限を超えたため、系統樹の生成をスキップしました${count}。`;
+  }
+  return status && status !== "ok"
+    ? `系統樹は生成されませんでした（理由: ${status}）`
+    : "系統樹は生成されませんでした。";
+}
