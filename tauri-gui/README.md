@@ -189,10 +189,14 @@ msa_tree_bootstrap_replicates = 1000
 # --post-prep-step primer_trim --post-prep-step duplicate_report
 # Parameters are required only for enabled steps:
 # - length_filter: sequence_length_min + sequence_length_max
+# - quality_filter: one or more quality_* / duplicate_sequence_policy options
 # - primer_trim: primer_file + primer_set
 # primer candidates: `python3 taxondbbuilder.py list-primer-sets -c configs/db.toml`
 sequence_length_min = 120
 # sequence_length_max = 300
+# quality_max_ambiguous_fraction = 0.05
+# quality_reject_invalid_iupac = true
+# duplicate_sequence_policy = "exclude_conflicts"
 primer_file = "<Path to TaxonDBBuilder repo>/configs/primers.toml"
 primer_set = ["mifish_u","mifish_ev2","mifish_u2","mifish_l"]
 ```
@@ -200,6 +204,9 @@ primer_set = ["mifish_u","mifish_ev2","mifish_u2","mifish_l"]
 </details>
 
 設定情報は`~/.taxondb_gui/config.json`に自動保存されます。API keyは`save api_key`をオフにすると保存されません。
+
+読み込んだ`db.toml`のGUI未対応項目と独自マーカー定義は、実行用設定にも保持されます。
+Resume用キャッシュは出力ルートの`.taxondbbuilder-cache/gb`でジョブ間共有されます。
 
 ![](figures/TaxonDBBuilderGUI02.drawio.png)
 
