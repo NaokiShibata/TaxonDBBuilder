@@ -67,6 +67,7 @@ def _collect_final_records(
                     "organism_name": _clean_taxon_name(
                         source.get("organism_name", "")
                     ),
+                    "taxonomy_lineage": source.get("taxonomy_lineage", ""),
                     "sequence": str(record.seq).upper(),
                 }
             )
@@ -87,9 +88,17 @@ def _write_qiime2(
         taxonomy_f.write("Feature ID\tTaxon\n")
         for record in records:
             sequences_f.write(f">{record['feature_id']}\n{record['sequence']}\n")
-            taxonomy_f.write(
-                f"{record['feature_id']}\t{record['organism_name'] or 'Unassigned'}\n"
-            )
+            lineage = [
+                value.strip()
+                for value in record["taxonomy_lineage"].split(";")
+                if value.strip()
+            ]
+            if record["organism_name"] and (
+                not lineage or lineage[-1] != record["organism_name"]
+            ):
+                lineage.append(record["organism_name"])
+            taxonomy = "; ".join(lineage)
+            taxonomy_f.write(f"{record['feature_id']}\t{taxonomy or 'Unassigned'}\n")
     return {
         "format": ExportFormat.QIIME2.value,
         "paths": [sequences_path, taxonomy_path],

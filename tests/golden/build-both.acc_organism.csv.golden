@@ -1,3 +1,3 @@
-acc_id,accession,organism_name,header,source,source_record_id,processid,sampleid,marker_key,linked_to_ncbi,emitted_to_fasta,skip_reason
-BOLD_BOLD-KEEP,UNLINKED,Testus beta,BOLD_BOLD-KEEP|12s|,bold,BOLD-KEEP,BOLD-KEEP,S002,12s,false,true,
-TEST0001.1,TEST0001.1,Testus alpha other.,TEST0001.1|12s|5-20,ncbi,TEST0001.1,,,12s,false,true,
+acc_id,accession,organism_name,organism_taxid,taxonomy_lineage,header,source,source_record_id,processid,sampleid,marker_key,linked_to_ncbi,emitted_to_fasta,skip_reason
+BOLD_BOLD-KEEP,UNLINKED,Testus beta,,Testus beta,BOLD_BOLD-KEEP|12s|,bold,BOLD-KEEP,BOLD-KEEP,S002,12s,false,true,
+TEST0001.1,TEST0001.1,Testus alpha other.,,,TEST0001.1|12s|5-20,ncbi,TEST0001.1,,,12s,false,true,

@@ -38,6 +38,7 @@ from .logging_utils import (
     setup_run_logger,
     tee_console_output,
 )
+from .manifest import write_run_manifest
 from .markers import (
     build_marker_query,
     build_region_patterns,
@@ -77,6 +78,7 @@ from .postprep.duplicates import (
     write_duplicate_acc_reports_csv,
 )
 from .postprep.length_filter import apply_post_prep_length_filter
+from .postprep.quality import apply_post_prep_quality_filter
 from .postprep.primer_trim import apply_post_prep_primer_trim
 
 app = typer.Typer(
@@ -116,10 +118,12 @@ class _BuildContext:
     post_prep: bool
     post_prep_steps_run: list[str]
     has_length_filter: bool
+    has_quality_filter: bool
     has_primer_trim: bool
     has_msa_tree: bool
     post_min: int | None
     post_max: int | None
+    post_quality_options: dict[str, Any]
     post_primer_forward: list[str]
     post_primer_reverse: list[str]
     post_primer_file: str | None
@@ -145,6 +149,7 @@ class _BuildContext:
     progress: Progress | None = None
     msa_tree_stats: dict[str, Any] | None = None
     export_formats: list[ExportFormat] = field(default_factory=list)
+    bold_queries: list[dict[str, Any]] = field(default_factory=list)
 
 
 def build_output_path(
@@ -459,6 +464,14 @@ def _run_bold_stage(
                 scientific_name,
                 ctx.cfg.get("bold"),
             )
+            ctx.bold_queries.append(
+                {
+                    "taxon": scientific_name,
+                    "normalized_query": prepared_query.normalized_query,
+                    "specimen_count": prepared_query.specimen_count,
+                    "download_format": prepared_query.download_format,
+                }
+            )
 
             specimen_count = prepared_query.specimen_count or 0
 
@@ -487,6 +500,8 @@ def _run_bold_stage(
                 ncbi_accessions,
                 spool_dir,
                 ctx.run_logger,
+                cache_dir=ctx.dump_gb,
+                resume=ctx.resume,
             )
         except BoldApiError as exc:
             raise typer.BadParameter(str(exc)) from exc
@@ -578,6 +593,22 @@ def _run_length_post_prep(ctx: _BuildContext) -> None:
     )
 
 
+def _run_quality_post_prep(ctx: _BuildContext) -> None:
+    if PostPrepStep.QUALITY_FILTER.value not in ctx.post_prep_steps_run:
+        return
+    stats = apply_post_prep_quality_filter(
+        ctx.out_path,
+        ctx.emitted_records,
+        **ctx.post_quality_options,
+    )
+    ctx.counters["kept_records"] = stats["after"]
+    ctx.run_logger.info(
+        "# post_prep quality filter:"
+        f" before={stats['before']} after={stats['after']} rejected={stats['rejected']}"
+        f" report={stats['report_path']}"
+    )
+
+
 def _run_duplicate_post_prep(ctx: _BuildContext) -> None:
     if PostPrepStep.DUPLICATE_REPORT.value not in ctx.post_prep_steps_run:
         ctx.run_logger.info("# post_prep duplicate_acc_report: skipped (step disabled)")
@@ -642,6 +673,7 @@ def _run_post_prep(ctx: _BuildContext) -> None:
     ctx.run_logger.info(f"# kept records before post_prep: {before}")
     _run_primer_post_prep(ctx)
     _run_length_post_prep(ctx)
+    _run_quality_post_prep(ctx)
     _run_duplicate_post_prep(ctx)
     _run_msa_tree_post_prep(ctx)
 
@@ -667,6 +699,32 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
             f" format={result['format']} exported={result['exported_records']}"
             f" skipped={result['skipped_records']} paths={paths}"
         )
+    output_paths = [ctx.out_path, source_merge_path, acc_species_map_path]
+    output_paths.extend(
+        path for result in export_results for path in result["paths"]
+    )
+    output_paths.extend(
+        path
+        for path in ctx.out_path.parent.glob(f"{ctx.out_path.name}.*")
+        if path != ctx.log_path and not path.name.endswith(".manifest.json")
+    )
+    manifest_path = write_run_manifest(
+        ctx.out_path,
+        ctx.config,
+        source=ctx.source.value,
+        taxon_inputs=ctx.taxon,
+        resolved_taxa=ctx.resolved_taxa,
+        markers=ctx.marker_keys,
+        ncbi_queries=[
+            build_query(taxid, ctx.marker_query, ctx.filters_cfg, ctx.taxon_noexp)
+            for taxid in ctx.taxids
+        ]
+        if ctx.uses_ncbi
+        else [],
+        bold_queries=ctx.bold_queries,
+        output_paths=output_paths,
+    )
+    ctx.run_logger.info(f"# manifest: {manifest_path}")
     for label, key in (
         ("total records", "total_records"),
         ("matched records", "matched_records"),
@@ -699,6 +757,7 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         )
     console.print(f"ACC-organism mapping CSV: {acc_species_map_path}")
     console.print(f"Source merge CSV: {source_merge_path}")
+    console.print(f"Run manifest: {manifest_path}")
     for result in export_results:
         for path in result["paths"]:
             console.print(f"{result['format']} export: {path}")
@@ -981,10 +1040,16 @@ def _resolve_post_prep_options(
             "post_prep": False,
             "post_prep_steps_run": [],
             "has_length_filter": False,
+            "has_quality_filter": False,
             "has_primer_trim": False,
             "has_msa_tree": False,
             "post_min": None,
             "post_max": None,
+            "post_quality_options": {
+                "max_ambiguous_fraction": None,
+                "reject_invalid_iupac": True,
+                "duplicate_policy": "keep",
+            },
             "post_primer_forward": [],
             "post_primer_reverse": [],
             "post_primer_file": None,
@@ -996,6 +1061,20 @@ def _resolve_post_prep_options(
     post_min = post_prep_cfg.get("sequence_length_min")
     post_max = post_prep_cfg.get("sequence_length_max")
     has_length_filter = post_min is not None or post_max is not None
+    quality_options = {
+        "max_ambiguous_fraction": post_prep_cfg.get(
+            "quality_max_ambiguous_fraction"
+        ),
+        "reject_invalid_iupac": post_prep_cfg.get(
+            "quality_reject_invalid_iupac", True
+        ),
+        "duplicate_policy": post_prep_cfg.get("duplicate_sequence_policy", "keep"),
+    }
+    has_quality_filter = (
+        quality_options["max_ambiguous_fraction"] is not None
+        or "quality_reject_invalid_iupac" in post_prep_cfg
+        or quality_options["duplicate_policy"] != "keep"
+    )
     forward, reverse, primer_file, set_names = _resolve_post_prep_primers(
         post_prep_cfg, requested_sets, config
     )
@@ -1009,6 +1088,10 @@ def _resolve_post_prep_options(
         raise typer.BadParameter(
             "post-prep step 'length_filter' requires post_prep.sequence_length_min or sequence_length_max."
         )
+    if PostPrepStep.QUALITY_FILTER.value in requested_steps and not has_quality_filter:
+        raise typer.BadParameter(
+            "post-prep step 'quality_filter' requires a post_prep quality option."
+        )
     if PostPrepStep.MSA_TREE.value in requested_steps and not has_msa_tree:
         raise typer.BadParameter(
             "post-prep step 'msa_tree' requires post_prep.msa_tree_enable = true."
@@ -1021,6 +1104,8 @@ def _resolve_post_prep_options(
             steps_run.append(PostPrepStep.PRIMER_TRIM.value)
         if has_length_filter:
             steps_run.append(PostPrepStep.LENGTH_FILTER.value)
+        if has_quality_filter:
+            steps_run.append(PostPrepStep.QUALITY_FILTER.value)
         if source != BuildSource.BOTH:
             steps_run.append(PostPrepStep.DUPLICATE_REPORT.value)
         if has_msa_tree:
@@ -1029,10 +1114,12 @@ def _resolve_post_prep_options(
         "post_prep": True,
         "post_prep_steps_run": steps_run,
         "has_length_filter": has_length_filter,
+        "has_quality_filter": has_quality_filter,
         "has_primer_trim": has_primer_trim,
         "has_msa_tree": has_msa_tree,
         "post_min": int(post_min) if post_min is not None else None,
         "post_max": int(post_max) if post_max is not None else None,
+        "post_quality_options": quality_options,
         "post_primer_forward": forward,
         "post_primer_reverse": reverse,
         "post_primer_file": primer_file,
@@ -1063,9 +1150,9 @@ def _resolve_build_targets(
             warnings.append(resolved.warning)
     taxids = [item.taxid for item in resolved_taxa]
     out_path = build_output_path(out, taxids, marker_keys, output_prefix=output_prefix)
-    if source == BuildSource.BOLD and (dump_gb or from_gb or resume):
+    if source == BuildSource.BOLD and from_gb:
         raise typer.BadParameter(
-            "--dump-gb, --from-gb, and --resume are not supported with --source bold."
+            "--from-gb is not supported with --source bold."
         )
     if resume and not dump_gb and not from_gb:
         raise typer.BadParameter("--resume requires --dump-gb or --from-gb.")
@@ -1140,7 +1227,7 @@ def build(
         "--post-prep-step",
         help=(
             "Post-prep step(s) to run. Repeat to select multiple. "
-            "Choices: primer_trim, length_filter, duplicate_report, msa_tree."
+            "Choices: primer_trim, length_filter, quality_filter, duplicate_report, msa_tree."
         ),
     ),
     post_prep_primer_set: list[str] | None = typer.Option(

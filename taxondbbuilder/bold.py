@@ -43,6 +43,8 @@ def process_bold_taxon_to_spool(
     ncbi_accessions: set,
     spool_dir: Path,
     run_logger: logging.Logger,
+    cache_dir: Path | None = None,
+    resume: bool = False,
 ) -> None:
     specimen_count = prepared_query.specimen_count
     if specimen_count == 0:
@@ -62,8 +64,12 @@ def process_bold_taxon_to_spool(
         raise typer.BadParameter("BOLD query preparation did not return a query_id.")
 
     download_ext = "json" if prepared_query.download_format == "json" else "tsv"
-    query_hash = hashlib.sha1(prepared_query.query_id.encode("utf-8")).hexdigest()[:12]
-    download_path = spool_dir / f"bold_{query_hash}.{download_ext}"
+    query_hash = hashlib.sha256(
+        f"{prepared_query.normalized_query}\0{download_ext}".encode("utf-8")
+    ).hexdigest()[:16]
+    cache_root = cache_dir / ".cache" / "bold" if cache_dir else spool_dir
+    cache_root.mkdir(parents=True, exist_ok=True)
+    download_path = cache_root / f"query-{query_hash}.{download_ext}"
     task_id = progress.add_task(
         f"BOLD {resolved_taxon.scientific_name}: download",
         total=None,
@@ -104,13 +110,29 @@ def process_bold_taxon_to_spool(
         )
 
     try:
-        download_meta = download_documents_to_path(
-            prepared_query.query_id,
-            prepared_query.runtime_cfg,
-            download_path,
-            fmt=prepared_query.download_format,
-            progress_callback=on_bold_download_progress,
-        )
+        if resume and download_path.is_file():
+            download_meta = {
+                "path": str(download_path),
+                "format": download_ext,
+                "downloaded_bytes": download_path.stat().st_size,
+                "cached": True,
+            }
+            run_logger.info(
+                f"# bold cache: taxon={resolved_taxon.scientific_name} path={download_path}"
+            )
+        else:
+            partial_path = download_path.with_suffix(download_path.suffix + ".part")
+            try:
+                download_meta = download_documents_to_path(
+                    prepared_query.query_id,
+                    prepared_query.runtime_cfg,
+                    partial_path,
+                    fmt=prepared_query.download_format,
+                    progress_callback=on_bold_download_progress,
+                )
+                partial_path.replace(download_path)
+            finally:
+                partial_path.unlink(missing_ok=True)
 
         downloaded_rows = 0
         matched_rows = 0
@@ -194,7 +216,8 @@ def process_bold_taxon_to_spool(
         )
     finally:
         progress.remove_task(task_id)
-        download_path.unlink(missing_ok=True)
+        if cache_dir is None:
+            download_path.unlink(missing_ok=True)
 
 
 def build_bold_canonical_record(
@@ -257,4 +280,6 @@ def build_bold_canonical_record(
                 normalized_row.get("raw_row") or {}, ensure_ascii=False
             ),
         },
+        organism_taxid=str(normalized_row.get("organism_taxid") or "") or None,
+        taxonomy_lineage=list(normalized_row.get("taxonomy_lineage") or []),
     )

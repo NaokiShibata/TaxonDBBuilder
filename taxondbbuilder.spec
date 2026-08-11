@@ -38,7 +38,7 @@ typer_rich_hiddenimports = [
 
 # Config files, marker definitions, and primer files are selected at runtime
 # by the GUI/CLI, so they must remain external rather than being bundled.
-datas = []
+datas = [(str(project_root / "VERSION"), ".")]
 # cogent3's citeable dependency reads its own version via importlib.metadata
 # at import time, which requires the dist-info to be bundled explicitly.
 for _pkg in ("citeable", "cogent3", "scinexus", "piqtree", "kalign-python"):

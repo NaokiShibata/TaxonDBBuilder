@@ -105,6 +105,26 @@ def _normalize_length_filter_config(post_prep: dict[str, Any]) -> None:
         )
 
 
+def _normalize_quality_filter_config(post_prep: dict[str, Any]) -> None:
+    raw_fraction = post_prep.get("quality_max_ambiguous_fraction")
+    if raw_fraction is not None:
+        post_prep["quality_max_ambiguous_fraction"] = _parse_float_option(
+            "post_prep.quality_max_ambiguous_fraction", raw_fraction, 0.0, 1.0
+        )
+    if "quality_reject_invalid_iupac" in post_prep:
+        post_prep["quality_reject_invalid_iupac"] = _parse_bool_option(
+            "post_prep.quality_reject_invalid_iupac",
+            post_prep["quality_reject_invalid_iupac"],
+        )
+    policy = str(post_prep.get("duplicate_sequence_policy", "keep")).strip().lower()
+    if policy not in {"keep", "representative", "exclude_conflicts"}:
+        raise typer.BadParameter(
+            "post_prep.duplicate_sequence_policy must be one of: "
+            "keep, representative, exclude_conflicts"
+        )
+    post_prep["duplicate_sequence_policy"] = policy
+
+
 def _normalize_primer_selection(
     post_prep: dict[str, Any],
 ) -> tuple[str | None, list[str] | None]:
@@ -324,6 +344,7 @@ def _normalize_post_prep_config(post_prep: Any, path: Path) -> None:
     if not isinstance(post_prep, dict):
         raise typer.BadParameter("[post_prep] must be a table (dict).")
     _normalize_length_filter_config(post_prep)
+    _normalize_quality_filter_config(post_prep)
     _normalize_primer_trim_config(post_prep, path)
     msa_tree_options = _parse_msa_tree_options(post_prep)
     post_prep.update(

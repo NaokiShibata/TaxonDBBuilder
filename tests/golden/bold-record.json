@@ -28,11 +28,15 @@
     "header_format": "bold|{acc_id}|{organism}",
     "raw_row_json": "{\"marker_code\": \"COI-5P\", \"nucleotides\": \"acgt- 12!\", \"processid\": \"PRC001\", \"sampleid\": \"SAM001\", \"insdc_acs\": \"AB123, AB124;AB123\", \"species\": \"Fish species\"}"
   },
+  "organism_taxid": null,
   "processid": "PRC001",
   "sampleid": "SAM001",
   "sequence": "ACGT",
   "skip_reason": null,
   "source": "bold",
   "source_record_id": "PRC001",
-  "taxon_name": "Fish species"
+  "taxon_name": "Fish species",
+  "taxonomy_lineage": [
+    "Fish species"
+  ]
 }

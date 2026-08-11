@@ -467,6 +467,14 @@
                     <label class="check"
                       ><input
                         class="post-step"
+                        value="quality_filter"
+                        type="checkbox"
+                      />
+                      quality_filter</label
+                    >
+                    <label class="check"
+                      ><input
+                        class="post-step"
                         value="duplicate_report"
                         type="checkbox"
                         checked
@@ -495,6 +503,31 @@
                       />
                     </label>
                   </div>
+                  <div class="field-pair">
+                    <label for="quality-max-ambiguous-fraction"
+                      >max ambiguous fraction
+                      <input
+                        id="quality-max-ambiguous-fraction"
+                        type="number"
+                        min="0"
+                        max="1"
+                        step="0.01"
+                        placeholder="example: 0.05"
+                      />
+                    </label>
+                    <label for="duplicate-sequence-policy"
+                      >duplicate sequence policy
+                      <select id="duplicate-sequence-policy">
+                        <option value="keep">keep</option>
+                        <option value="representative">representative</option>
+                        <option value="exclude_conflicts">exclude conflicts</option>
+                      </select>
+                    </label>
+                  </div>
+                  <label class="check"
+                    ><input id="quality-reject-invalid-iupac" type="checkbox" checked />
+                    reject invalid IUPAC bases</label
+                  >
                 </section>
               </div>
             </div>

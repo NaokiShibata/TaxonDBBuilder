@@ -260,7 +260,7 @@ pub(crate) fn start_run(
 
     let (job_id, job_dir) = prepare_job_dir(&output_root)?;
     let config_dir = job_dir.join("config");
-    let gb_dir = job_dir.join("gb");
+    let gb_dir = output_root.join(".taxondbbuilder-cache").join("gb");
     let results_dir = job_dir.join("Results");
     fs::create_dir_all(&gb_dir)
         .map_err(|e| format!("failed to create {}: {e}", gb_dir.display()))?;

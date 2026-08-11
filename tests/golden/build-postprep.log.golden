@@ -5,8 +5,7 @@
 ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Item    ┃ Value                                                              ┃
 ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ Config  │ <ROOT>/tests/fixtu │
-│         │ res/post_prep_config.toml                                          │
+│ Config  │ <CONFIG> │
 │ Source  │ ncbi                                                               │
 │ Taxids  │ 999                                                                │
 │ Markers │ 12s                                                                │
@@ -68,6 +67,7 @@ post_prep duplicate ACC groups CSV:
 uplicate_acc.groups.csv
 # acc_organism_map: total=3 mapped=3 unmapped=0 unused_source_records=0 unique_accessions=3 unique_organisms=3
 # acc_organism_map_csv: <TMP>/postprep.fasta.acc_organism.csv
+# manifest: <TMP>/postprep.fasta.manifest.json
 # total records: 3
 # matched records: 3
 # matched features: 3
@@ -95,3 +95,6 @@ cc_organism.csv
 Source merge CSV: 
 <TMP>/postprep.fasta.s
 ource_merge.csv
+Run manifest: 
+<TMP>/postprep.fasta.m
+anifest.json

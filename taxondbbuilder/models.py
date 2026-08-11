@@ -2,7 +2,7 @@
 
 import csv
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
 from threading import Lock
@@ -21,6 +21,7 @@ IUPAC_DNA_VALUES["U"] = "T"
 class PostPrepStep(str, Enum):
     PRIMER_TRIM = "primer_trim"
     LENGTH_FILTER = "length_filter"
+    QUALITY_FILTER = "quality_filter"
     DUPLICATE_REPORT = "duplicate_report"
     MSA_TREE = "msa_tree"
 
@@ -61,11 +62,14 @@ class CanonicalRecord:
     emitted_to_fasta: bool = True
     skip_reason: str | None = None
     taxid: str | None = None
+    organism_taxid: str | None = None
+    taxonomy_lineage: list[str] = field(default_factory=list)
 
 
 POST_PREP_STEP_ORDER = [
     PostPrepStep.PRIMER_TRIM.value,
     PostPrepStep.LENGTH_FILTER.value,
+    PostPrepStep.QUALITY_FILTER.value,
     PostPrepStep.DUPLICATE_REPORT.value,
     PostPrepStep.MSA_TREE.value,
 ]
@@ -85,6 +89,8 @@ def build_source_merge_row(record: CanonicalRecord, header: str = "") -> dict[st
         "source": record.source,
         "source_record_id": record.source_record_id,
         "taxid": record.taxid or "",
+        "organism_taxid": record.organism_taxid or "",
+        "taxonomy_lineage": "; ".join(record.taxonomy_lineage),
         "acc_id": record.header_values.get("acc_id", ""),
         "accession": record.accession or "",
         "processid": record.processid or "",
@@ -161,6 +167,8 @@ def write_source_merge_csv(fasta_path: Path, rows: list[dict[str, str]]) -> Path
                 "source",
                 "source_record_id",
                 "taxid",
+                "organism_taxid",
+                "taxonomy_lineage",
                 "acc_id",
                 "accession",
                 "processid",

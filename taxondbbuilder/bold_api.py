@@ -591,6 +591,16 @@ def normalize_bold_row(
             "taxonomy_species",
         ],
     )
+    organism_taxid = _first_scalar(
+        raw_row, ["taxid", "tax_id", "ncbi_taxid", "taxonomy_taxid"]
+    )
+    taxonomy_lineage = []
+    for rank in ("kingdom", "phylum", "class", "order", "family", "genus"):
+        value = _first_scalar(raw_row, [rank, f"taxonomy_{rank}"])
+        if value and value not in taxonomy_lineage:
+            taxonomy_lineage.append(value)
+    if taxon_name and taxon_name not in taxonomy_lineage:
+        taxonomy_lineage.append(taxon_name)
 
     marker_key, marker_label = marker_match
     source_record_id = processid or sampleid or accession_raw
@@ -604,9 +614,10 @@ def normalize_bold_row(
         "sampleid": sampleid,
         "accession": accession_raw,
         "taxon_name": taxon_name,
+        "organism_taxid": organism_taxid,
+        "taxonomy_lineage": taxonomy_lineage,
         "marker_key": marker_key,
         "marker_label": marker_label,
         "sequence": sequence,
         "raw_row": raw_row,
     }
-

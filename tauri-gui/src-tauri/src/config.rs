@@ -87,6 +87,9 @@ pub(crate) struct PostPrepInput {
     pub(crate) steps: Vec<String>,
     pub(crate) sequence_length_min: Option<u32>,
     pub(crate) sequence_length_max: Option<u32>,
+    pub(crate) quality_max_ambiguous_fraction: Option<f64>,
+    pub(crate) quality_reject_invalid_iupac: Option<bool>,
+    pub(crate) duplicate_sequence_policy: Option<String>,
     pub(crate) primer_max_mismatch: Option<u32>,
     pub(crate) primer_max_error_rate: Option<f64>,
     pub(crate) primer_min_overlap_bp: Option<u32>,
@@ -310,6 +313,12 @@ struct PostPrepToml {
     #[serde(skip_serializing_if = "Option::is_none")]
     sequence_length_max: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    quality_max_ambiguous_fraction: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    quality_reject_invalid_iupac: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    duplicate_sequence_policy: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     primer_max_mismatch: Option<u32>,
     #[serde(skip_serializing_if = "Option::is_none")]
     primer_max_error_rate: Option<f64>,
@@ -363,6 +372,8 @@ pub(crate) struct RunRequest {
     pub(crate) email: String,
     pub(crate) api_key: String,
     pub(crate) save_api_key: bool,
+    #[serde(default)]
+    pub(crate) base_config_path: String,
     pub(crate) filters: FiltersInput,
     pub(crate) post_prep: PostPrepInput,
     pub(crate) workers: u32,
@@ -384,6 +395,7 @@ pub(crate) struct ImportedDbTomlConfig {
     pub(crate) output_options: OutputOptionsInput,
     pub(crate) filters: FiltersInput,
     pub(crate) post_prep: PostPrepInput,
+    pub(crate) marker_options: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -553,6 +565,9 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
             primer_set: req.post_prep.primer_set.clone(),
             sequence_length_min: req.post_prep.sequence_length_min,
             sequence_length_max: req.post_prep.sequence_length_max,
+            quality_max_ambiguous_fraction: req.post_prep.quality_max_ambiguous_fraction,
+            quality_reject_invalid_iupac: req.post_prep.quality_reject_invalid_iupac,
+            duplicate_sequence_policy: trimmed_option(&req.post_prep.duplicate_sequence_policy),
             primer_max_mismatch: req.post_prep.primer_max_mismatch,
             primer_max_error_rate: req.post_prep.primer_max_error_rate,
             primer_min_overlap_bp: req.post_prep.primer_min_overlap_bp,
@@ -571,7 +586,45 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
         }),
         ..DbToml::default()
     };
-    let text = toml::to_string_pretty(&config)
+    let overlay_text = toml::to_string_pretty(&config)
+        .map_err(|e| format!("failed to serialize job config: {e}"))?;
+    let mut value: toml::Value =
+        toml::from_str(&overlay_text).map_err(|e| format!("failed to prepare job config: {e}"))?;
+    if !req.base_config_path.trim().is_empty() {
+        let base_path = Path::new(req.base_config_path.trim());
+        let base_text = fs::read_to_string(base_path)
+            .map_err(|e| format!("failed to read {}: {e}", base_path.display()))?;
+        let mut base: toml::Value = toml::from_str(&base_text)
+            .map_err(|e| format!("failed to parse {}: {e}", base_path.display()))?;
+        let base_dir = base_path.parent().unwrap_or_else(|| Path::new("."));
+        absolutize_config_path(&mut base, "markers", "file", base_dir);
+        absolutize_config_path(&mut base, "post_prep", "primer_file", base_dir);
+        sync_owned_string_list(
+            &mut base,
+            "filters",
+            "filter",
+            &["mitochondrion", "ddbj_embl_genbank"],
+            &config.filters.filter,
+        );
+        sync_owned_string_list(
+            &mut base,
+            "filters",
+            "properties",
+            &["biomol_genomic"],
+            &config.filters.properties,
+        );
+        if let Some(table) = value.as_table_mut() {
+            table.remove("markers");
+            table.remove("taxon");
+            if let Some(filters) = table.get_mut("filters").and_then(toml::Value::as_table_mut) {
+                filters.remove("filter");
+                filters.remove("properties");
+            }
+        }
+        merge_toml(&mut base, value);
+        value = base;
+    }
+    let text = toml::to_string_pretty(&value)
         .map_err(|e| format!("failed to serialize job config: {e}"))?;
     let config_path = config_dir.join("db.toml");
     fs::write(&config_path, text)
@@ -590,6 +643,64 @@ fn trimmed_option(value: &Option<String>) -> Option<String> {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .map(str::to_string)
+}
+
+fn absolutize_config_path(config: &mut toml::Value, section: &str, key: &str, base: &Path) {
+    let Some(value) = config
+        .get(section)
+        .and_then(toml::Value::as_table)
+        .and_then(|table| table.get(key))
+        .and_then(toml::Value::as_str)
+    else {
+        return;
+    };
+    let path = Path::new(value);
+    if path.is_relative() {
+        config[section][key] = toml::Value::String(base.join(path).to_string_lossy().to_string());
+    }
+}
+
+fn sync_owned_string_list(
+    config: &mut toml::Value,
+    section: &str,
+    key: &str,
+    owned: &[&str],
+    selected: &[String],
+) {
+    let table = config
+        .as_table_mut()
+        .expect("TOML root must be a table")
+        .entry(section.to_string())
+        .or_insert_with(|| toml::Value::Table(toml::Table::new()))
+        .as_table_mut()
+        .expect("TOML section must be a table");
+    let existing = match table.get(key) {
+        Some(toml::Value::String(value)) => vec![value.as_str()],
+        Some(toml::Value::Array(values)) => values.iter().filter_map(toml::Value::as_str).collect(),
+        _ => Vec::new(),
+    };
+    let mut values = existing
+        .into_iter()
+        .filter(|value| !owned.contains(value))
+        .map(|value| toml::Value::String(value.to_string()))
+        .collect::<Vec<_>>();
+    values.extend(selected.iter().cloned().map(toml::Value::String));
+    table.insert(key.to_string(), toml::Value::Array(values));
+}
+
+fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
+    match (base, overlay) {
+        (toml::Value::Table(base), toml::Value::Table(overlay)) => {
+            for (key, value) in overlay {
+                if let Some(existing) = base.get_mut(&key) {
+                    merge_toml(existing, value);
+                } else {
+                    base.insert(key, value);
+                }
+            }
+        }
+        (base, overlay) => *base = overlay,
+    }
 }
 pub(crate) fn save_gui_config_internal(app: &AppHandle, config: &GuiConfig) -> Result<(), String> {
     let path = ensure_gui_config_parent(app)?;
@@ -648,6 +759,9 @@ pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, Strin
 pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let raw: toml::Value =
+        toml::from_str(&text).map_err(|e| format!("failed to parse {}: {e}", path.display()))?;
+    let marker_options = marker_options_from_config(&raw, path);
     let config: DbToml =
         toml::from_str(&text).map_err(|e| format!("failed to parse {}: {e}", path.display()))?;
     let has_ncbi = config.ncbi.is_some();
@@ -660,6 +774,7 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
             _ => "bold",
         }
         .to_string(),
+        marker_options,
         ..ImportedDbTomlConfig::default()
     };
 
@@ -731,6 +846,12 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
         if post.sequence_length_min.is_some() || post.sequence_length_max.is_some() {
             steps.push("length_filter".to_string());
         }
+        if post.quality_max_ambiguous_fraction.is_some()
+            || post.quality_reject_invalid_iupac.is_some()
+            || post.duplicate_sequence_policy.is_some()
+        {
+            steps.push("quality_filter".to_string());
+        }
         steps.push("duplicate_report".to_string());
 
         imported.post_prep = PostPrepInput {
@@ -741,6 +862,9 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
             steps,
             sequence_length_min: post.sequence_length_min,
             sequence_length_max: post.sequence_length_max,
+            quality_max_ambiguous_fraction: post.quality_max_ambiguous_fraction,
+            quality_reject_invalid_iupac: post.quality_reject_invalid_iupac,
+            duplicate_sequence_policy: post.duplicate_sequence_policy,
             primer_max_mismatch: post.primer_max_mismatch,
             primer_max_error_rate: post.primer_max_error_rate,
             primer_min_overlap_bp: post.primer_min_overlap_bp,
@@ -760,6 +884,38 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
     }
 
     Ok(imported)
+}
+
+fn marker_options_from_config(config: &toml::Value, config_path: &Path) -> Vec<String> {
+    let Some(markers) = config.get("markers").and_then(toml::Value::as_table) else {
+        return Vec::new();
+    };
+    let mut options = markers
+        .keys()
+        .filter(|key| key.as_str() != "file")
+        .cloned()
+        .collect::<Vec<_>>();
+    if let Some(file) = markers.get("file").and_then(toml::Value::as_str) {
+        let path = Path::new(file);
+        let path = if path.is_relative() {
+            config_path
+                .parent()
+                .unwrap_or_else(|| Path::new("."))
+                .join(path)
+        } else {
+            path.to_path_buf()
+        };
+        if let Ok(text) = fs::read_to_string(path) {
+            if let Ok(external) = toml::from_str::<toml::Value>(&text) {
+                if let Some(markers) = external.get("markers").and_then(toml::Value::as_table) {
+                    options.extend(markers.keys().filter(|key| key.as_str() != "file").cloned());
+                }
+            }
+        }
+    }
+    options.sort();
+    options.dedup();
+    options
 }
 
 #[cfg(test)]
@@ -798,6 +954,7 @@ mod tests {
             email: "test@example.com".to_string(),
             api_key: String::new(),
             save_api_key: false,
+            base_config_path: String::new(),
             filters: FiltersInput::default(),
             post_prep: PostPrepInput {
                 msa_tree_mode: "combined".to_string(),
@@ -828,6 +985,39 @@ mod tests {
         assert!(write_job_config(&request, &dir)
             .expect_err("reject multiple export formats")
             .contains("only one output export format"));
+
+        request.output_options.export_formats = vec!["qiime2".to_string()];
+        let base_path = dir.join("imported.toml");
+        fs::write(
+            dir.join("custom_markers.toml"),
+            "[markers.custom]\nphrases = [\"custom\"]\n",
+        )
+        .expect("write marker config");
+        fs::write(
+            &base_path,
+            "[markers]\nfile = \"custom_markers.toml\"\n\n[filters]\nfilter = [\"mitochondrion\", \"custom_filter\"]\nproperties = \"custom_property\"\nadvanced = true\n",
+        )
+        .expect("write base config");
+        request.base_config_path = base_path.to_string_lossy().to_string();
+        let imported = parse_db_toml_config(&base_path).expect("import base config");
+        assert_eq!(imported.marker_options, vec!["custom"]);
+        let merged_path = write_job_config(&request, &dir.join("merged")).expect("merge config");
+        let merged: toml::Value =
+            toml::from_str(&fs::read_to_string(merged_path).expect("read merged config"))
+                .expect("parse merged config");
+        assert_eq!(
+            merged["filters"]["filter"]
+                .as_array()
+                .expect("filter")
+                .len(),
+            1
+        );
+        assert_eq!(
+            merged["filters"]["filter"][0].as_str(),
+            Some("custom_filter")
+        );
+        assert_eq!(merged["filters"]["advanced"].as_bool(), Some(true));
+        assert!(Path::new(merged["markers"]["file"].as_str().expect("marker file")).is_absolute());
         fs::remove_dir_all(dir).expect("remove test directory");
     }
 }

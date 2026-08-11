@@ -87,6 +87,9 @@ const els = {
   primerSetInput: document.querySelector("#primer-set"),
   postLengthMinInput: document.querySelector("#post-length-min"),
   postLengthMaxInput: document.querySelector("#post-length-max"),
+  qualityMaxAmbiguousFractionInput: document.querySelector("#quality-max-ambiguous-fraction"),
+  qualityRejectInvalidIupacInput: document.querySelector("#quality-reject-invalid-iupac"),
+  duplicateSequencePolicyInput: document.querySelector("#duplicate-sequence-policy"),
   sourceInput: document.querySelector("#source"),
   ncbiDbInput: document.querySelector("#ncbi-db"),
   ncbiRettypeInput: document.querySelector("#ncbi-rettype"),
@@ -116,7 +119,8 @@ const state = {
   markers: [],
   taxonCandidateItems: [],
   taxonSearchSeq: 0,
-  taxonSearchTimer: null
+  taxonSearchTimer: null,
+  baseConfigPath: ""
 };
 
 let treeViewController = null;
@@ -201,10 +205,7 @@ function syncSourceMode({ resetDuplicateForBoth = false } = {}) {
   }
 
   if (els.resumeInput) {
-    if (!usesNcbi) {
-      els.resumeInput.checked = false;
-    }
-    els.resumeInput.disabled = !usesNcbi;
+    els.resumeInput.disabled = false;
   }
 
   if (resetDuplicateForBoth && source === "both" && els.duplicateReportStep) {
@@ -338,6 +339,21 @@ function addMarkers(values) {
   renderMarkers();
 }
 
+function setMarkerOptions(options) {
+  if (!options?.length) return;
+  const valid = new Set(options);
+  state.markers = state.markers.filter((marker) => valid.has(marker));
+  els.markerSelect.replaceChildren(
+    ...options.map((marker) => {
+      const option = document.createElement("option");
+      option.value = marker;
+      option.textContent = marker;
+      return option;
+    }),
+  );
+  renderMarkers();
+}
+
 function setFlowItemState(el, done) {
   if (!el) return;
   el.classList.toggle("done", done);
@@ -376,6 +392,8 @@ function setOutputExportFormatSelection(formats, inferMifish = false) {
 }
 
 function applyImportedDbToml(imported) {
+  state.baseConfigPath = imported.sourcePath || "";
+  setMarkerOptions(imported.markerOptions);
   els.sourceInput.value = imported.source || "ncbi";
   els.emailInput.value = imported.email || "";
 
@@ -398,6 +416,12 @@ function applyImportedDbToml(imported) {
   setPrimerCandidateSelection(postPrep.primerSet);
   els.postLengthMinInput.value = postPrep.sequenceLengthMin ?? "";
   els.postLengthMaxInput.value = postPrep.sequenceLengthMax ?? "";
+  els.qualityMaxAmbiguousFractionInput.value =
+    postPrep.qualityMaxAmbiguousFraction ?? "";
+  els.qualityRejectInvalidIupacInput.checked =
+    postPrep.qualityRejectInvalidIupac !== false;
+  els.duplicateSequencePolicyInput.value =
+    postPrep.duplicateSequencePolicy || "keep";
   setPostPrepStepSelection(postPrep.steps || []);
 
   const ncbiOptions = imported.ncbiOptions || {};
@@ -572,6 +596,7 @@ async function renderRunTree() {
 function collectRequest() {
   commitTaxidInput();
   const steps = getSelectedPostPrepSteps();
+  const qualityEnabled = steps.includes("quality_filter");
   const primerSet = parseDelimitedTokens(els.primerSetInput.value, /,+/);
 
   return {
@@ -583,6 +608,7 @@ function collectRequest() {
     email: els.emailInput.value.trim(),
     apiKey: els.apiKeyInput.value.trim(),
     saveApiKey: els.saveApiKeyInput.checked,
+    baseConfigPath: state.baseConfigPath,
     filters: {
       mitochondrion: els.filterMitoInput.checked,
       ddbjEmblGenbank: els.filterDdbjInput.checked,
@@ -597,7 +623,16 @@ function collectRequest() {
       primerSet,
       steps,
       sequenceLengthMin: parseIntOrNull(els.postLengthMinInput.value),
-      sequenceLengthMax: parseIntOrNull(els.postLengthMaxInput.value)
+      sequenceLengthMax: parseIntOrNull(els.postLengthMaxInput.value),
+      qualityMaxAmbiguousFraction: qualityEnabled
+        ? parseFloatOrNull(els.qualityMaxAmbiguousFractionInput.value)
+        : null,
+      qualityRejectInvalidIupac: qualityEnabled
+        ? els.qualityRejectInvalidIupacInput.checked
+        : null,
+      duplicateSequencePolicy: qualityEnabled
+        ? els.duplicateSequencePolicyInput.value
+        : null,
     },
     ncbiOptions: {
       db: els.ncbiDbInput.value.trim(),
@@ -752,12 +787,17 @@ function resetForm() {
   els.filterLengthMaxInput.value = "";
   els.postLengthMinInput.value = "";
   els.postLengthMaxInput.value = "";
+  els.qualityMaxAmbiguousFractionInput.value = "";
+  els.qualityRejectInvalidIupacInput.checked = true;
+  els.duplicateSequencePolicyInput.value = "keep";
   els.primerFileInput.value = "";
   els.primerSetInput.value = "";
   els.postEnableInput.checked = false;
   setMsaTreeMode("disabled");
   setPostPrepStepSelection([]);
   setOutputExportFormatSelection([]);
+  state.baseConfigPath = "";
+  els.loadedDbTomlPath.textContent = "";
   syncSourceMode();
   updateGuidanceState();
 }
