@@ -16,9 +16,15 @@
   box-sizing: border-box;
 }
 
+html,
+body {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-height: 100vh;
+  overflow: hidden;
   font-family:
     "M PLUS Rounded 1c", "Noto Sans JP", "Hiragino Kaku Gothic ProN", sans-serif;
   color: var(--ink);
@@ -56,6 +62,8 @@ select {
 }
 
 .app-shell {
+  height: 100vh;
+  height: 100dvh;
   max-width: 1360px;
   margin: 0 auto;
   padding: 22px;
@@ -65,6 +73,8 @@ select {
 }
 
 .side-pane {
+  min-height: 0;
+  overflow-y: auto;
   border: 1px solid var(--line);
   background: linear-gradient(180deg, #f4faff 0%, #edf6ff 100%);
   border-radius: 20px;
@@ -152,6 +162,8 @@ select {
 }
 
 .content-pane {
+  min-height: 0;
+  overflow-y: auto;
   display: grid;
   border: 1px solid #d9e9f7;
   background:
@@ -910,12 +922,22 @@ progress {
 }
 
 @media (max-width: 1080px) {
+  body {
+    overflow: auto;
+  }
+
   .app-shell {
+    height: auto;
     grid-template-columns: 1fr;
   }
 
   .side-pane {
     gap: 12px;
+  }
+
+  .side-pane,
+  .content-pane {
+    overflow: visible;
   }
 
   .tabs {
