@@ -587,7 +587,7 @@ export function renderTreeSVG(
           "font-size": 11,
           class: "msa-missing",
         });
-        missing.textContent = "MSAに対応する配列がありません";
+        missing.textContent = "No matching MSA sequence";
         svg.appendChild(missing);
         continue;
       }
@@ -640,16 +640,16 @@ export function renderTreeSVG(
       height: state.layoutData.height,
       role: "img",
       "aria-label": alignment.size
-        ? "系統樹とMultiple sequence alignment"
-        : "系統樹",
+        ? "Phylogenetic tree and multiple sequence alignment"
+        : "Phylogenetic tree",
     });
     svg.style.width = "100%";
     svg.style.height = `${Math.min(720, Math.max(260, state.layoutData.height))}px`;
     svg.style.cursor = "grab";
     const title = svgElement("title");
     title.textContent = alignment.size
-      ? "系統樹とMultiple sequence alignment"
-      : "系統樹";
+      ? "Phylogenetic tree and multiple sequence alignment"
+      : "Phylogenetic tree";
     svg.appendChild(title);
     drawRectangular(svg, state.layoutData);
     state.svg = svg;
@@ -709,10 +709,10 @@ export function renderTreeStatus(containerEl, statusText) {
 
 export function formatTreeUnavailableMessage(status, taxa) {
   if (status === "skipped_too_many_taxa") {
-    const count = taxa == null ? "" : `（対象配列数: ${taxa}）`;
-    return `対象配列数が上限を超えたため、系統樹の生成をスキップしました${count}。`;
+    const count = taxa == null ? "" : ` (sequences: ${taxa})`;
+    return `Tree generation was skipped because the sequence count exceeded the limit.${count}`;
   }
   return status && status !== "ok"
-    ? `系統樹は生成されませんでした（理由: ${status}）`
-    : "系統樹は生成されませんでした。";
+    ? `The phylogenetic tree was not generated (reason: ${status})`
+    : "The phylogenetic tree was not generated.";
 }

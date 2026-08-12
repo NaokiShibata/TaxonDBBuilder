@@ -37,6 +37,6 @@ test("MSA backgrounds disappear at the selected agreement threshold", () => {
 test("formatTreeUnavailableMessage explains the taxa limit", () => {
   assert.equal(
     formatTreeUnavailableMessage("skipped_too_many_taxa", 501),
-    "対象配列数が上限を超えたため、系統樹の生成をスキップしました（対象配列数: 501）。",
+    "Tree generation was skipped because the sequence count exceeded the limit. (sequences: 501)",
   );
 });
