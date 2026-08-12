@@ -3,22 +3,21 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>TaxonDBBuilder GUI</title>
+    <title>TaxonDBBuilder</title>
     <script type="module" src="/src/main.js" defer></script>
   </head>
   <body>
     <main class="app-shell">
+      <nav class="tabs" aria-label="Application views">
+        <button id="tab-setup" class="tab active">Run Setup</button>
+        <button id="tab-monitor" class="tab" disabled>Run Monitor</button>
+        <button id="tab-results" class="tab" disabled>Results</button>
+      </nav>
+
       <aside class="side-pane">
         <header class="app-header">
-          <h1>TaxonDBBuilder GUI</h1>
-          <p class="sub">Tauri / Local only / Sidecar execution</p>
+          <h1>TaxonDBBuilder</h1>
         </header>
-
-        <nav class="tabs">
-          <button id="tab-setup" class="tab active">Run Setup</button>
-          <button id="tab-monitor" class="tab" disabled>Run Monitor</button>
-          <button id="tab-results" class="tab" disabled>Results</button>
-        </nav>
 
         <div class="side-note">
           <h2>Quick Guide</h2>
@@ -35,61 +34,56 @@
           </button>
           <p id="loaded-db-toml" class="loaded-db-path">No file loaded</p>
         </div>
+
+        <section class="card card-guide">
+          <h3>Ready to Build?</h3>
+          <p class="guide-copy">
+            Start from required inputs, then add optional filters and post prep.
+          </p>
+          <div class="guide-arrow">
+            Fill required fields in order: Taxid -> Marker -> Output -> Email
+          </div>
+          <ul
+            id="flow-checklist"
+            class="flow-checklist required-flow-checklist"
+          >
+            <li id="flow-taxids" class="flow-item pending">
+              1. Add at least one taxid
+            </li>
+            <li id="flow-markers" class="flow-item pending">
+              2. Add at least one marker
+            </li>
+            <li id="flow-output" class="flow-item pending">
+              3. Select output directory
+            </li>
+            <li id="flow-email" class="flow-item pending">4. Set NCBI email</li>
+          </ul>
+          <div class="post-guide">
+            <p class="post-guide-title">Post Prep Guide (optional)</p>
+            <ul class="flow-checklist post-flow-checklist">
+              <li id="flow-post-enable" class="flow-item neutral">
+                Enable post prep when you need trimmed/filtered output.
+              </li>
+              <li id="flow-post-primer" class="flow-item neutral">
+                If primer_trim is selected, choose primer candidates (or set
+                primer_file + primer_set for a custom set).
+              </li>
+              <li id="flow-post-length" class="flow-item neutral">
+                If length_filter is selected, set post min or post max.
+              </li>
+            </ul>
+          </div>
+        </section>
       </aside>
 
       <section class="content-pane">
         <section id="view-setup" class="view active">
           <form id="setup-form" class="setup-form">
-            <section class="card card-guide">
-              <div class="guide-head">
-                <div class="guide-badge">TB</div>
-                <div>
-                  <h3>Ready to Build?</h3>
-                  <p class="guide-copy">
-                    Start from required inputs, then add optional filters and
-                    post prep.
-                  </p>
-                </div>
-              </div>
-              <div class="guide-arrow">
-                Fill required fields in order: Taxid -> Marker -> Output ->
-                Email
-              </div>
-              <ul id="flow-checklist" class="flow-checklist">
-                <li id="flow-taxids" class="flow-item pending">
-                  1. Add at least one taxid
-                </li>
-                <li id="flow-markers" class="flow-item pending">
-                  2. Add at least one marker
-                </li>
-                <li id="flow-output" class="flow-item pending">
-                  3. Select output directory
-                </li>
-                <li id="flow-email" class="flow-item pending">
-                  4. Set NCBI email
-                </li>
-              </ul>
-              <div class="post-guide">
-                <p class="post-guide-title">Post Prep Guide (optional)</p>
-                <ul class="flow-checklist post-flow-checklist">
-                  <li id="flow-post-enable" class="flow-item neutral">
-                    Enable post prep when you need trimmed/filtered output.
-                  </li>
-                  <li id="flow-post-primer" class="flow-item neutral">
-                    If primer_trim is selected, choose primer candidates (or set
-                    primer_file + primer_set for a custom set).
-                  </li>
-                  <li id="flow-post-length" class="flow-item neutral">
-                    If length_filter is selected, set post min or post max.
-                  </li>
-                </ul>
-              </div>
-            </section>
             <div class="setup-columns">
-              <div class="setup-col setup-col-left">
+              <div class="setup-column">
                 <section class="card card-taxon">
-                  <h3>Taxon Input</h3>
-                  <label for="taxon-name-input">scientific name search</label>
+                  <h3 data-help="Add TaxIDs directly or find them by scientific name.">Taxon Input</h3>
+                  <label for="taxon-name-input" data-help="Search taxonomy candidates by scientific name.">scientific name search</label>
                   <input
                     id="taxon-name-input"
                     type="text"
@@ -97,7 +91,7 @@
                     autocomplete="off"
                   />
                   <ul id="taxon-candidates" class="taxon-candidate-list"></ul>
-                  <label for="taxid-input">taxid</label>
+                  <label for="taxid-input" data-help="Enter one or more NCBI TaxIDs separated by commas.">taxid</label>
                   <div class="taxid-entry">
                     <input
                       id="taxid-input"
@@ -120,57 +114,94 @@
                 </section>
 
                 <section class="card card-ncbi">
-                  <h3>NCBI</h3>
-                  <label for="email">email</label>
-                  <input
-                    id="email"
-                    type="email"
-                    placeholder="your.email@example.com"
-                    required
-                  />
-                  <label for="api-key">api_key</label>
-                  <input id="api-key" type="password" placeholder="optional" />
-                  <label class="check"
-                    ><input id="save-api-key" type="checkbox" /> save
-                    api_key</label
-                  >
-                  <details class="advanced-block">
-                    <summary>Advanced NCBI options</summary>
-                    <label for="ncbi-db">db</label>
-                    <input id="ncbi-db" type="text" value="nucleotide" />
-                    <label for="ncbi-rettype">rettype</label>
-                    <select id="ncbi-rettype">
-                      <option value="gb" selected>gb</option>
-                      <option value="gbwithparts">gbwithparts</option>
-                    </select>
-                    <label for="ncbi-retmode">retmode</label>
-                    <select id="ncbi-retmode">
-                      <option value="text" selected>text</option>
-                      <option value="xml">xml</option>
-                    </select>
-                    <label for="ncbi-per-query">per_query</label>
-                    <input
-                      id="ncbi-per-query"
-                      type="text"
-                      inputmode="numeric"
-                      value="100"
-                    />
+                  <h3 data-help="Select the source and NCBI connection settings for the run.">Data Source</h3>
+                  <label for="source" data-help="Choose NCBI, BOLD, or both data sources.">source</label>
+                  <select id="source">
+                    <option value="ncbi" selected>ncbi</option>
+                    <option value="bold">bold</option>
+                    <option value="both">both</option>
+                  </select>
+                  <p class="source-workers">
+                    Threads: 8 (automatic fallback if unavailable)
+                  </p>
+                  <div class="source-field-pair">
+                    <label for="email" data-help="NCBI email required for NCBI queries."
+                      >email
+                      <input
+                        id="email"
+                        type="email"
+                        placeholder="your.email@example.com"
+                        required
+                      />
+                    </label>
+                    <label for="api-key" data-help="Optional NCBI API key for higher request limits."
+                      >api_key
+                      <input
+                        id="api-key"
+                        type="password"
+                        placeholder="optional"
+                      />
+                    </label>
+                  </div>
+                  <div class="source-check-pair">
                     <label class="check"
-                      ><input id="ncbi-use-history" type="checkbox" checked />
-                      use_history</label
+                      ><input id="save-api-key" type="checkbox" /> save
+                      api_key</label
                     >
-                    <label for="ncbi-delay-sec">delay_sec (optional)</label>
-                    <input
-                      id="ncbi-delay-sec"
-                      type="text"
-                      inputmode="decimal"
-                      placeholder="auto"
-                    />
+                    <label class="check"
+                      ><input id="resume" type="checkbox" checked />
+                      resume</label
+                    >
+                  </div>
+                  <details class="advanced-block">
+                    <summary data-help="Optional NCBI request and rate-control settings.">NCBI query options</summary>
+                    <div class="ncbi-advanced-grid">
+                      <label for="ncbi-db" data-help="NCBI database to search."
+                        >db
+                        <input id="ncbi-db" type="text" value="nucleotide" />
+                      </label>
+                      <label for="ncbi-rettype" data-help="GenBank record type returned by NCBI."
+                        >rettype
+                        <select id="ncbi-rettype">
+                          <option value="gb" selected>gb</option>
+                          <option value="gbwithparts">gbwithparts</option>
+                        </select>
+                      </label>
+                      <label for="ncbi-retmode" data-help="Response format returned by NCBI."
+                        >retmode
+                        <select id="ncbi-retmode">
+                          <option value="text" selected>text</option>
+                          <option value="xml">xml</option>
+                        </select>
+                      </label>
+                      <label for="ncbi-per-query" data-help="Number of records requested per NCBI fetch."
+                        >per_query
+                        <input
+                          id="ncbi-per-query"
+                          type="text"
+                          inputmode="numeric"
+                          value="100"
+                        />
+                      </label>
+                      <label class="check advanced-check"
+                        ><input id="ncbi-use-history" type="checkbox" checked />
+                        use_history</label
+                      >
+                      <label for="ncbi-delay-sec" data-help="Delay between NCBI requests in seconds."
+                        >delay_sec (optional)
+                        <input
+                          id="ncbi-delay-sec"
+                          type="text"
+                          inputmode="decimal"
+                          placeholder="auto"
+                        />
+                      </label>
+                    </div>
                   </details>
                 </section>
 
                 <section class="card card-filters">
-                  <h3>Filters</h3>
+                  <h3 data-help="Filters narrow the source records before post-processing.">Filters</h3>
                   <div class="step-grid filter-options">
                     <label class="check"
                       ><input id="f-mito" type="checkbox" checked />
@@ -186,7 +217,7 @@
                     >
                   </div>
                   <div class="field-pair">
-                    <label for="f-length-min">
+                    <label for="f-length-min" data-help="Minimum length for source sequences.">
                       length_min
                       <input
                         id="f-length-min"
@@ -195,7 +226,7 @@
                         placeholder="example: 120"
                       />
                     </label>
-                    <label for="f-length-max">
+                    <label for="f-length-max" data-help="Maximum length for source sequences.">
                       length_max
                       <input
                         id="f-length-max"
@@ -208,12 +239,12 @@
                 </section>
               </div>
 
-              <div class="setup-col setup-col-right">
+              <div class="setup-column">
                 <section class="card card-output">
-                  <h3>Output Options</h3>
-                  <label for="output-prefix">output_prefix</label>
+                  <h3 data-help="Output templates and export formats control the generated files.">Output Options</h3>
+                  <label for="output-prefix" data-help="Prefix used for generated output files.">output_prefix</label>
                   <input id="output-prefix" type="text" value="MiFish" />
-                  <label for="output-root">output directory</label>
+                  <label for="output-root" data-help="Directory where the run folder and results are written.">output directory</label>
                   <div class="inline">
                     <input
                       id="output-root"
@@ -224,8 +255,8 @@
                     <button id="pick-output" type="button">Browse</button>
                   </div>
                   <details class="advanced-block">
-                    <summary>Advanced output format</summary>
-                    <label for="output-default-header-format"
+                    <summary data-help="Optional FASTA header templates and export formats.">Output file format</summary>
+                    <label for="output-default-header-format" data-help="Header template used for the default FASTA output."
                       >default_header_format</label
                     >
                     <input
@@ -233,7 +264,7 @@
                       type="text"
                       value="{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}"
                     />
-                    <label for="output-mifish-header-format"
+                    <label for="output-mifish-header-format" data-help="Header template used by the PMiFish format."
                       >output.header_formats.mifish_pipeline</label
                     >
                     <input
@@ -241,8 +272,12 @@
                       type="text"
                       value="gb|{acc_id}|{organism}"
                     />
-                    <label>FASTA output format (select one)</label>
-                    <div class="step-grid">
+                    <label
+                      class="help-heading"
+                      data-help="Choose one output header/export convention."
+                      >FASTA output format (select one)</label
+                    >
+                    <div class="step-grid output-format-grid">
                       <label class="check"
                         ><input
                           class="output-header-format-choice"
@@ -258,7 +293,7 @@
                           type="checkbox"
                           value="qiime2"
                         />
-                        QIIME 2 (FASTA + taxonomy TSV)</label
+                        <span>QIIME 2<br />(FASTA + taxonomy TSV)</span></label
                       >
                       <label class="check"
                         ><input
@@ -266,14 +301,14 @@
                           type="checkbox"
                           value="dada2_species"
                         />
-                        DADA2 assignSpecies</label
+                        <span>DADA2<br />assignSpecies</span></label
                       >
                     </div>
                   </details>
                 </section>
 
                 <section class="card card-marker">
-                  <h3>Marker</h3>
+                  <h3 data-help="Select the marker region used for sequence retrieval.">Marker</h3>
                   <label for="marker">marker selector</label>
                   <div class="taxid-entry">
                     <select id="marker" required>
@@ -304,44 +339,40 @@
                   <ul id="marker-list" class="taxid-list marker-list"></ul>
                 </section>
 
-                <section class="card card-exec">
-                  <h3>Execution</h3>
-                  <label for="source">source</label>
-                  <select id="source">
-                    <option value="ncbi" selected>ncbi</option>
-                    <option value="bold">bold</option>
-                    <option value="both">both</option>
-                  </select>
-                  <label for="speed">speed</label>
-                  <select id="speed">
-                    <option value="4">low (4)</option>
-                    <option value="8" selected>medium (8)</option>
-                    <option value="16">high (16)</option>
-                  </select>
-                  <label class="check"
-                    ><input id="resume" type="checkbox" checked /> resume</label
-                  >
-                </section>
-
                 <section class="card card-postprep">
-                  <h3>Post Prep</h3>
+                  <h3 data-help="Post Prep trims, filters, quality-checks, and reports the downloaded sequences.">Post Prep</h3>
                   <label class="check"
-                    ><input id="post-enable" type="checkbox" /> enable</label
+                    ><input id="post-enable" type="checkbox" checked /> enable</label
                   >
-                  <label for="primer-file"
-                    >primer_file (optional — not needed when using primer
-                    candidates)</label
-                  >
-                  <div class="inline">
-                    <input
-                      id="primer-file"
-                      type="text"
-                      placeholder="/path/to/primers.toml"
-                    />
-                    <button id="pick-primer" type="button">Browse</button>
-                  </div>
-                  <label>primer candidates</label>
-                  <div class="step-grid">
+                  <fieldset class="post-group">
+                    <legend data-help="Choose built-in or custom primers used to trim sequences.">Primer trimming</legend>
+                    <label class="check"
+                      ><input
+                        class="post-step"
+                        value="primer_trim"
+                        type="checkbox"
+                        checked
+                      />
+                      primer_trim</label
+                    >
+                    <label for="primer-file"
+                      >primer_file (optional — not needed when using primer
+                      candidates)</label
+                    >
+                    <div class="inline">
+                      <input
+                        id="primer-file"
+                        type="text"
+                        placeholder="/path/to/primers.toml"
+                      />
+                      <button id="pick-primer" type="button">Browse</button>
+                    </div>
+                    <label
+                      class="help-heading"
+                      data-help="Select one or more built-in primer sets."
+                      >primer candidates</label
+                    >
+                    <div class="step-grid">
                     <label class="check"
                       ><input
                         class="primer-candidate"
@@ -403,28 +434,29 @@
                         class="primer-candidate"
                         type="checkbox"
                         value="mifish_unity"
+                        checked
                       />
                       MiFish-Unity</label
                     >
-                  </div>
-                  <label for="primer-set">primer_set (comma separated)</label>
-                  <input
-                    id="primer-set"
-                    type="text"
-                    placeholder="mifish_u,mifish_ev2,mifish_u2"
-                  />
+                    </div>
+                    <label for="primer-set">primer_set (comma separated)</label>
+                    <input
+                      id="primer-set"
+                      type="text"
+                      placeholder="mifish_u,mifish_ev2,mifish_u2"
+                    />
+                  </fieldset>
 
                   <fieldset class="radio-group">
-                    <legend>MSA / 系統樹構築</legend>
+                    <legend data-help="Choose whether to align sequences and build one or more trees.">MSA / Phylogenetic tree</legend>
                     <label class="check"
                       ><input
                         class="msa-tree-mode"
                         type="radio"
                         name="msa-tree-mode"
                         value="disabled"
-                        checked
                       />
-                      実行しない</label
+                      Do not run</label
                     >
                     <label class="check"
                       ><input
@@ -433,7 +465,7 @@
                         name="msa-tree-mode"
                         value="combined"
                       />
-                      全TaxIDをまとめて1本</label
+                      One tree for all TaxIDs</label
                     >
                     <label class="check"
                       ><input
@@ -441,37 +473,79 @@
                         type="radio"
                         name="msa-tree-mode"
                         value="per_taxid"
+                        checked
                       />
-                      TaxIDごとに作成</label
+                      One tree per TaxID</label
                     >
                   </fieldset>
 
-                  <label>steps</label>
-                  <div class="step-grid">
-                    <label class="check"
-                      ><input
-                        class="post-step"
-                        value="primer_trim"
-                        type="checkbox"
-                      />
-                      primer_trim</label
-                    >
+                  <fieldset class="post-group">
+                    <legend data-help="Keep post-processed sequences within the specified length range.">Length filter</legend>
                     <label class="check"
                       ><input
                         class="post-step"
                         value="length_filter"
                         type="checkbox"
+                        checked
                       />
                       length_filter</label
                     >
+                    <div class="field-pair">
+                      <label for="post-length-min"
+                        >post sequence_length_min
+                        <input
+                          id="post-length-min"
+                          type="text"
+                          inputmode="numeric"
+                          placeholder="example: 120"
+                        />
+                      </label>
+                      <label for="post-length-max"
+                        >post sequence_length_max
+                        <input
+                          id="post-length-max"
+                          type="text"
+                          inputmode="numeric"
+                          placeholder="example: 200"
+                        />
+                      </label>
+                    </div>
+                  </fieldset>
+                  <fieldset class="post-group">
+                    <legend data-help="Reject sequences with too many ambiguous or invalid bases.">Quality filter</legend>
                     <label class="check"
                       ><input
                         class="post-step"
                         value="quality_filter"
                         type="checkbox"
+                        checked
                       />
                       quality_filter</label
                     >
+                    <div class="post-settings-pair">
+                      <label for="quality-max-ambiguous-fraction"
+                        >max ambiguous fraction
+                        <input
+                          id="quality-max-ambiguous-fraction"
+                          type="number"
+                          min="0"
+                          max="1"
+                          step="0.01"
+                          placeholder="example: 0.05"
+                        />
+                      </label>
+                      <label class="check"
+                        ><input
+                          id="quality-reject-invalid-iupac"
+                          type="checkbox"
+                          checked
+                        />
+                        reject invalid IUPAC bases</label
+                      >
+                    </div>
+                  </fieldset>
+                  <fieldset class="post-group">
+                    <legend data-help="Generate reports describing duplicate sequence groups.">Duplicate report</legend>
                     <label class="check"
                       ><input
                         class="post-step"
@@ -481,53 +555,17 @@
                       />
                       duplicate_report</label
                     >
-                  </div>
-
-                  <div class="field-pair">
-                    <label for="post-length-min"
-                      >post sequence_length_min
-                      <input
-                        id="post-length-min"
-                        type="text"
-                        inputmode="numeric"
-                        placeholder="example: 120"
-                      />
-                    </label>
-                    <label for="post-length-max"
-                      >post sequence_length_max
-                      <input
-                        id="post-length-max"
-                        type="text"
-                        inputmode="numeric"
-                        placeholder="example: 200"
-                      />
-                    </label>
-                  </div>
-                  <div class="field-pair">
-                    <label for="quality-max-ambiguous-fraction"
-                      >max ambiguous fraction
-                      <input
-                        id="quality-max-ambiguous-fraction"
-                        type="number"
-                        min="0"
-                        max="1"
-                        step="0.01"
-                        placeholder="example: 0.05"
-                      />
-                    </label>
                     <label for="duplicate-sequence-policy"
                       >duplicate sequence policy
                       <select id="duplicate-sequence-policy">
                         <option value="keep">keep</option>
                         <option value="representative">representative</option>
-                        <option value="exclude_conflicts">exclude conflicts</option>
+                        <option value="exclude_conflicts">
+                          exclude conflicts
+                        </option>
                       </select>
                     </label>
-                  </div>
-                  <label class="check"
-                    ><input id="quality-reject-invalid-iupac" type="checkbox" checked />
-                    reject invalid IUPAC bases</label
-                  >
+                  </fieldset>
                 </section>
               </div>
             </div>
@@ -567,7 +605,10 @@
         </section>
 
         <section id="view-results" class="view">
-          <details id="output-files-disclosure" class="card disclosure output-files">
+          <details
+            id="output-files-disclosure"
+            class="card disclosure output-files"
+          >
             <summary class="disclosure-summary">Output Files</summary>
             <p class="result-job-dir-row">
               <button id="open-job-dir" type="button" class="link-button">
@@ -582,23 +623,26 @@
           </div>
           <section id="tree-view-panel" class="view active">
             <div class="card tree-view-card">
-              <h3>系統樹 / Multiple sequence alignment</h3>
+              <h3>Phylogenetic Tree / Multiple Sequence Alignment</h3>
               <p id="tree-view-status" class="tree-view-status">
-                実行完了後に系統樹を表示します。
+                The phylogenetic tree will be displayed after the run completes.
               </p>
-              <div class="tree-view-toolbar" aria-label="系統樹・MSAビューア操作">
-                <label for="tree-select">表示する系統樹</label>
+              <div
+                class="tree-view-toolbar"
+                aria-label="Phylogenetic tree and MSA viewer controls"
+              >
+                <label for="tree-select">Select tree</label>
                 <select id="tree-select" disabled>
-                  <option value="">実行後に選択</option>
+                  <option value="">Select after run</option>
                 </select>
-                <label for="tree-search">葉を検索</label>
+                <label for="tree-search">Search leaves</label>
                 <input
                   id="tree-search"
                   type="search"
-                  placeholder="葉ノード名の一部"
+                  placeholder="Partial leaf name"
                   disabled
                 />
-                <label for="msa-conservation">背景を消す一致率</label>
+                <label for="msa-conservation">Hide background below</label>
                 <select id="msa-conservation" disabled>
                   <option value="100" selected>100%</option>
                   <option value="90">90%</option>
@@ -612,7 +656,7 @@
                     id="tree-zoom-in"
                     type="button"
                     disabled
-                    aria-label="ズームイン"
+                    aria-label="Zoom in"
                   >
                     ＋
                   </button>
@@ -620,15 +664,15 @@
                     id="tree-zoom-out"
                     type="button"
                     disabled
-                    aria-label="ズームアウト"
+                    aria-label="Zoom out"
                   >
                     −
                   </button>
                   <button id="tree-zoom-reset" type="button" disabled>
-                    リセット
+                    Reset
                   </button>
                   <button id="tree-export" type="button" disabled>
-                    SVGを保存
+                    Save SVG
                   </button>
                 </div>
               </div>

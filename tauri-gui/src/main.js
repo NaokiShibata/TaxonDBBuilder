@@ -99,12 +99,13 @@ const els = {
   ncbiDelaySecInput: document.querySelector("#ncbi-delay-sec"),
   outputDefaultHeaderFormatInput: document.querySelector("#output-default-header-format"),
   outputMifishHeaderFormatInput: document.querySelector("#output-mifish-header-format"),
-  speedInput: document.querySelector("#speed"),
   resumeInput: document.querySelector("#resume"),
   duplicateReportStep: document.querySelector('.post-step[value="duplicate_report"]'),
   loadDbTomlBtn: document.querySelector("#load-db-toml"),
   loadedDbTomlPath: document.querySelector("#loaded-db-toml")
 };
+
+const DEFAULT_WORKERS = 8;
 
 const state = {
   jobDir: "",
@@ -138,6 +139,103 @@ const outputExportHeaderFormats = {
   qiime2: "{acc_id}",
   dada2_species: "{acc_id} {organism_raw}",
 };
+
+let activeHelpButton = null;
+let helpPopup = null;
+
+function getHelpPopup() {
+  if (helpPopup) return helpPopup;
+  helpPopup = document.createElement("div");
+  helpPopup.className = "help-popup-global";
+  helpPopup.setAttribute("role", "tooltip");
+  helpPopup.hidden = true;
+  document.body.append(helpPopup);
+  return helpPopup;
+}
+
+function positionHelpPopup(button) {
+  if (!helpPopup || helpPopup.hidden) return;
+  const rect = button.getBoundingClientRect();
+  const margin = 8;
+  const popupWidth = Math.min(230, window.innerWidth - margin * 2);
+  helpPopup.style.width = `${popupWidth}px`;
+  const popupHeight = helpPopup.offsetHeight;
+  const left = Math.max(
+    margin,
+    Math.min(rect.left, window.innerWidth - popupWidth - margin),
+  );
+  const below = rect.bottom + margin;
+  const top =
+    below + popupHeight <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, rect.top - popupHeight - margin);
+  helpPopup.style.left = `${left}px`;
+  helpPopup.style.top = `${top}px`;
+}
+
+function showHelp(button, text) {
+  const popup = getHelpPopup();
+  popup.textContent = text;
+  popup.hidden = false;
+  activeHelpButton = button;
+  document.querySelectorAll(".help-tip.is-open").forEach((tip) => {
+    if (tip !== button) tip.classList.remove("is-open");
+  });
+  button.classList.add("is-open");
+  requestAnimationFrame(() => positionHelpPopup(button));
+}
+
+function hideHelp(button = activeHelpButton) {
+  if (button && button !== activeHelpButton) return;
+  if (helpPopup) helpPopup.hidden = true;
+  activeHelpButton?.classList.remove("is-open");
+  activeHelpButton = null;
+}
+
+function appendHelpTip(target, text) {
+  if (!target || target.querySelector(":scope > .help-tip")) return;
+  target.classList.add("help-target");
+  if (target.matches("h3, legend, summary, .help-heading")) target.classList.add("help-heading");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "help-tip";
+  button.setAttribute("aria-label", "Show help");
+  button.textContent = "?";
+  button.dataset.help = text;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (activeHelpButton === button && !helpPopup.hidden) hideHelp(button);
+    else showHelp(button, text);
+  });
+  button.addEventListener("mouseenter", () => showHelp(button, text));
+  button.addEventListener("mouseleave", () => {
+    if (!button.matches(":focus") && activeHelpButton === button) hideHelp(button);
+  });
+  button.addEventListener("focus", () => showHelp(button, text));
+  button.addEventListener("blur", () => {
+    if (activeHelpButton === button) hideHelp(button);
+  });
+  target.append(button);
+}
+
+function initHelpTips() {
+  document.querySelectorAll("[data-help]").forEach((target) => {
+    appendHelpTip(target, target.dataset.help);
+  });
+}
+
+document.addEventListener("click", () => {
+  hideHelp();
+});
+
+window.addEventListener("resize", () => {
+  if (activeHelpButton) positionHelpPopup(activeHelpButton);
+});
+
+document.addEventListener("scroll", () => {
+  if (activeHelpButton) positionHelpPopup(activeHelpButton);
+}, true);
 const monitorView = createMonitorView({
   statusEl: els.status,
   phaseEl: els.phase,
@@ -555,23 +653,23 @@ async function renderRunTree() {
     treeViewController?.dispose();
     treeViewController = null;
     setTreeViewControlsEnabled(false);
-    els.treeViewStatus.textContent = "系統樹ファイルを特定できませんでした。";
+    els.treeViewStatus.textContent = "No phylogenetic tree file found.";
     renderTreeStatus(els.treeViewContainer, unavailableMessage);
     return;
   }
 
-  els.treeViewStatus.textContent = `読み込み中: ${treeFilename}`;
+  els.treeViewStatus.textContent = `Loading: ${treeFilename}`;
   try {
     const newickText = await invoke("read_text_file", { path: treePath });
     const root = parseNewick(newickText);
     const msaPath = treePath.replace(/\.tree\.nwk$/i, ".msa.fasta");
     let alignment = new Map();
-    let msaStatus = "MSAなし";
+    let msaStatus = "No MSA";
     try {
       alignment = parseFasta(await invoke("read_text_file", { path: msaPath }));
-      msaStatus = `${alignment.size}配列 × ${alignment.values().next().value.length}塩基`;
+      msaStatus = `${alignment.size} sequences × ${alignment.values().next().value.length} bases`;
     } catch (error) {
-      console.warn(`MSAを読み込めませんでした: ${msaPath}`, error);
+      console.warn(`Failed to load MSA: ${msaPath}`, error);
     }
     treeViewController?.dispose();
     treeViewController = renderTreeSVG(
@@ -588,7 +686,7 @@ async function renderRunTree() {
     treeViewController?.dispose();
     treeViewController = null;
     setTreeViewControlsEnabled(false);
-    els.treeViewStatus.textContent = "系統樹ファイルを読み込めませんでした。";
+    els.treeViewStatus.textContent = "Failed to load the phylogenetic tree file.";
     renderTreeStatus(els.treeViewContainer, unavailableMessage);
   }
 }
@@ -651,7 +749,7 @@ function collectRequest() {
       mifishHeaderFormat: els.outputMifishHeaderFormatInput.value.trim(),
       exportFormats: readCheckedValues(outputExportFormatEls),
     },
-    workers: Number.parseInt(els.speedInput.value, 10),
+    workers: DEFAULT_WORKERS,
     resume: els.resumeInput.checked
   };
 }
@@ -719,7 +817,6 @@ async function loadSavedConfig() {
       els.sourceInput.value = saved.source;
       syncSourceMode();
     }
-    if (saved.workers) els.speedInput.value = `${saved.workers}`;
     if (saved.ncbiDb) els.ncbiDbInput.value = saved.ncbiDb;
     if (saved.ncbiRettype) els.ncbiRettypeInput.value = saved.ncbiRettype;
     if (saved.ncbiRetmode) els.ncbiRetmodeInput.value = saved.ncbiRetmode;
@@ -762,8 +859,8 @@ async function runJob() {
   treeViewController = null;
   setTreeViewControlsEnabled(false);
   els.treeSearch.value = "";
-  els.treeViewStatus.textContent = "系統樹の生成結果を確認しています。";
-  renderTreeStatus(els.treeViewContainer, "実行完了後に系統樹を表示します。");
+  els.treeViewStatus.textContent = "Checking the phylogenetic tree result.";
+  renderTreeStatus(els.treeViewContainer, "The phylogenetic tree will be displayed after the run completes.");
   setMonitorEnabled(true);
   setResultsEnabled(false);
   switchView("monitor");
@@ -792,9 +889,10 @@ function resetForm() {
   els.duplicateSequencePolicyInput.value = "keep";
   els.primerFileInput.value = "";
   els.primerSetInput.value = "";
-  els.postEnableInput.checked = false;
-  setMsaTreeMode("disabled");
-  setPostPrepStepSelection([]);
+  els.postEnableInput.checked = true;
+  setPrimerCandidateSelection(["mifish_unity"]);
+  setMsaTreeMode("per_taxid");
+  setPostPrepStepSelection(["primer_trim", "length_filter", "quality_filter"]);
   setOutputExportFormatSelection([]);
   state.baseConfigPath = "";
   els.loadedDbTomlPath.textContent = "";
@@ -963,9 +1061,9 @@ els.treeExport.addEventListener("click", async () => {
   if (!content) return;
   try {
     const savedPath = await invoke("save_svg_file", { content });
-    if (savedPath) els.treeViewStatus.textContent = `SVGを保存しました: ${savedPath}`;
+    if (savedPath) els.treeViewStatus.textContent = `SVG saved: ${savedPath}`;
   } catch (error) {
-    els.treeViewStatus.textContent = "SVGを保存できませんでした。";
+    els.treeViewStatus.textContent = "Failed to save SVG.";
   }
 });
 
@@ -973,6 +1071,7 @@ els.tabSetup.addEventListener("click", () => switchView("setup"));
 els.tabMonitor.addEventListener("click", () => switchView("monitor"));
 els.tabResults.addEventListener("click", () => switchView("results"));
 
+initHelpTips();
 addTaxids(els.taxidsHidden.value);
 renderTaxids();
 syncTaxidsHidden();
