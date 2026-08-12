@@ -212,7 +212,7 @@ Resume用キャッシュは出力ルートの`.taxondbbuilder-cache/gb`でジョ
 
 情報を入力できたら**Run**をクリックしてダウンロードを開始します。
 
-`Output Options > Advanced output format`では、PMiFish、QIIME 2、DADA2から
+`Output Options > Output file format`では、PMiFish、QIIME 2、DADA2から
 一つを選択できます。選択すると`output.header_formats.mifish_pipeline`が
 PMiFishの`gb|{acc_id}|{organism}`、QIIME 2の`{acc_id}`、または
 DADA2の`{acc_id} {organism_raw}`へ切り替わります。
