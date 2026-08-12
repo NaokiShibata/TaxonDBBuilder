@@ -17,6 +17,14 @@ pub(crate) const DEFAULT_OUTPUT_HEADER_FORMAT: &str =
 pub(crate) const DEFAULT_OUTPUT_MIFISH_HEADER_FORMAT: &str = "{db}|{acc_id}|{organism}";
 pub(crate) const DEFAULT_MSA_TREE_MODE: &str = "disabled";
 
+pub(crate) fn resolve_worker_count(requested: u32) -> u32 {
+    let requested = requested.max(1);
+    let available = std::thread::available_parallelism()
+        .map(|count| count.get() as u32)
+        .unwrap_or(requested);
+    requested.min(available.max(1))
+}
+
 pub(crate) static MARKERS_TEMPLATE: &str = include_str!("../../../configs/markers_mitogenome.toml");
 pub(crate) static PRIMERS_TEMPLATE: &str = include_str!("../../../configs/primers.toml");
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -922,6 +930,11 @@ fn marker_options_from_config(config: &toml::Value, config_path: &Path) -> Vec<S
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    #[test]
+    fn worker_count_falls_back_to_at_least_one_thread() {
+        assert_eq!(resolve_worker_count(0), 1);
+    }
 
     #[test]
     fn parses_existing_db_toml_without_field_copying() {

@@ -222,6 +222,7 @@ pub(crate) fn start_run(
     if source_uses_ncbi(&build_source) && req.email.trim().is_empty() {
         return Err("email is required for ncbi/both".to_string());
     }
+    let workers = resolve_worker_count(req.workers);
 
     {
         let slot = state
@@ -241,7 +242,7 @@ pub(crate) fn start_run(
         output_root: req.output_root.clone(),
         output_prefix: req.output_prefix.clone(),
         marker: req.markers.first().cloned().unwrap_or_default(),
-        workers: req.workers,
+        workers,
         ncbi_db: req.ncbi_options.db.clone(),
         ncbi_rettype: req.ncbi_options.rettype.clone(),
         ncbi_retmode: req.ncbi_options.retmode.clone(),
@@ -310,7 +311,7 @@ pub(crate) fn start_run(
     let resume_for_thread = req.resume && source_uses_ncbi(&build_source);
     let source_for_thread = build_source.clone();
     let taxid_total = req.taxids.len();
-    let workers_for_thread = req.workers;
+    let workers_for_thread = workers;
     let output_prefix_for_thread = req.output_prefix.clone();
     let post_prep_for_thread = req.post_prep.enable;
     let post_steps_for_thread = req.post_prep.steps.clone();
