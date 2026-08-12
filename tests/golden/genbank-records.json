@@ -41,13 +41,16 @@
         "matched_type": "gene",
         "organism_name": "Testus alpha other."
       },
+      "organism_taxid": null,
       "processid": null,
       "sampleid": null,
       "sequence": "AAAAAAAAAAAAAAAA",
       "skip_reason": null,
       "source": "ncbi",
       "source_record_id": "TEST0001.1",
-      "taxon_name": "Testus alpha other."
+      "taxid": "999",
+      "taxon_name": "Testus alpha other.",
+      "taxonomy_lineage": []
     },
     {
       "accession": "TEST0001.1",
@@ -80,13 +83,16 @@
         "matched_type": "rRNA",
         "organism_name": "Testus alpha other."
       },
+      "organism_taxid": null,
       "processid": null,
       "sampleid": null,
       "sequence": "TTTTTTTTTTTTTTTT",
       "skip_reason": null,
       "source": "ncbi",
       "source_record_id": "TEST0001.1",
-      "taxon_name": "Testus alpha other."
+      "taxid": "999",
+      "taxon_name": "Testus alpha other.",
+      "taxonomy_lineage": []
     },
     {
       "accession": "TEST0002.1",
@@ -119,13 +125,16 @@
         "matched_type": "gene",
         "organism_name": "Testus beta other."
       },
+      "organism_taxid": null,
       "processid": null,
       "sampleid": null,
       "sequence": "CCCCCCCCCCCCCCCC",
       "skip_reason": null,
       "source": "ncbi",
       "source_record_id": "TEST0002.1",
-      "taxon_name": "Testus beta other."
+      "taxid": "999",
+      "taxon_name": "Testus beta other.",
+      "taxonomy_lineage": []
     }
   ]
 }

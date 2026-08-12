@@ -12,7 +12,8 @@ from __future__ import annotations
 import argparse
 import csv
 import sqlite3
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterator
+from itertools import batched
 from pathlib import Path
 
 
@@ -74,19 +75,6 @@ def iter_csv_rows(input_csv: Path) -> Iterator[tuple[int, str]]:
             yield int(tax_s), sci_name
 
 
-def _chunked(
-    rows: Iterable[tuple[int, str]], size: int = 10000
-) -> Iterator[list[tuple[int, str]]]:
-    buf: list[tuple[int, str]] = []
-    for row in rows:
-        buf.append(row)
-        if len(buf) >= size:
-            yield buf
-            buf = []
-    if buf:
-        yield buf
-
-
 def build_sqlite_from_csv(input_csv: Path, output_db: Path) -> int:
     output_db.parent.mkdir(parents=True, exist_ok=True)
     if output_db.exists():
@@ -105,7 +93,7 @@ def build_sqlite_from_csv(input_csv: Path, output_db: Path) -> int:
             """
         )
 
-        for batch in _chunked(iter_csv_rows(input_csv), size=20000):
+        for batch in batched(iter_csv_rows(input_csv), 20000):
             cur.executemany(
                 "INSERT INTO taxonomy (tax_id, scientific_name) VALUES (?, ?)",
                 batch,

@@ -1,5 +1,6 @@
 """Run logging and console tee helpers."""
 
+import io
 import logging
 import os
 import re
@@ -118,6 +119,12 @@ class TeeStream:
                 lambda: False,
             )()
         )
+
+    def fileno(self) -> int:
+        fileno = getattr(self._primary_stream, "fileno", None)
+        if fileno is None:
+            raise io.UnsupportedOperation("fileno")
+        return fileno()
 
     @property
     def encoding(self) -> str:

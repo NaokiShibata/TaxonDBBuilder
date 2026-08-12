@@ -144,41 +144,23 @@ pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
     args
 }
 
-fn add_candidate(candidates: &mut Vec<PathBuf>, path: PathBuf) {
-    if !candidates.contains(&path) {
-        candidates.push(path);
-    }
-}
-
 fn sidecar_candidates(app: &AppHandle) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
 
     if let Ok(path) = env::var("TAXONDBBUILDER_SIDECAR") {
-        add_candidate(&mut candidates, PathBuf::from(path));
+        candidates.push(PathBuf::from(path));
     }
 
     if let Ok(resource_dir) = app.path().resource_dir() {
-        add_candidate(&mut candidates, resource_dir.join("bin").join(SIDECAR_NAME));
-        add_candidate(&mut candidates, resource_dir.join(SIDECAR_NAME));
+        candidates.push(resource_dir.join("bin").join(SIDECAR_NAME));
+        candidates.push(resource_dir.join(SIDECAR_NAME));
     }
 
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     if let Some(repo_dir) = manifest_dir.parent().and_then(Path::parent) {
-        add_candidate(&mut candidates, repo_dir.join("dist").join(SIDECAR_NAME));
+        candidates.push(repo_dir.join("dist").join(SIDECAR_NAME));
     }
-    add_candidate(&mut candidates, manifest_dir.join("bin").join(SIDECAR_NAME));
-
-    if let Ok(cwd) = env::current_dir() {
-        add_candidate(&mut candidates, cwd.join("dist").join(SIDECAR_NAME));
-        add_candidate(&mut candidates, cwd.join("bin").join(SIDECAR_NAME));
-    }
-
-    if let Ok(exe) = env::current_exe() {
-        if let Some(exe_dir) = exe.parent() {
-            add_candidate(&mut candidates, exe_dir.join("bin").join(SIDECAR_NAME));
-            add_candidate(&mut candidates, exe_dir.join(SIDECAR_NAME));
-        }
-    }
+    candidates.push(manifest_dir.join("bin").join(SIDECAR_NAME));
 
     candidates
 }
@@ -333,6 +315,34 @@ mod tests {
         PathBuf::from(env!("CARGO_MANIFEST_DIR"))
             .join("../..")
             .join(relative)
+    }
+
+    #[test]
+    fn build_args_preserve_every_selected_taxid() {
+        let params = BuildParams {
+            config_path: PathBuf::from("config.toml"),
+            taxids: vec!["111".to_string(), "222".to_string(), "333".to_string()],
+            markers: vec!["12s".to_string()],
+            source: "ncbi".to_string(),
+            output_file: PathBuf::from("output.fasta"),
+            dump_gb_dir: PathBuf::from("gb"),
+            from_gb_dir: None,
+            resume: false,
+            workers: 1,
+            output_prefix: "taxondbbuilder_".to_string(),
+            post_prep: false,
+            post_prep_steps: Vec::new(),
+            post_prep_primer_sets: Vec::new(),
+        };
+
+        let args = build_params_to_args(&params);
+        let taxids = args
+            .windows(2)
+            .filter(|pair| pair[0] == "--taxon")
+            .map(|pair| pair[1].as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(taxids, ["111", "222", "333"]);
     }
 
     #[test]

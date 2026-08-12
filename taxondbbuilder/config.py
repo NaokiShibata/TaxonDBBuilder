@@ -5,11 +5,7 @@ from pathlib import Path
 from typing import Any
 
 import typer
-
-try:
-    import tomllib
-except ModuleNotFoundError:  # Python < 3.11
-    import tomli as tomllib
+import tomllib
 
 from .models import (
     IUPAC_DNA_VALUES,
@@ -107,6 +103,26 @@ def _normalize_length_filter_config(post_prep: dict[str, Any]) -> None:
         raise typer.BadParameter(
             "post_prep.sequence_length_min must be <= post_prep.sequence_length_max."
         )
+
+
+def _normalize_quality_filter_config(post_prep: dict[str, Any]) -> None:
+    raw_fraction = post_prep.get("quality_max_ambiguous_fraction")
+    if raw_fraction is not None:
+        post_prep["quality_max_ambiguous_fraction"] = _parse_float_option(
+            "post_prep.quality_max_ambiguous_fraction", raw_fraction, 0.0, 1.0
+        )
+    if "quality_reject_invalid_iupac" in post_prep:
+        post_prep["quality_reject_invalid_iupac"] = _parse_bool_option(
+            "post_prep.quality_reject_invalid_iupac",
+            post_prep["quality_reject_invalid_iupac"],
+        )
+    policy = str(post_prep.get("duplicate_sequence_policy", "keep")).strip().lower()
+    if policy not in {"keep", "representative", "exclude_conflicts"}:
+        raise typer.BadParameter(
+            "post_prep.duplicate_sequence_policy must be one of: "
+            "keep, representative, exclude_conflicts"
+        )
+    post_prep["duplicate_sequence_policy"] = policy
 
 
 def _normalize_primer_selection(
@@ -218,9 +234,9 @@ def _parse_primer_recheck_options(post_prep: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(tool_raw, str):
         raise typer.BadParameter("post_prep.primer_recheck_tool must be a string.")
     tool = tool_raw.strip().lower()
-    if tool not in {"off", "vsearch", "blast"}:
+    if tool not in {"off", "vsearch"}:
         raise typer.BadParameter(
-            "post_prep.primer_recheck_tool must be one of: off, vsearch, blast"
+            "post_prep.primer_recheck_tool must be one of: off, vsearch"
         )
     return {
         "recheck_tool": tool,
@@ -239,25 +255,7 @@ def _parse_primer_recheck_options(post_prep: dict[str, Any]) -> dict[str, Any]:
     }
 
 
-def _parse_primer_reporting_options(post_prep: dict[str, Any]) -> dict[str, str]:
-    phylo_raw = post_prep.get("primer_phylo_check", "off")
-    if not isinstance(phylo_raw, str):
-        raise typer.BadParameter("post_prep.primer_phylo_check must be a string.")
-    phylo = phylo_raw.strip().lower()
-    if phylo not in {"off", "flag_only"}:
-        raise typer.BadParameter(
-            "post_prep.primer_phylo_check must be one of: off, flag_only"
-        )
-    target_raw = post_prep.get("primer_phylo_target_confidence", "medium")
-    if not isinstance(target_raw, str):
-        raise typer.BadParameter(
-            "post_prep.primer_phylo_target_confidence must be a string."
-        )
-    target = target_raw.strip().lower()
-    if target not in {"low", "medium"}:
-        raise typer.BadParameter(
-            "post_prep.primer_phylo_target_confidence must be one of: low, medium"
-        )
+def _parse_primer_sidecar_option(post_prep: dict[str, Any]) -> dict[str, str]:
     sidecar_raw = post_prep.get("primer_sidecar_format", "tsv")
     if not isinstance(sidecar_raw, str):
         raise typer.BadParameter("post_prep.primer_sidecar_format must be a string.")
@@ -267,9 +265,54 @@ def _parse_primer_reporting_options(post_prep: dict[str, Any]) -> dict[str, str]
             "post_prep.primer_sidecar_format must be one of: tsv, jsonl"
         )
     return {
-        "phylo_check": phylo,
-        "phylo_target_confidence": target,
         "sidecar_format": sidecar,
+    }
+
+
+def _parse_msa_tree_options(post_prep: dict[str, Any]) -> dict[str, Any]:
+    model_raw = post_prep.get("msa_tree_model", "GTR+G")
+    if not isinstance(model_raw, str) or not model_raw.strip():
+        raise typer.BadParameter("post_prep.msa_tree_model must be a non-empty string.")
+    min_taxa = _parse_int_option(
+        "post_prep.msa_tree_min_taxa", post_prep.get("msa_tree_min_taxa", 3), 0
+    )
+    max_samples = _parse_int_option(
+        "post_prep.msa_tree_max_samples",
+        post_prep.get("msa_tree_max_samples", 500),
+        0,
+    )
+    if min_taxa > max_samples:
+        raise typer.BadParameter(
+            "post_prep.msa_tree_min_taxa must be <= post_prep.msa_tree_max_samples."
+        )
+    mode_raw = post_prep.get("msa_tree_mode", "combined")
+    if not isinstance(mode_raw, str):
+        raise typer.BadParameter("post_prep.msa_tree_mode must be a string.")
+    mode = mode_raw.strip().lower()
+    if mode not in {"disabled", "combined", "per_taxid"}:
+        raise typer.BadParameter(
+            "post_prep.msa_tree_mode must be one of: disabled, combined, per_taxid"
+        )
+    bootstrap_replicates = _parse_int_option(
+        "post_prep.msa_tree_bootstrap_replicates",
+        post_prep.get("msa_tree_bootstrap_replicates", 1000),
+        1000,
+    )
+    enable = _parse_bool_option(
+        "post_prep.msa_tree_enable",
+        post_prep.get("msa_tree_enable", False),
+    )
+    if enable and mode == "disabled":
+        raise typer.BadParameter(
+            "post_prep.msa_tree_mode = disabled requires post_prep.msa_tree_enable = false."
+        )
+    return {
+        "enable": enable,
+        "min_taxa": min_taxa,
+        "max_samples": max_samples,
+        "model": model_raw.strip(),
+        "mode": mode,
+        "bootstrap_replicates": bootstrap_replicates,
     }
 
 
@@ -278,7 +321,7 @@ def _normalize_primer_trim_config(post_prep: dict[str, Any], path: Path) -> None
     options = _parse_primer_numeric_options(post_prep)
     options.update(_parse_primer_mode_options(post_prep))
     options.update(_parse_primer_recheck_options(post_prep))
-    options.update(_parse_primer_reporting_options(post_prep))
+    options.update(_parse_primer_sidecar_option(post_prep))
     post_prep.update({f"primer_{key}": value for key, value in options.items()})
     if primer_file is None and primer_sets is None:
         return
@@ -301,7 +344,12 @@ def _normalize_post_prep_config(post_prep: Any, path: Path) -> None:
     if not isinstance(post_prep, dict):
         raise typer.BadParameter("[post_prep] must be a table (dict).")
     _normalize_length_filter_config(post_prep)
+    _normalize_quality_filter_config(post_prep)
     _normalize_primer_trim_config(post_prep, path)
+    msa_tree_options = _parse_msa_tree_options(post_prep)
+    post_prep.update(
+        {f"msa_tree_{key}": value for key, value in msa_tree_options.items()}
+    )
 
 
 def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> dict:
@@ -343,19 +391,7 @@ def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> dict:
     if markers_file:
         if not isinstance(markers_file, str):
             raise typer.BadParameter("markers.file must be a string path.")
-        markers_path = Path(os.path.expandvars(os.path.expanduser(markers_file)))
-        candidates: list[Path] = []
-        if markers_path.is_absolute():
-            candidates.append(markers_path)
-        else:
-            candidates.append(path.parent / markers_path)
-            candidates.append(Path.cwd() / markers_path)
-            candidates.append(Path(__file__).resolve().parent.parent / markers_path)
-
-        markers_path = next((p for p in candidates if p.exists()), None)
-        if not markers_path:
-            tried = ", ".join(str(p) for p in candidates)
-            raise typer.BadParameter(f"Markers file not found. Tried: {tried}")
+        markers_path = resolve_support_file_path(markers_file, path, "Markers file")
         with markers_path.open("rb") as f:
             markers_data = tomllib.load(f)
         markers_from_file = markers_data.get("markers")

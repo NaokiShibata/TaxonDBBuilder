@@ -63,6 +63,7 @@ def render_result_table(
     duplicated_diff: int,
     out_path: Path,
     log_path: Path,
+    msa_tree_stats: dict | None = None,
 ) -> None:
     table = Table(title="Result Summary", show_header=True, header_style="bold")
     table.add_column("Metric")
@@ -73,6 +74,20 @@ def render_result_table(
     table.add_row("Kept records", str(kept_records))
     table.add_row("Skipped duplicates (same acc+seq)", str(skipped_same))
     table.add_row("Kept duplicates (same acc, diff seq)", str(duplicated_diff))
+    if msa_tree_stats is not None:
+        table.add_row("MSA/Tree status", str(msa_tree_stats["status"]))
+        table.add_row("MSA/Tree taxa", str(msa_tree_stats["taxa_count"]))
+        if msa_tree_stats.get("mode"):
+            table.add_row("MSA/Tree mode", str(msa_tree_stats["mode"]))
+        if msa_tree_stats.get("msa_path"):
+            table.add_row("MSA file", str(msa_tree_stats["msa_path"]))
+        if msa_tree_stats.get("tree_path"):
+            table.add_row("Tree file", str(msa_tree_stats["tree_path"]))
+        for output in msa_tree_stats.get("tree_outputs", []):
+            table.add_row(
+                f"Tree file (taxid {output['taxid']})",
+                str(output["tree_path"] or output["status"]),
+            )
     table.add_row("Output", str(out_path))
     table.add_row("Log", str(log_path))
     console.print(table)

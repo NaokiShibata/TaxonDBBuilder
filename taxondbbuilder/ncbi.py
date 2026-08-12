@@ -1,6 +1,7 @@
 """NCBI Entrez, taxonomy, and GenBank helpers."""
 
 import io
+import hashlib
 import os
 import re
 import sys
@@ -34,6 +35,25 @@ class _MatchedNCBIFeature:
     start: int
     end: int
     strand: int
+
+
+def _record_taxonomy(record: Any) -> tuple[str | None, list[str]]:
+    organism_taxid = None
+    for feature in record.features:
+        if feature.type != "source":
+            continue
+        for value in feature.qualifiers.get("db_xref", []):
+            if str(value).startswith("taxon:"):
+                organism_taxid = str(value).split(":", 1)[1]
+                break
+        if organism_taxid:
+            break
+    lineage = [
+        str(value).strip()
+        for value in record.annotations.get("taxonomy", [])
+        if str(value).strip()
+    ]
+    return organism_taxid, lineage
 
 
 def _dump_genbank_record(
@@ -91,6 +111,9 @@ def _build_ncbi_canonical_record(
     matched: _MatchedNCBIFeature,
     dup_index: int | None,
     source: BuildSource,
+    taxid: str,
+    organism_taxid: str | None,
+    taxonomy_lineage: list[str],
 ) -> CanonicalRecord:
     acc_id = f"{acc}_dup{dup_index}" if dup_index else acc
     dup_tag = f"dup{dup_index}" if dup_index else ""
@@ -134,6 +157,9 @@ def _build_ncbi_canonical_record(
             "matched_type": matched.feature_type,
             "header_format": matched.header_format or DEFAULT_HEADER_FORMAT,
         },
+        taxid=taxid,
+        organism_taxid=organism_taxid,
+        taxonomy_lineage=taxonomy_lineage,
     )
 
 
@@ -148,6 +174,9 @@ def _append_ncbi_feature_record(
     dup_accessions: dict[str, int],
     lock: Lock,
     extracted_records: list[CanonicalRecord],
+    taxid: str,
+    organism_taxid: str | None,
+    taxonomy_lineage: list[str],
 ) -> None:
     with lock:
         counters["matched_features"] += 1
@@ -163,7 +192,15 @@ def _append_ncbi_feature_record(
         seqs.add(matched.sequence)
         extracted_records.append(
             _build_ncbi_canonical_record(
-                acc, organism, organism_safe, matched, dup_index, source
+                acc,
+                organism,
+                organism_safe,
+                matched,
+                dup_index,
+                source,
+                taxid,
+                organism_taxid,
+                taxonomy_lineage,
             )
         )
 
@@ -184,6 +221,7 @@ def _extract_ncbi_record(
     acc = record.id
     organism = str(record.annotations.get("organism", "unknown"))
     organism_safe = sanitize_header(organism)
+    organism_taxid, taxonomy_lineage = _record_taxonomy(record)
     _dump_genbank_record(record, acc, taxid, dump_gb_dir, lock)
     extracted_records: list[CanonicalRecord] = []
     record_matched = False
@@ -203,6 +241,9 @@ def _extract_ncbi_record(
             dup_accessions,
             lock,
             extracted_records,
+            taxid,
+            organism_taxid,
+            taxonomy_lineage,
         )
     if record_matched:
         with lock:
@@ -483,7 +524,15 @@ def _create_genbank_fetch_context(
     query_key = record.get("QueryKey")
     cache_root = None
     if dump_dir:
+        cache_key = hashlib.sha256(
+            "\0".join(
+                [query, str(db), str(rettype), str(retmode), str(per_query)]
+            ).encode("utf-8")
+        ).hexdigest()[:16]
         cache_root = dump_dir / ".cache"
+        if taxid:
+            cache_root = cache_root / f"taxid{taxid}"
+        cache_root = cache_root / f"query-{cache_key}"
         cache_root.mkdir(parents=True, exist_ok=True)
     return _GenbankFetchContext(
         query=query,
@@ -520,7 +569,12 @@ def _load_genbank_cache(ctx: _GenbankFetchContext, start: int) -> str | None:
 def _save_genbank_cache(ctx: _GenbankFetchContext, start: int, data: str) -> None:
     path = _genbank_cache_path(ctx, start)
     if path:
-        path.write_text(data, encoding="utf-8")
+        tmp_path = path.with_suffix(path.suffix + f".{os.getpid()}.tmp")
+        try:
+            tmp_path.write_text(data, encoding="utf-8")
+            tmp_path.replace(path)
+        finally:
+            tmp_path.unlink(missing_ok=True)
 
 
 def _read_efetch_with_retries(

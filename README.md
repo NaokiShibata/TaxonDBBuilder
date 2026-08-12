@@ -12,9 +12,8 @@ GUI の詳細は[こちらの README](tauri-gui/README.md)を参照してくだ�
 ![](tauri-gui/figures/TaxonDBBuilderGUI.drawio.png)
 
 ## 動作環境
-- Python 3.8+ (3.11+ 推奨)
-- 主要依存: biopython, rich, typer
-- Python < 3.11 の場合: tomli
+- Python 3.12+
+- 主要依存: biopython, kalign-python, piqtree, rich, typer
 - パッケージ管理: uv (推奨)
 
 開発・sidecar ビルド用の依存は `requirements-dev.txt` に記録しています
@@ -57,10 +56,10 @@ uv --version
 
 ```bash
 # Pythonのインストール (必要な場合)
-uv python install 3.11
+uv python install 3.12
 
 # 仮想環境
-uv venv --python 3.11
+uv venv --python 3.12
 source .venv/bin/activate
 
 # 依存導入
@@ -69,14 +68,16 @@ uv pip install -r requirements-dev.txt
 
 ### 補足
 - uvはPythonパッケージのみを扱います。現時点で外部ツールは不要です。
+- `kalign-python` はWindows向けビルド済みwheelがないため、WindowsではCMakeとC++コンパイラを使ったソースビルドが必要です。
+- `piqtree` はIntel Mac向けwheelを提供していません。
 
 ## クイックスタート
 環境構築から **GenBankキャッシュ付きの実行** までの最短手順です。
 
 ```bash
 # 1) 仮想環境と依存導入
-uv python install 3.11
-uv venv --python 3.11
+uv python install 3.12
+uv venv --python 3.12
 source .venv/bin/activate
 uv pip install -r requirements.txt
 
@@ -114,9 +115,9 @@ python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m coi --sou
   - NCBI と BOLD の両方を取得し、BOLD `insdcacs` と NCBI accession の strict match のみで BOLD record を抑制します。
 
 補足:
-- `--dump-gb`, `--from-gb`, `--resume` は NCBI 側の GenBank キャッシュです。
-- `--source bold` ではこれらのオプションは使えません。
-- `--source both` では NCBI 側にのみ適用されます。
+- `--dump-gb` はNCBIのGenBankデータとBOLDの応答を保存します。
+- `--resume` はNCBIとBOLDの保存済み応答を再利用します。
+- `--from-gb` はNCBIの保存済みGenBankデータだけを読み込みます。
 
 ## 設定ファイル (TOML)
 `configs/db.toml` を編集して使います。
@@ -147,6 +148,9 @@ default_header_format = "{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{stra
 simple = "{acc_id}|{marker}|{loc}"
 verbose = "{acc_id}|{organism_raw}|{marker_raw}|{label_raw}|{type_raw}|{loc}|{strand}"
 mifish_pipeline = "{db}|{acc_id}|{organism}"
+
+# 必要な場合だけ、どちらか一方を追加生成。
+# export_formats = ["qiime2"]  # qiime2 または dada2_species
 
 [taxon]
 noexp = false
@@ -182,11 +186,18 @@ file = "configs/markers_mitogenome.toml"
 # パラメータは有効化するカテゴリに応じて指定します
 # - length_filter: sequence_length_min または sequence_length_max
 # - primer_trim: primer_file + primer_set
+# - msa_tree: msa_tree_enable = true
 # sequence_length_min = 120
 # sequence_length_max = 300
 # primer_file = "configs/primers.toml"
 # primer_set = "mifish_12s"
 # primer_set = ["mifish_12s", "mifish_ev2"]
+# msa_tree_enable = false
+# msa_tree_min_taxa = 3
+# msa_tree_max_samples = 500
+# msa_tree_model = "GTR+G"
+# msa_tree_mode = "combined" # or "per_taxid"
+# msa_tree_bootstrap_replicates = 1000
 ```
 
 ### 検索・抽出の考え方
@@ -321,10 +332,12 @@ header_format = "mifish_pipeline"
 
 ### 補助出力
 - `*.fasta.acc_organism.csv`
-  - FASTA に出たレコードと accession / organism / source 情報の対応表です。
+  - FASTAに出たレコードとaccession、organism、record固有のTaxID、lineage、source情報の対応表です。
 - `*.fasta.source_merge.csv`
   - source 統合時の keep / skip を記録します。
   - `skip_reason=linked_by_insdcacs` は BOLD `insdcacs` が NCBI accession と strict match したため抑制されたことを意味します。
+- `*.fasta.manifest.json`
+  - バージョン、実行時刻、入力Taxon、検索クエリ、設定ファイルと出力ファイルのSHA-256を記録します。
 
 ## 逆引き (よくある目的別)
 ### Q. 目的のマーカー情報が登録されていない
@@ -367,12 +380,13 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 | `--workers` | なし | 抽出処理の並列数 |
 | `--out` | なし | 出力先 (省略時は `Results/db/YYYYMMDD/`) |
 | `--output-prefix` | なし | 出力FASTAファイル名のプレフィックス (default: `taxondbbuilder_`) |
+| `--export-format` | `[output].export_formats` | 下流ツール向け副生成物を追加 (`qiime2` / `dada2_species`のどちらか一方) |
 | `--dump-gb` | なし | GenBankチャンクを保存 (キャッシュ) |
 | `--from-gb` | なし | 保存済みGenBankチャンクから抽出 |
 | `--resume` | なし | キャッシュを優先して利用 |
 | `--dry-run` | なし | 実際の取得・抽出を行わず、生成されるNCBIクエリのみ表示 |
 | `--post-prep` | `db.toml` の `[post_prep]` | 生成FASTAに後処理を有効化 |
-| `--post-prep-step` | `db.toml` の `[post_prep]` | 実行する後処理カテゴリを選択 (`primer_trim` / `length_filter` / `duplicate_report`) |
+| `--post-prep-step` | `db.toml` の `[post_prep]` | 実行する後処理カテゴリを選択 (`primer_trim` / `length_filter` / `quality_filter` / `duplicate_report` / `msa_tree`) |
 | `--post-prep-primer-set` | `[post_prep].primer_file` | primer_trim で使う primer_set をCLIから指定 (複数可・config上書き) |
 
 ### 具体例 (設定とコマンドの対応)
@@ -418,6 +432,19 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dump-gb Re
 python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dry-run
 ```
 
+既存FASTAを保ったままQIIME 2用ファイルも生成:
+```bash
+python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 117570 -m 12s --export-format qiime2
+```
+
+DADA2 `assignSpecies`用ファイルを生成:
+```bash
+python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 117570 -m 12s \
+  --export-format dada2_species
+```
+
 post-prep を有効化 (primer trim + 長さフィルタ + 重複ACCレポート):
 ```bash
 python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --post-prep
@@ -443,7 +470,23 @@ primer_set の候補を一覧表示:
 python3 -m taxondbbuilder list-primer-sets -c configs/db.toml
 ```
 
+TaxIDごとの系統樹を作成する場合は、`[post_prep]` に以下を設定して実行します。
+
+```toml
+msa_tree_enable = true
+msa_tree_mode = "per_taxid"
+msa_tree_bootstrap_replicates = 1000
+```
+
+```bash
+python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 32443 -t 7777 -m 12s --post-prep --post-prep-step msa_tree
+```
+
 キャッシュは `Results/gb/.cache/` に保存されます。
+
+GenBankのresumeキャッシュはTaxIDと検索クエリごとに
+`Results/gb/.cache/taxid{ID}/query-{HASH}/`へ分離されます。
 
 ### taxid指定
 ```bash
@@ -486,13 +529,33 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
 - 出力先: `Results/db/YYYYMMDD/`
 - ファイル名: `taxid{ID}__{marker}.fasta` (複数指定時は `multi_taxon` / `multi_marker`)
 - 実行ログ: 出力FASTAと同名の `.log`
-- ACCと生物種名の対応表: `*.fasta.acc_organism.csv` (`acc_id, accession, organism_name, header`)
+- ACCと生物種名の対応表: `*.fasta.acc_organism.csv`（`organism_taxid`と`taxonomy_lineage`を含む）
+- source merge 対応表: `*.fasta.source_merge.csv`（NCBI/BOLDのsource、要求TaxID、record固有TaxID、lineage、accession、出力ヘッダーを記録）
+- 実行manifest: `*.fasta.manifest.json`
+
+`[output].export_formats` または `--export-format` 指定時:
+
+指定できる形式は一つだけです。
+
+- `qiime2`
+  - `*.fasta.qiime2.sequences.fasta`: 一意なFeature IDを持つ配列
+  - `*.fasta.qiime2.taxonomy.tsv`: `Feature ID<TAB>Taxon`形式
+  - Taxonには取得レコードのlineageと生物名を使い、lineageがない場合は生物名だけを使います。
+- `dada2_species`
+  - `*.fasta.dada2.species.fasta`: `>ID Genus species`形式
+  - 二名法として判定できないレコードは出力せず、件数をログに記録します。
+
+GUIではPMiFish、QIIME 2、DADA2から一つを選択でき、選択に合わせて
+`output.header_formats.mifish_pipeline`を`gb|{acc_id}|{organism}`、
+`{acc_id}`、または`{acc_id} {organism_raw}`へ切り替えます。
 
 `--post-prep` 指定時:
 - デフォルトでは、設定が存在するカテゴリを実行
   - `primer_trim` (primer設定がある場合)
   - `length_filter` (length設定がある場合)
+  - `quality_filter` (quality設定がある場合)
   - `duplicate_report` (常に実行)
+  - `msa_tree` (`msa_tree_enable = true` の場合、最後に実行)
 - `--post-prep-step` を指定した場合、指定カテゴリのみ実行
 - `[post_prep].primer_file + primer_set` 指定時、`primer_trim` カテゴリで primer trim を適用
 - `primer_set` は文字列または文字列配列で指定可能
@@ -502,6 +565,14 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
   - 逆向き配列も考慮し、`reverse`(5') + `forward`逆相補(3') の組み合わせも判定
   - IUPAC塩基 (`R`, `Y`, `N` など) を利用可能
 - `[post_prep].sequence_length_min/max` 指定時、`length_filter` カテゴリで配列長フィルタを適用
+- `[post_prep].quality_max_ambiguous_fraction`で曖昧塩基の許容率を0から1で指定
+- `[post_prep].quality_reject_invalid_iupac = true`で標準IUPAC DNA以外の塩基を除外
+- `[post_prep].duplicate_sequence_policy`は`keep`、`representative`、`exclude_conflicts`から選択
+- `quality_filter`の除外結果は`*.fasta.quality_rejected.csv`へ出力
+- `[post_prep].msa_tree_enable = true` 指定時、`kalign-python`によるDNA MSA (`*.msa.fasta`) と`piqtree`によるNewick系統樹 (`*.tree.nwk`) を出力
+- `[post_prep].msa_tree_mode = "combined"`（デフォルト）は全TaxIDをまとめて1本作成し、`"per_taxid"` はTaxIDごとに `*.taxid{ID}.msa.fasta` / `*.taxid{ID}.tree.nwk` を作成
+- `msa_tree_bootstrap_replicates`（デフォルト1000）でBootstrapを実行し、支持値をNewickの内部ノードラベルとして保存
+- GUIのResults画面では生成された系統樹をTaxIDごとのセレクタで切り替え、支持値を枝の上側に表示
 - FASTAヘッダーテンプレートに `{acc_id}` と `{organism_raw}` (または `{organism}`) が含まれる場合、同一配列の重複情報を以下に出力
 - `*.fasta.duplicate_acc.records.csv` (1レコード=1行の詳細)
 - `*.fasta.duplicate_acc.groups.csv` (重複グループの集約。`cross_organism_duplicate` を含む)
@@ -540,8 +611,9 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 
 ## キャッシュと再抽出
 - `--dump-gb` で **acc_idごとのGenBankファイル** を保存します。
-- キャッシュは `--dump-gb` 配下の `.cache/` に保存されます。
-- `--resume` は **キャッシュがある場合にそれを優先**して使います（出力は毎回新規に作り直します）。
+- NCBIキャッシュはTaxIDと検索クエリのハッシュごとに`--dump-gb/.cache/`へ保存します。
+- BOLDキャッシュは正規化した検索語と形式のハッシュごとに`--dump-gb/.cache/bold/`へ保存します。
+- `--resume`はNCBIとBOLDのキャッシュを優先して使います（出力は毎回新規に作り直します）。
 - `--from-gb` はネットワークを使わず、保存済みGenBankから抽出のみを実行します。
 
 ## 重複の扱い
@@ -579,8 +651,8 @@ build と post-prep の処理は sidecar 内の Python パッケージが担当�
 ### 1. Python実行環境を作成 (uv)
 リポジトリルートで実行します。
 ```bash
-uv python install 3.11
-uv venv --python 3.11
+uv python install 3.12
+uv venv --python 3.12
 source .venv/bin/activate
 uv pip install -r requirements-dev.txt
 ```
@@ -593,17 +665,17 @@ npm install
 ```
 
 ### 3. sidecar バイナリを作成
-まずリポジトリ直下で PyInstaller の sidecar バイナリを作成します。
-
-```bash
-.venv/bin/python -m PyInstaller taxondbbuilder.spec
-dist/taxondbbuilder --help
-```
-
-Tauri 用の名前と配置先にコピーする場合は、`tauri-gui/` から補助スクリプトを実行します。
+`build_sidecar.py` はPyInstallerで作成した実バイナリを、現在のOS/target triple用の
+`tauri-gui/src-tauri/bin/` へコピーします。
 
 ```bash
 python3 scripts/build_sidecar.py --repo-root .. --tauri-root .
+```
+
+実バイナリを作らずRust側だけを検証する場合はstubを配置できます。
+
+```bash
+python3 scripts/build_sidecar.py --repo-root .. --tauri-root . --stub
 ```
 
 ### 4. 開発モードで起動

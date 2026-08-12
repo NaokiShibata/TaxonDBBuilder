@@ -327,18 +327,6 @@ def prepare_bold_query(
     )
 
 
-def download_documents(
-    query_id: str, runtime_cfg: dict[str, Any], fmt: str = "json"
-) -> Any:
-    encoded_query_id = quote(query_id, safe="")
-    url = _build_url(
-        runtime_cfg["base_url"],
-        f"/documents/{encoded_query_id}/download",
-        {"format": fmt},
-    )
-    return _request_json(url, runtime_cfg)
-
-
 def download_documents_to_path(
     query_id: str,
     runtime_cfg: dict[str, Any],
@@ -603,6 +591,16 @@ def normalize_bold_row(
             "taxonomy_species",
         ],
     )
+    organism_taxid = _first_scalar(
+        raw_row, ["taxid", "tax_id", "ncbi_taxid", "taxonomy_taxid"]
+    )
+    taxonomy_lineage = []
+    for rank in ("kingdom", "phylum", "class", "order", "family", "genus"):
+        value = _first_scalar(raw_row, [rank, f"taxonomy_{rank}"])
+        if value and value not in taxonomy_lineage:
+            taxonomy_lineage.append(value)
+    if taxon_name and taxon_name not in taxonomy_lineage:
+        taxonomy_lineage.append(taxon_name)
 
     marker_key, marker_label = marker_match
     source_record_id = processid or sampleid or accession_raw
@@ -616,67 +614,10 @@ def normalize_bold_row(
         "sampleid": sampleid,
         "accession": accession_raw,
         "taxon_name": taxon_name,
+        "organism_taxid": organism_taxid,
+        "taxonomy_lineage": taxonomy_lineage,
         "marker_key": marker_key,
         "marker_label": marker_label,
         "sequence": sequence,
         "raw_row": raw_row,
     }
-
-
-def fetch_bold_records_for_taxon(
-    scientific_name: str,
-    marker_keys: list[str],
-    marker_map: dict[str, dict[str, Any]],
-    bold_cfg: dict[str, Any] | None = None,
-) -> tuple[list[dict[str, Any]], dict[str, Any]]:
-    prepared = prepare_bold_query(scientific_name, bold_cfg)
-    if prepared.specimen_count == 0:
-        return [], {
-            "raw_query": prepared.raw_query,
-            "normalized_query": prepared.normalized_query,
-            "specimen_count": 0,
-            "query_id": None,
-            "downloaded_rows": 0,
-            "matched_rows": 0,
-        }
-
-    if not prepared.query_id:
-        raise BoldApiError("BOLD query preparation did not return a query_id.")
-
-    format_name = prepared.download_format
-    if format_name == "json":
-        documents_payload = download_documents(
-            prepared.query_id, prepared.runtime_cfg, fmt="json"
-        )
-        rows = extract_document_rows(documents_payload)
-        download_meta: dict[str, Any] = {"format": "json"}
-    else:
-        download_path = Path(
-            f"/tmp/taxondbbuilder_bold_{hashlib.sha1(prepared.query_id.encode('utf-8')).hexdigest()[:16]}.tsv"
-        )
-        download_meta = download_documents_to_path(
-            prepared.query_id,
-            prepared.runtime_cfg,
-            download_path,
-            fmt=format_name,
-        )
-        rows = list(iter_document_rows_from_path(download_path, format_name))
-        download_path.unlink(missing_ok=True)
-
-    normalized_rows: list[dict[str, Any]] = []
-    for row in rows:
-        normalized = normalize_bold_row(row, marker_keys, marker_map)
-        if normalized:
-            normalized_rows.append(normalized)
-
-    stats = {
-        "raw_query": prepared.raw_query,
-        "normalized_query": prepared.normalized_query,
-        "specimen_count": prepared.specimen_count,
-        "query_id": prepared.query_id,
-        "download_format": format_name,
-        "download_meta": download_meta,
-        "downloaded_rows": len(rows),
-        "matched_rows": len(normalized_rows),
-    }
-    return normalized_rows, stats

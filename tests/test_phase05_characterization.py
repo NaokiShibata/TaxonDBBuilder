@@ -17,6 +17,11 @@ from .conftest import json_text, read_golden
 
 
 def _normalize_log(text: str, root: Path, tmp_path: Path) -> str:
+    text = re.sub(
+        r"(?m)^│ Config  │ .*\n(?:│         │ .*\n)*",
+        "│ Config  │ <CONFIG> │\n",
+        text,
+    )
     text = text.replace(str(root), "<ROOT>")
     text = _normalize_tmp_paths(text, tmp_path)
     text = re.sub(r"(?m)^(# (?:started|finished)): .*", r"\1: <TIMESTAMP>", text)
@@ -159,6 +164,7 @@ def test_build_bold_download_stub_matches_golden(
     fixture_dir: Path, golden_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder import bold, cli, ncbi
 
     payload = (
         "marker_code\tnucleotides\tprocessid\tsampleid\tinsdcacs\tspecies\n"
@@ -166,15 +172,15 @@ def test_build_bold_download_stub_matches_golden(
         "unknown\tTTTT\tBOLD002\tS002\t\tTestus beta\n"
     )
     monkeypatch.setattr(
-        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+        ncbi, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
     )
     monkeypatch.setattr(
-        builder,
+        cli,
         "prepare_bold_query",
         lambda *_args, **_kwargs: _stub_prepared_query(builder),
     )
     monkeypatch.setattr(
-        builder, "download_documents_to_path", _bold_download_stub(payload)
+        bold, "download_documents_to_path", _bold_download_stub(payload)
     )
 
     output = tmp_path / "bold.fasta"
@@ -204,10 +210,64 @@ def test_build_bold_download_stub_matches_golden(
     )
 
 
+def test_build_bold_resume_reuses_cached_download(
+    fixture_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import taxondbbuilder as builder
+    from taxondbbuilder import bold, cli, ncbi
+
+    payload = (
+        "marker_code\tnucleotides\tprocessid\tsampleid\tinsdcacs\tspecies\n"
+        "COI-5P\tAACCGG\tBOLD001\tS001\t\tTestus alpha\n"
+    )
+    downloads = {"count": 0}
+
+    def download(*args: Any, **kwargs: Any) -> dict[str, Any]:
+        downloads["count"] += 1
+        return _bold_download_stub(payload)(*args, **kwargs)
+
+    monkeypatch.setattr(
+        ncbi, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+    )
+    monkeypatch.setattr(
+        cli,
+        "prepare_bold_query",
+        lambda *_args, **_kwargs: _stub_prepared_query(builder),
+    )
+    monkeypatch.setattr(bold, "download_documents_to_path", download)
+    cache_dir = tmp_path / "cache"
+    base_args = [
+        "-c",
+        str(fixture_dir / "minimal_config.toml"),
+        "-t",
+        "999",
+        "-m",
+        "coi",
+        "--source",
+        "bold",
+        "--dump-gb",
+        str(cache_dir),
+    ]
+
+    first = _invoke_build(
+        CliRunner(), builder, [*base_args, "--out", str(tmp_path / "first.fasta")]
+    )
+    second = _invoke_build(
+        CliRunner(),
+        builder,
+        [*base_args, "--resume", "--out", str(tmp_path / "second.fasta")],
+    )
+
+    assert first.exit_code == second.exit_code == 0
+    assert downloads["count"] == 1
+    assert len(list((cache_dir / ".cache" / "bold").glob("query-*.tsv"))) == 1
+
+
 def test_build_both_strict_link_suppression_and_unlinked_record(
     fixture_dir: Path, golden_dir: Path, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder import bold, cli, ncbi
 
     gb_dir = tmp_path / "both-gb"
     gb_dir.mkdir()
@@ -218,15 +278,15 @@ def test_build_both_strict_link_suppression_and_unlinked_record(
         "12S\tCCCC\tBOLD-KEEP\tS002\tUNLINKED\tTestus beta\n"
     )
     monkeypatch.setattr(
-        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+        ncbi, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
     )
     monkeypatch.setattr(
-        builder,
+        cli,
         "prepare_bold_query",
         lambda *_args, **_kwargs: _stub_prepared_query(builder),
     )
     monkeypatch.setattr(
-        builder, "download_documents_to_path", _bold_download_stub(payload)
+        bold, "download_documents_to_path", _bold_download_stub(payload)
     )
 
     output = tmp_path / "both.fasta"
@@ -307,12 +367,11 @@ def test_build_post_prep_matches_fasta_sidecars_and_duplicate_reports(
 @pytest.mark.parametrize(
     ("extra_args", "message"),
     [
-        (["--source", "bold", "--dump-gb", "dump"], "not supported with --source bold"),
         (
             ["--source", "bold", "--from-gb", "tests/fixtures"],
             "not supported with --source bold",
         ),
-        (["--source", "bold", "--resume"], "not supported with --source bold"),
+        (["--source", "bold", "--resume"], "--resume requires --dump-gb"),
         (["--resume"], "--resume requires --dump-gb or --from-gb"),
     ],
 )
@@ -323,9 +382,10 @@ def test_build_rejects_invalid_cache_options(
     monkeypatch: pytest.MonkeyPatch,
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder import ncbi
 
     monkeypatch.setattr(
-        builder, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
+        ncbi, "fetch_taxonomy_scientific_name", lambda _taxid: "Testus alpha"
     )
     kwargs = {
         "config": fixture_dir / "minimal_config.toml",
@@ -402,11 +462,12 @@ def test_apply_post_prep_primer_trim_vsearch_branch_is_stubbed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     import taxondbbuilder as builder
+    from taxondbbuilder.postprep import primer_trim
 
     fasta = tmp_path / "vsearch.fasta"
     fasta.write_text(">record\nACGTGGGG\n", encoding="utf-8")
     monkeypatch.setattr(
-        builder,
+        primer_trim,
         "run_vsearch_endpoint_recheck",
         lambda *args, **kwargs: (1, 0, "stubbed"),
     )
@@ -488,7 +549,9 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     )
     assert count == 5
     assert list(chunks) == [(0, "chunk-0"), (2, "chunk-2"), (4, "chunk-4")]
-    assert sorted(path.name for path in (dump_dir / ".cache").iterdir()) == [
+    query_cache = next((dump_dir / ".cache" / "taxid999").iterdir())
+    assert query_cache.name.startswith("query-")
+    assert sorted(path.name for path in query_cache.iterdir()) == [
         "start000000000_count0002.cache",
         "start000000002_count0002.cache",
         "start000000004_count0002.cache",
@@ -503,3 +566,95 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     assert count == 5
     assert list(chunks) == [(0, "chunk-0"), (2, "chunk-2"), (4, "chunk-4")]
     assert fetch_calls == []
+
+
+def test_fetch_genbank_resume_cache_is_isolated_by_taxid(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import taxondbbuilder as builder
+
+    fetch_calls: list[dict[str, Any]] = []
+
+    def esearch(**kwargs: Any):
+        return _FakeHandle(
+            {
+                "Count": "1",
+                "WebEnv": kwargs["term"],
+                "QueryKey": "1",
+            }
+        )
+
+    def read(handle: _FakeHandle):
+        return handle.payload
+
+    def efetch(**kwargs: Any):
+        fetch_calls.append(kwargs)
+        return _FakeHandle(f"chunk-{kwargs['webenv']}")
+
+    monkeypatch.setattr(builder.Entrez, "esearch", esearch)
+    monkeypatch.setattr(builder.Entrez, "read", read)
+    monkeypatch.setattr(builder.Entrez, "efetch", efetch)
+    monkeypatch.setattr(builder.time, "sleep", lambda _seconds: None)
+
+    cfg = {
+        "db": "nucleotide",
+        "rettype": "gb",
+        "retmode": "text",
+        "per_query": 100,
+    }
+    dump_dir = tmp_path / "gb-cache"
+
+    first_count, first_chunks = builder.fetch_genbank(
+        "query-first",
+        cfg,
+        0,
+        dump_dir=dump_dir,
+        resume=True,
+        taxid="111",
+    )
+    second_count, second_chunks = builder.fetch_genbank(
+        "query-second",
+        cfg,
+        0,
+        dump_dir=dump_dir,
+        resume=True,
+        taxid="222",
+    )
+
+    assert first_count == second_count == 1
+    assert list(first_chunks) == [(0, "chunk-query-first")]
+    assert list(second_chunks) == [(0, "chunk-query-second")]
+    assert [call["webenv"] for call in fetch_calls] == [
+        "query-first",
+        "query-second",
+    ]
+    assert next((dump_dir / ".cache" / "taxid111").glob("query-*/start*.cache"))
+    assert next((dump_dir / ".cache" / "taxid222").glob("query-*/start*.cache"))
+
+
+def test_fetch_genbank_resume_cache_is_isolated_by_query(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import taxondbbuilder as builder
+
+    def esearch(**kwargs: Any):
+        return _FakeHandle({"Count": "1", "WebEnv": kwargs["term"], "QueryKey": "1"})
+
+    monkeypatch.setattr(builder.Entrez, "esearch", esearch)
+    monkeypatch.setattr(builder.Entrez, "read", lambda handle: handle.payload)
+    monkeypatch.setattr(
+        builder.Entrez,
+        "efetch",
+        lambda **kwargs: _FakeHandle(f"chunk-{kwargs['webenv']}"),
+    )
+    monkeypatch.setattr(builder.time, "sleep", lambda _seconds: None)
+    cfg = {"db": "nucleotide", "rettype": "gb", "retmode": "text", "per_query": 100}
+    dump_dir = tmp_path / "gb-cache"
+
+    for query in ("query-first", "query-second"):
+        _, chunks = builder.fetch_genbank(
+            query, cfg, 0, dump_dir=dump_dir, resume=True, taxid="999"
+        )
+        assert list(chunks) == [(0, f"chunk-{query}")]
+
+    assert len(list((dump_dir / ".cache" / "taxid999").glob("query-*"))) == 2

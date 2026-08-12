@@ -93,7 +93,7 @@ python3 tools/build_taxonomy_db.py build-sqlite \
   --out-db tauri-gui/resources/taxonomy.db
 ```
 
-> GUI実行経路はRust統合済みのため、GUIビルド/実行だけであればPythonランタイムは不要です。
+> 配布済みsidecarを使って実行するだけならPythonランタイムは不要です。sidecarを作成する場合は、リポジトリルートでPython依存を導入してください。
 
 続けて `tauri-gui/` でGUIをビルドします。
 
@@ -102,8 +102,16 @@ python3 tools/build_taxonomy_db.py build-sqlite \
 cd tauri-gui
 # 依存パッケージをすべてインストール
 npm install
+# Python sidecarを作成してsrc-tauri/binへ配置
+python3 scripts/build_sidecar.py --repo-root .. --tauri-root .
 # Build
 npm run tauri:build
+```
+
+オフラインでRust側だけを確認する場合は、実バイナリの代わりにstubを配置できます。
+
+```bash
+python3 scripts/build_sidecar.py --repo-root .. --tauri-root . --stub
 ```
 
 ### 実行
@@ -171,15 +179,24 @@ sequence_length_max = 30000
 
 # Optional post-processing for the generated FASTA.
 [post_prep]
+# GUIのMSA/系統樹ラジオボタンに対応する設定。
+# combined: 全TaxIDをまとめて1本、per_taxid: TaxIDごとに1本。
+msa_tree_enable = true
+msa_tree_mode = "per_taxid"
+msa_tree_bootstrap_replicates = 1000
 # Enable with CLI option: --post-prep
 # Runtime step selection example:
 # --post-prep-step primer_trim --post-prep-step duplicate_report
 # Parameters are required only for enabled steps:
 # - length_filter: sequence_length_min + sequence_length_max
+# - quality_filter: one or more quality_* / duplicate_sequence_policy options
 # - primer_trim: primer_file + primer_set
 # primer candidates: `python3 taxondbbuilder.py list-primer-sets -c configs/db.toml`
 sequence_length_min = 120
 # sequence_length_max = 300
+# quality_max_ambiguous_fraction = 0.05
+# quality_reject_invalid_iupac = true
+# duplicate_sequence_policy = "exclude_conflicts"
 primer_file = "<Path to TaxonDBBuilder repo>/configs/primers.toml"
 primer_set = ["mifish_u","mifish_ev2","mifish_u2","mifish_l"]
 ```
@@ -188,9 +205,23 @@ primer_set = ["mifish_u","mifish_ev2","mifish_u2","mifish_l"]
 
 設定情報は`~/.taxondb_gui/config.json`に自動保存されます。API keyは`save api_key`をオフにすると保存されません。
 
+読み込んだ`db.toml`のGUI未対応項目と独自マーカー定義は、実行用設定にも保持されます。
+Resume用キャッシュは出力ルートの`.taxondbbuilder-cache/gb`でジョブ間共有されます。
+
 ![](figures/TaxonDBBuilderGUI02.drawio.png)
 
 情報を入力できたら**Run**をクリックしてダウンロードを開始します。
+
+`Output Options > Output file format`では、PMiFish、QIIME 2、DADA2から
+一つを選択できます。選択すると`output.header_formats.mifish_pipeline`が
+PMiFishの`gb|{acc_id}|{organism}`、QIIME 2の`{acc_id}`、または
+DADA2の`{acc_id} {organism_raw}`へ切り替わります。
+
+Post Prepの `MSA / 系統樹構築` では、`実行しない`、`全TaxIDをまとめて1本`、
+`TaxIDごとに作成` を選択できます。
+TaxIDごとのモードでは、Resultsに `*.taxid{ID}.tree.nwk` と対応するMSAが出力され、
+系統樹ビューアのセレクタから表示対象を切り替えられます。
+Bootstrap支持値は枝の上側に表示されるため、葉の配列名とは重なりません。
 
 `Run Monitor`のタブに移行します。こちらではダウンロード状況をRealtime Logウィンドウで確認することが可能です。また、止めたければCancelボタンを押せば止まります。
 
@@ -215,6 +246,9 @@ primer_set = ["mifish_u","mifish_ev2","mifish_u2","mifish_l"]
             ├── MiFish_20260225232416.fasta.acc_organism.csv
             ├── MiFish_20260225232416.fasta.duplicate_acc.groups.csv
             ├── MiFish_20260225232416.fasta.duplicate_acc.records.csv
+            ├── MiFish_20260225232416.fasta.source_merge.csv
+            ├── MiFish_20260225232416.fasta.taxid1476529.tree.nwk
+            ├── MiFish_20260225232416.fasta.taxid32443.msa.fasta
             └── MiFish_20260225232416.fasta.log
 ```
 

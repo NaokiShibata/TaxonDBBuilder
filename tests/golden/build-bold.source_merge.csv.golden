@@ -1,2 +1,2 @@
-source,source_record_id,acc_id,accession,processid,sampleid,organism_name,marker_key,marker_label,linked_to_ncbi,emitted_to_fasta,skip_reason,header
-bold,BOLD001,BOLD_BOLD001,BOLDACC,BOLD001,S001,Testus alpha,coi,COI-5P,false,true,,BOLD_BOLD001|Testus alpha|coi|COI-5P|barcode||
+source,source_record_id,taxid,organism_taxid,taxonomy_lineage,acc_id,accession,processid,sampleid,organism_name,marker_key,marker_label,linked_to_ncbi,emitted_to_fasta,skip_reason,header
+bold,BOLD001,999,,Testus alpha,BOLD_BOLD001,BOLDACC,BOLD001,S001,Testus alpha,coi,COI-5P,false,true,,BOLD_BOLD001|Testus alpha|coi|COI-5P|barcode||

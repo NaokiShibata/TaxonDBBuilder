@@ -8,7 +8,6 @@
   "confidence_medium": 2,
   "dropped_empty": 1,
   "high_conf_rate": 0.4,
-  "phylo_target_confidence": "medium",
   "recheck_attempted": 0,
   "recheck_error": null,
   "recheck_rescued": 0,

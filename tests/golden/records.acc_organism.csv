@@ -1,4 +1,4 @@
-acc_id,accession,organism_name,header,source,source_record_id,processid,sampleid,marker_key,linked_to_ncbi,emitted_to_fasta,skip_reason
-AB123.1,AB123.1,Alpha fish,AB123.1|Alpha fish|coi,ncbi,AB123.1,,,coi,false,true,
-BOLD_PRC002,GB456,Beta fish,BOLD_PRC002|Beta fish|coi,bold,PRC002,PRC002,SAM002,coi,false,true,
-CD789.1,CD789.1,Gamma fish,CD789.1|Gamma fish|12s,ncbi,CD789.1,,,12s,false,true,
+acc_id,accession,organism_name,organism_taxid,taxonomy_lineage,header,source,source_record_id,processid,sampleid,marker_key,linked_to_ncbi,emitted_to_fasta,skip_reason
+AB123.1,AB123.1,Alpha fish,,,AB123.1|Alpha fish|coi,ncbi,AB123.1,,,coi,false,true,
+BOLD_PRC002,GB456,Beta fish,,,BOLD_PRC002|Beta fish|coi,bold,PRC002,PRC002,SAM002,coi,false,true,
+CD789.1,CD789.1,Gamma fish,,,CD789.1|Gamma fish|12s,ncbi,CD789.1,,,12s,false,true,

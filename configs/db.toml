@@ -28,6 +28,9 @@ simple = "{acc_id}|{marker}|{loc}"
 verbose = "{acc_id}|{organism_raw}|{marker_raw}|{label_raw}|{type_raw}|{loc}|{strand}"
 mifish_pipeline = "{db}|{acc_id}|{organism}"
 
+# Optional downstream exports. The primary PMiFish-compatible FASTA is unchanged.
+# export_formats = ["qiime2"]  # qiime2 または dada2_species のどちらか一方
+
 # Taxon options
 [taxon]
 # If true, do not expand descendants in taxon search.
@@ -58,10 +61,14 @@ file = "configs/markers_mitogenome.toml"
 # --post-prep-step primer_trim --post-prep-step duplicate_report
 # Parameters are required only for enabled steps:
 # - length_filter: sequence_length_min or sequence_length_max
+# - quality_filter: one or more quality_* / duplicate_sequence_policy options
 # - primer_trim: primer_file + primer_set
 # primer candidates: `python3 taxondbbuilder.py list-primer-sets -c configs/db.toml`
 # sequence_length_min = 120
 # sequence_length_max = 300
+# quality_max_ambiguous_fraction = 0.05
+# quality_reject_invalid_iupac = true
+# duplicate_sequence_policy = "exclude_conflicts" # keep / representative / exclude_conflicts
 primer_file = "configs/primers.toml"
 # primer_set = "mifish_u"
 # primer_set = ["mifish_u", "mifish_ev2"]

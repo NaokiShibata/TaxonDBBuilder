@@ -5,8 +5,7 @@
 ┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃ Item    ┃ Value                                                              ┃
 ┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ Config  │ <ROOT>/tests/fixtu │
-│         │ res/minimal_config.toml                                            │
+│ Config  │ <CONFIG> │
 │ Source  │ both                                                               │
 │ Taxids  │ 999                                                                │
 │ Markers │ 12s                                                                │
@@ -41,6 +40,7 @@
 # source_merge_csv: <TMP>/both.fasta.source_merge.csv
 # acc_organism_map: total=2 mapped=2 unmapped=0 unused_source_records=0 unique_accessions=2 unique_organisms=2
 # acc_organism_map_csv: <TMP>/both.fasta.acc_organism.csv
+# manifest: <TMP>/both.fasta.manifest.json
 # total records: 4
 # matched records: 3
 # matched features: 3
@@ -68,3 +68,6 @@ rganism.csv
 Source merge CSV: 
 <TMP>/both.fasta.sourc
 e_merge.csv
+Run manifest: 
+<TMP>/both.fasta.manif
+est.json

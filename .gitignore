@@ -37,8 +37,11 @@ Thumbs.db
 tauri-gui/node_modules/
 tauri-gui/dist/
 tauri-gui/src-tauri/target/
+tauri-gui/src-tauri/gen/
 tauri-gui/src-tauri/bin/taxondbbuilder-*
 tauri-gui/scripts/__pycache__/
+tauri-gui/resources
 
 # Large taxonomy file
 taxonomy.db
+taxdump/

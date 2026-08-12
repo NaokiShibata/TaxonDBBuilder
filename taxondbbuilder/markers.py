@@ -22,54 +22,6 @@ def normalize_marker_map(
         feature_fields = cfg.get("feature_fields")
         aliases = cfg.get("aliases") or []
         bold_cfg = cfg.get("bold") or {}
-        if not isinstance(phrases, list):
-            raise typer.BadParameter(
-                f"markers.{key}.phrases must be a list of strings."
-            )
-        if any(not isinstance(item, str) for item in phrases):
-            raise typer.BadParameter(
-                f"markers.{key}.phrases must contain only strings."
-            )
-        if not isinstance(terms, list):
-            raise typer.BadParameter(f"markers.{key}.terms must be a list of strings.")
-        if any(not isinstance(item, str) for item in terms):
-            raise typer.BadParameter(f"markers.{key}.terms must contain only strings.")
-        if not isinstance(region_patterns, list):
-            raise typer.BadParameter(
-                f"markers.{key}.region_patterns must be a list of strings."
-            )
-        if any(not isinstance(item, str) for item in region_patterns):
-            raise typer.BadParameter(
-                f"markers.{key}.region_patterns must contain only strings."
-            )
-        if not isinstance(aliases, list):
-            raise typer.BadParameter(
-                f"markers.{key}.aliases must be a list of strings."
-            )
-        if any(not isinstance(item, str) for item in aliases):
-            raise typer.BadParameter(
-                f"markers.{key}.aliases must contain only strings."
-            )
-        if feature_types is not None and not isinstance(feature_types, list):
-            raise typer.BadParameter(
-                f"markers.{key}.feature_types must be a list of strings."
-            )
-        if feature_types is not None and any(
-            not isinstance(item, str) for item in feature_types
-        ):
-            raise typer.BadParameter(
-                f"markers.{key}.feature_types must contain only strings."
-            )
-        if feature_fields is not None and not isinstance(feature_fields, list):
-            raise typer.BadParameter(
-                f"markers.{key}.feature_fields must be a list of strings."
-            )
-        if feature_fields is not None and any(
-            not isinstance(item, str) for item in feature_fields
-        ):
-            raise typer.BadParameter(
-                f"markers.{key}.feature_fields must contain only strings."
-            )
         if bold_cfg and not isinstance(bold_cfg, dict):
             raise typer.BadParameter(f"markers.{key}.bold must be a table (dict).")
         marker_codes = (
@@ -77,14 +29,25 @@ def normalize_marker_map(
         )
         if marker_codes is None:
             marker_codes = []
-        if not isinstance(marker_codes, list):
-            raise typer.BadParameter(
-                f"markers.{key}.bold.marker_codes must be a list of strings."
-            )
-        if any(not isinstance(item, str) for item in marker_codes):
-            raise typer.BadParameter(
-                f"markers.{key}.bold.marker_codes must contain only strings."
-            )
+        for name, values in (
+            ("phrases", phrases),
+            ("terms", terms),
+            ("region_patterns", region_patterns),
+            ("aliases", aliases),
+            ("feature_types", feature_types),
+            ("feature_fields", feature_fields),
+            ("bold.marker_codes", marker_codes),
+        ):
+            if values is None:
+                continue
+            if not isinstance(values, list):
+                raise typer.BadParameter(
+                    f"markers.{key}.{name} must be a list of strings."
+                )
+            if any(not isinstance(item, str) for item in values):
+                raise typer.BadParameter(
+                    f"markers.{key}.{name} must contain only strings."
+                )
         if uses_ncbi and not phrases and not terms:
             raise typer.BadParameter(
                 f"markers.{key} must define phrases or terms when source uses NCBI."

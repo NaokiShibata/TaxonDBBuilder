@@ -2,10 +2,9 @@
 
 import csv
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
-from string import Formatter
 from threading import Lock
 from typing import Any
 
@@ -15,7 +14,6 @@ DEFAULT_FEATURE_TYPES = ["rRNA", "gene", "CDS"]
 DEFAULT_FEATURE_FIELDS = ["gene", "product", "note", "standard_name"]
 DEFAULT_HEADER_FORMAT = "{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}"
 DEFAULT_BOLD_HEADER_FORMAT = "bold|{acc_id}|{organism}"
-FORMATTER = Formatter()
 IUPAC_DNA_VALUES = {k.upper(): v.upper() for k, v in ambiguous_dna_values.items()}
 IUPAC_DNA_VALUES["U"] = "T"
 
@@ -23,13 +21,20 @@ IUPAC_DNA_VALUES["U"] = "T"
 class PostPrepStep(str, Enum):
     PRIMER_TRIM = "primer_trim"
     LENGTH_FILTER = "length_filter"
+    QUALITY_FILTER = "quality_filter"
     DUPLICATE_REPORT = "duplicate_report"
+    MSA_TREE = "msa_tree"
 
 
 class BuildSource(str, Enum):
     NCBI = "ncbi"
     BOLD = "bold"
     BOTH = "both"
+
+
+class ExportFormat(str, Enum):
+    QIIME2 = "qiime2"
+    DADA2_SPECIES = "dada2_species"
 
 
 @dataclass(frozen=True)
@@ -56,12 +61,17 @@ class CanonicalRecord:
     linked_to_ncbi: bool = False
     emitted_to_fasta: bool = True
     skip_reason: str | None = None
+    taxid: str | None = None
+    organism_taxid: str | None = None
+    taxonomy_lineage: list[str] = field(default_factory=list)
 
 
 POST_PREP_STEP_ORDER = [
     PostPrepStep.PRIMER_TRIM.value,
     PostPrepStep.LENGTH_FILTER.value,
+    PostPrepStep.QUALITY_FILTER.value,
     PostPrepStep.DUPLICATE_REPORT.value,
+    PostPrepStep.MSA_TREE.value,
 ]
 
 PRIMER_TRIM_MODE_BOTH_REQUIRED = "both_required"
@@ -78,6 +88,9 @@ def build_source_merge_row(record: CanonicalRecord, header: str = "") -> dict[st
     return {
         "source": record.source,
         "source_record_id": record.source_record_id,
+        "taxid": record.taxid or "",
+        "organism_taxid": record.organism_taxid or "",
+        "taxonomy_lineage": "; ".join(record.taxonomy_lineage),
         "acc_id": record.header_values.get("acc_id", ""),
         "accession": record.accession or "",
         "processid": record.processid or "",
@@ -101,7 +114,10 @@ def canonical_record_sort_key(record: CanonicalRecord) -> tuple[str, str, str]:
 
 
 def canonical_record_to_dict(record: CanonicalRecord) -> dict[str, Any]:
-    return asdict(record)
+    data = asdict(record)
+    if record.taxid is None:
+        data.pop("taxid", None)
+    return data
 
 
 def canonical_record_from_dict(data: dict[str, Any]) -> CanonicalRecord:
@@ -150,6 +166,9 @@ def write_source_merge_csv(fasta_path: Path, rows: list[dict[str, str]]) -> Path
             fieldnames=[
                 "source",
                 "source_record_id",
+                "taxid",
+                "organism_taxid",
+                "taxonomy_lineage",
                 "acc_id",
                 "accession",
                 "processid",

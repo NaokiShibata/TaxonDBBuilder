@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import io
+import json
 from pathlib import Path
 from threading import Lock
 
+import pytest
 from rich.progress import Progress
 
 from .conftest import json_text, read_golden
@@ -139,6 +141,25 @@ def test_extract_ncbi_records_from_minimal_genbank_fixture(
     assert json_text(actual) == read_golden(golden_dir, "genbank-records.json")
 
 
+def test_ncbi_record_taxonomy_uses_source_taxid_and_lineage():
+    from Bio.Seq import Seq
+    from Bio.SeqFeature import FeatureLocation, SeqFeature
+    from Bio.SeqRecord import SeqRecord
+
+    from taxondbbuilder.ncbi import _record_taxonomy
+
+    record = SeqRecord(Seq("ACGT"))
+    record.features = [
+        SeqFeature(
+            FeatureLocation(0, 4),
+            type="source",
+            qualifiers={"db_xref": ["BioProject:1", "taxon:123"]},
+        )
+    ]
+    record.annotations["taxonomy"] = ["Eukaryota", "Metazoa"]
+    assert _record_taxonomy(record) == ("123", ["Eukaryota", "Metazoa"])
+
+
 def test_emit_and_sidecar_csv_outputs_match_golden(tmp_path: Path, golden_dir: Path):
     import taxondbbuilder as builder
 
@@ -193,3 +214,141 @@ def test_length_filter_characterization(tmp_path: Path):
         "removed": 2,
     }
     assert path.read_text(encoding="utf-8") == ">keep\nAAAA\n"
+
+
+def test_interoperability_exports_preserve_primary_fasta(tmp_path: Path):
+    import taxondbbuilder as builder
+
+    fasta_path = tmp_path / "sample.fasta"
+    fasta_text = (
+        ">gb|AB123.1|Alpha_fish\nAACCGGTT\n"
+        ">bold|BOLD_PRC002|unknown\nTTTTGGGG\n"
+        ">gb|AB123.1_dup|Beta_fish\nCCCCAAAA\n"
+    )
+    fasta_path.write_text(fasta_text, encoding="utf-8")
+    emitted = [
+        {
+            "header": "gb|AB123.1|Alpha_fish",
+            "acc_id": "AB123.1",
+            "organism_name": "Alpha fish",
+            "taxonomy_lineage": "Eukaryota; Metazoa",
+        },
+        {
+            "header": "bold|BOLD_PRC002|unknown",
+            "acc_id": "BOLD_PRC002",
+            "organism_name": "unknown",
+        },
+        {
+            "header": "gb|AB123.1_dup|Beta_fish",
+            "acc_id": "AB123.1",
+            "organism_name": "Beta fish subspecies",
+        },
+    ]
+
+    qiime2_result = builder.write_interoperability_exports(
+        fasta_path, emitted, [builder.ExportFormat.QIIME2]
+    )[0]
+    dada2_result = builder.write_interoperability_exports(
+        fasta_path, emitted, [builder.ExportFormat.DADA2_SPECIES]
+    )[0]
+
+    assert fasta_path.read_text(encoding="utf-8") == fasta_text
+    assert qiime2_result["exported_records"] == 3
+    assert qiime2_result["skipped_records"] == 0
+    assert dada2_result["exported_records"] == 2
+    assert dada2_result["skipped_records"] == 1
+    assert (
+        tmp_path / "sample.fasta.qiime2.sequences.fasta"
+    ).read_text(encoding="utf-8") == (
+        ">AB123.1\nAACCGGTT\n"
+        ">BOLD_PRC002\nTTTTGGGG\n"
+        ">AB123.1__2\nCCCCAAAA\n"
+    )
+    assert (tmp_path / "sample.fasta.qiime2.taxonomy.tsv").read_text(
+        encoding="utf-8"
+    ) == (
+        "Feature ID\tTaxon\n"
+        "AB123.1\tEukaryota; Metazoa; Alpha fish\n"
+        "BOLD_PRC002\tunknown\n"
+        "AB123.1__2\tBeta fish subspecies\n"
+    )
+    assert (tmp_path / "sample.fasta.dada2.species.fasta").read_text(
+        encoding="utf-8"
+    ) == (
+        ">AB123.1 Alpha fish\nAACCGGTT\n"
+        ">AB123.1__2 Beta fish\nCCCCAAAA\n"
+    )
+    with pytest.raises(ValueError, match="Only one output export format"):
+        builder.write_interoperability_exports(
+            fasta_path,
+            emitted,
+            [builder.ExportFormat.QIIME2, builder.ExportFormat.DADA2_SPECIES],
+        )
+
+
+def test_quality_filter_rejects_invalid_ambiguous_and_conflicting_sequences(
+    tmp_path: Path,
+) -> None:
+    import taxondbbuilder as builder
+
+    fasta_path = tmp_path / "quality.fasta"
+    fasta_path.write_text(
+        ">alpha\nACGT\n"
+        ">beta\nACGT\n"
+        ">ambiguous\nACGTN\n"
+        ">invalid\nACGTX\n"
+        ">kept\nAACCGG\n",
+        encoding="utf-8",
+    )
+    emitted = [
+        {"header": "alpha", "organism_name": "Alpha fish"},
+        {"header": "beta", "organism_name": "Beta fish"},
+        {"header": "ambiguous", "organism_name": "Alpha fish"},
+        {"header": "invalid", "organism_name": "Alpha fish"},
+        {"header": "kept", "organism_name": "Gamma fish"},
+    ]
+
+    result = builder.apply_post_prep_quality_filter(
+        fasta_path,
+        emitted,
+        max_ambiguous_fraction=0.1,
+        reject_invalid_iupac=True,
+        duplicate_policy="exclude_conflicts",
+    )
+
+    assert result["after"] == 1
+    assert fasta_path.read_text(encoding="utf-8") == ">kept\nAACCGG\n"
+    report = result["report_path"].read_text(encoding="utf-8")
+    assert "taxonomy_conflict" in report
+    assert "too_many_ambiguous_bases" in report
+    assert "invalid_iupac:X" in report
+
+
+def test_run_manifest_records_queries_and_output_hashes(tmp_path: Path) -> None:
+    import taxondbbuilder as builder
+
+    config_path = tmp_path / "db.toml"
+    fasta_path = tmp_path / "db.fasta"
+    config_path.write_text("[markers]\n", encoding="utf-8")
+    fasta_path.write_text(">id\nACGT\n", encoding="utf-8")
+
+    manifest_path = builder.write_run_manifest(
+        fasta_path,
+        config_path,
+        source="ncbi",
+        taxon_inputs=["Testus alpha"],
+        resolved_taxa=[
+            builder.ResolvedTaxon("Testus alpha", "999", "Testus alpha")
+        ],
+        markers=["12s"],
+        ncbi_queries=["txid999[Organism]"],
+        bold_queries=[],
+        output_paths=[fasta_path],
+    )
+
+    payload = json.loads(manifest_path.read_text(encoding="utf-8"))
+    assert payload["schema_version"] == 1
+    assert payload["queries"]["ncbi"] == ["txid999[Organism]"]
+    assert payload["outputs"][0]["sha256"] == (
+        "2b0cb032faef8581ff7c3bc62ead49b29ca475bff579322d17c23088f1369c7d"
+    )

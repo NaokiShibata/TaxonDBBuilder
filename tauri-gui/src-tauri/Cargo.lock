@@ -3857,10 +3857,7 @@ name = "taxondbbuilder-gui"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "dirs",
- "once_cell",
  "open",
- "regex",
  "rfd",
  "rusqlite",
  "serde",

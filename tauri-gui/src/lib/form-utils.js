@@ -1,13 +1,3 @@
-export const DEFAULTS = {
-  outputPrefix: "MiFish",
-  ncbiDb: "nucleotide",
-  ncbiRettype: "gb",
-  ncbiRetmode: "text",
-  ncbiPerQuery: 100,
-  defaultHeaderFormat: "{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}",
-  mifishHeaderFormat: "{db}|{acc_id}|{organism}"
-};
-
 export function parseIntOrNull(value) {
   const v = `${value}`.trim();
   if (!v) return null;
@@ -20,13 +10,6 @@ export function parseFloatOrNull(value) {
   if (!v) return null;
   const parsed = Number.parseFloat(v);
   return Number.isNaN(parsed) ? null : parsed;
-}
-
-export function parseCommaSeparatedList(value) {
-  return `${value}`
-    .split(",")
-    .map((item) => item.trim())
-    .filter(Boolean);
 }
 
 export function readCheckedValues(elements) {

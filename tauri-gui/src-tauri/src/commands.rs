@@ -14,8 +14,8 @@ use std::thread;
 use tauri::{AppHandle, State};
 
 #[tauri::command]
-pub(crate) fn load_gui_config() -> Result<GuiConfig, String> {
-    let path = ensure_gui_config_parent()?;
+pub(crate) fn load_gui_config(app: AppHandle) -> Result<GuiConfig, String> {
+    let path = ensure_gui_config_parent(&app)?;
     if !path.exists() {
         return Ok(GuiConfig::default());
     }
@@ -31,8 +31,8 @@ pub(crate) fn load_gui_config() -> Result<GuiConfig, String> {
 }
 
 #[tauri::command]
-pub(crate) fn save_gui_config(config: GuiConfig) -> Result<(), String> {
-    save_gui_config_internal(&config)
+pub(crate) fn save_gui_config(app: AppHandle, config: GuiConfig) -> Result<(), String> {
+    save_gui_config_internal(&app, &config)
 }
 
 #[tauri::command]
@@ -157,6 +157,28 @@ pub(crate) fn open_path(path: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+pub(crate) fn read_text_file(path: String) -> Result<String, String> {
+    let target = PathBuf::from(path.trim());
+    if target.as_os_str().is_empty() {
+        return Err("path is required".to_string());
+    }
+    fs::read_to_string(&target).map_err(|e| format!("failed to read {}: {e}", target.display()))
+}
+
+#[tauri::command]
+pub(crate) fn save_svg_file(content: String) -> Result<Option<String>, String> {
+    if content.trim().is_empty() {
+        return Err("SVG content is required".to_string());
+    }
+    let selected = FileDialog::new().add_filter("SVG", &["svg"]).save_file();
+    let Some(path) = selected else {
+        return Ok(None);
+    };
+    fs::write(&path, content).map_err(|e| format!("failed to write {}: {e}", path.display()))?;
+    Ok(Some(path.to_string_lossy().to_string()))
+}
+
+#[tauri::command]
 pub(crate) fn cancel_run(state: State<AppState>) -> Result<(), String> {
     let run = {
         let slot = state
@@ -200,6 +222,7 @@ pub(crate) fn start_run(
     if source_uses_ncbi(&build_source) && req.email.trim().is_empty() {
         return Err("email is required for ncbi/both".to_string());
     }
+    let workers = resolve_worker_count(req.workers);
 
     {
         let slot = state
@@ -219,7 +242,7 @@ pub(crate) fn start_run(
         output_root: req.output_root.clone(),
         output_prefix: req.output_prefix.clone(),
         marker: req.markers.first().cloned().unwrap_or_default(),
-        workers: req.workers,
+        workers,
         ncbi_db: req.ncbi_options.db.clone(),
         ncbi_rettype: req.ncbi_options.rettype.clone(),
         ncbi_retmode: req.ncbi_options.retmode.clone(),
@@ -228,8 +251,9 @@ pub(crate) fn start_run(
         ncbi_delay_sec: req.ncbi_options.delay_sec,
         output_default_header_format: req.output_options.default_header_format.clone(),
         output_mifish_header_format: req.output_options.mifish_header_format.clone(),
+        output_export_formats: req.output_options.export_formats.clone(),
     };
-    save_gui_config_internal(&gui_config)?;
+    save_gui_config_internal(&app, &gui_config)?;
 
     let output_root = PathBuf::from(req.output_root.trim());
     fs::create_dir_all(&output_root)
@@ -237,7 +261,7 @@ pub(crate) fn start_run(
 
     let (job_id, job_dir) = prepare_job_dir(&output_root)?;
     let config_dir = job_dir.join("config");
-    let gb_dir = job_dir.join("gb");
+    let gb_dir = output_root.join(".taxondbbuilder-cache").join("gb");
     let results_dir = job_dir.join("Results");
     fs::create_dir_all(&gb_dir)
         .map_err(|e| format!("failed to create {}: {e}", gb_dir.display()))?;
@@ -246,7 +270,11 @@ pub(crate) fn start_run(
 
     let config_path = write_job_config(&req, &config_dir)?;
 
-    let output_prefix = sanitize_file_name(&req.output_prefix);
+    let output_prefix = sanitize_file_name(if req.output_prefix.trim().is_empty() {
+        DEFAULT_OUTPUT_PREFIX
+    } else {
+        &req.output_prefix
+    });
     let output_file = results_dir.join(format!(
         "{}_{}.fasta",
         output_prefix,
@@ -283,7 +311,7 @@ pub(crate) fn start_run(
     let resume_for_thread = req.resume && source_uses_ncbi(&build_source);
     let source_for_thread = build_source.clone();
     let taxid_total = req.taxids.len();
-    let workers_for_thread = req.workers;
+    let workers_for_thread = workers;
     let output_prefix_for_thread = req.output_prefix.clone();
     let post_prep_for_thread = req.post_prep.enable;
     let post_steps_for_thread = req.post_prep.steps.clone();
@@ -306,6 +334,7 @@ pub(crate) fn start_run(
 
         emit_event(&app_for_thread, progress_event(&parser));
 
+        let config_path_for_files = config_path_for_thread.clone();
         let build_params = BuildParams {
             config_path: config_path_for_thread,
             taxids: taxids_for_thread,
@@ -341,7 +370,7 @@ pub(crate) fn start_run(
         let was_cancelled = cancelled.load(Ordering::Relaxed);
         let files = collect_files(
             &results_dir_for_thread,
-            std::slice::from_ref(&log_path_for_thread),
+            &[log_path_for_thread.clone(), config_path_for_files],
         );
 
         match (was_cancelled, exit_code) {

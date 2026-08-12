@@ -2,8 +2,6 @@ import "./styles.css";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
-  DEFAULTS,
-  parseCommaSeparatedList,
   parseFloatOrNull,
   parseIntOrNull,
   readCheckedValues,
@@ -11,6 +9,13 @@ import {
 } from "./lib/form-utils.js";
 import { createMonitorView } from "./lib/monitor-view.js";
 import { mergeUniqueValues, parseDelimitedTokens, renderTokenPills } from "./lib/token-list.js";
+import {
+  formatTreeUnavailableMessage,
+  parseFasta,
+  parseNewick,
+  renderTreeStatus,
+  renderTreeSVG
+} from "./tree-view.js";
 
 const els = {
   tabSetup: document.querySelector("#tab-setup"),
@@ -31,6 +36,18 @@ const els = {
   metricsList: document.querySelector("#metrics-list"),
   resultFiles: document.querySelector("#result-files"),
   openJobDir: document.querySelector("#open-job-dir"),
+  resultJobDirPath: document.querySelector("#result-job-dir-path"),
+  metricsDisclosure: document.querySelector("#metrics-disclosure"),
+  outputFilesDisclosure: document.querySelector("#output-files-disclosure"),
+  treeViewContainer: document.querySelector("#tree-view-container"),
+  treeViewStatus: document.querySelector("#tree-view-status"),
+  treeSelect: document.querySelector("#tree-select"),
+  treeSearch: document.querySelector("#tree-search"),
+  msaConservation: document.querySelector("#msa-conservation"),
+  treeZoomIn: document.querySelector("#tree-zoom-in"),
+  treeZoomOut: document.querySelector("#tree-zoom-out"),
+  treeZoomReset: document.querySelector("#tree-zoom-reset"),
+  treeExport: document.querySelector("#tree-export"),
   newJob: document.querySelector("#new-job"),
   pickOutput: document.querySelector("#pick-output"),
   pickPrimer: document.querySelector("#pick-primer"),
@@ -65,10 +82,14 @@ const els = {
   filterLengthMinInput: document.querySelector("#f-length-min"),
   filterLengthMaxInput: document.querySelector("#f-length-max"),
   postEnableInput: document.querySelector("#post-enable"),
+  msaTreeModeEls: Array.from(document.querySelectorAll(".msa-tree-mode")),
   primerFileInput: document.querySelector("#primer-file"),
   primerSetInput: document.querySelector("#primer-set"),
   postLengthMinInput: document.querySelector("#post-length-min"),
   postLengthMaxInput: document.querySelector("#post-length-max"),
+  qualityMaxAmbiguousFractionInput: document.querySelector("#quality-max-ambiguous-fraction"),
+  qualityRejectInvalidIupacInput: document.querySelector("#quality-reject-invalid-iupac"),
+  duplicateSequencePolicyInput: document.querySelector("#duplicate-sequence-policy"),
   sourceInput: document.querySelector("#source"),
   ncbiDbInput: document.querySelector("#ncbi-db"),
   ncbiRettypeInput: document.querySelector("#ncbi-rettype"),
@@ -78,26 +99,143 @@ const els = {
   ncbiDelaySecInput: document.querySelector("#ncbi-delay-sec"),
   outputDefaultHeaderFormatInput: document.querySelector("#output-default-header-format"),
   outputMifishHeaderFormatInput: document.querySelector("#output-mifish-header-format"),
-  speedInput: document.querySelector("#speed"),
   resumeInput: document.querySelector("#resume"),
   duplicateReportStep: document.querySelector('.post-step[value="duplicate_report"]'),
   loadDbTomlBtn: document.querySelector("#load-db-toml"),
   loadedDbTomlPath: document.querySelector("#loaded-db-toml")
 };
 
+const DEFAULT_WORKERS = 8;
+
 const state = {
   jobDir: "",
+  outputPath: "",
   files: [],
+  msaTreeStatus: "",
+  msaTreeTaxa: null,
+  treePaths: [],
+  selectedTreePath: "",
   unlisten: null,
   taxids: [],
   markers: [],
   taxonCandidateItems: [],
   taxonSearchSeq: 0,
-  taxonSearchTimer: null
+  taxonSearchTimer: null,
+  baseConfigPath: ""
 };
+
+let treeViewController = null;
 
 const postStepEls = Array.from(document.querySelectorAll(".post-step"));
 const primerCandidateEls = Array.from(document.querySelectorAll(".primer-candidate"));
+const outputExportFormatEls = Array.from(
+  document.querySelectorAll(".output-export-format"),
+);
+const outputHeaderFormatChoiceEls = Array.from(
+  document.querySelectorAll(".output-header-format-choice"),
+);
+const outputExportHeaderFormats = {
+  mifish_pipeline: "gb|{acc_id}|{organism}",
+  qiime2: "{acc_id}",
+  dada2_species: "{acc_id} {organism_raw}",
+};
+
+let activeHelpButton = null;
+let helpPopup = null;
+
+function getHelpPopup() {
+  if (helpPopup) return helpPopup;
+  helpPopup = document.createElement("div");
+  helpPopup.className = "help-popup-global";
+  helpPopup.setAttribute("role", "tooltip");
+  helpPopup.hidden = true;
+  document.body.append(helpPopup);
+  return helpPopup;
+}
+
+function positionHelpPopup(button) {
+  if (!helpPopup || helpPopup.hidden) return;
+  const rect = button.getBoundingClientRect();
+  const margin = 8;
+  const popupWidth = Math.min(230, window.innerWidth - margin * 2);
+  helpPopup.style.width = `${popupWidth}px`;
+  const popupHeight = helpPopup.offsetHeight;
+  const left = Math.max(
+    margin,
+    Math.min(rect.left, window.innerWidth - popupWidth - margin),
+  );
+  const below = rect.bottom + margin;
+  const top =
+    below + popupHeight <= window.innerHeight - margin
+      ? below
+      : Math.max(margin, rect.top - popupHeight - margin);
+  helpPopup.style.left = `${left}px`;
+  helpPopup.style.top = `${top}px`;
+}
+
+function showHelp(button, text) {
+  const popup = getHelpPopup();
+  popup.textContent = text;
+  popup.hidden = false;
+  activeHelpButton = button;
+  document.querySelectorAll(".help-tip.is-open").forEach((tip) => {
+    if (tip !== button) tip.classList.remove("is-open");
+  });
+  button.classList.add("is-open");
+  requestAnimationFrame(() => positionHelpPopup(button));
+}
+
+function hideHelp(button = activeHelpButton) {
+  if (button && button !== activeHelpButton) return;
+  if (helpPopup) helpPopup.hidden = true;
+  activeHelpButton?.classList.remove("is-open");
+  activeHelpButton = null;
+}
+
+function appendHelpTip(target, text) {
+  if (!target || target.querySelector(":scope > .help-tip")) return;
+  target.classList.add("help-target");
+  if (target.matches("h3, legend, summary, .help-heading")) target.classList.add("help-heading");
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "help-tip";
+  button.setAttribute("aria-label", "Show help");
+  button.textContent = "?";
+  button.dataset.help = text;
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+    if (activeHelpButton === button && !helpPopup.hidden) hideHelp(button);
+    else showHelp(button, text);
+  });
+  button.addEventListener("mouseenter", () => showHelp(button, text));
+  button.addEventListener("mouseleave", () => {
+    if (!button.matches(":focus") && activeHelpButton === button) hideHelp(button);
+  });
+  button.addEventListener("focus", () => showHelp(button, text));
+  button.addEventListener("blur", () => {
+    if (activeHelpButton === button) hideHelp(button);
+  });
+  target.append(button);
+}
+
+function initHelpTips() {
+  document.querySelectorAll("[data-help]").forEach((target) => {
+    appendHelpTip(target, target.dataset.help);
+  });
+}
+
+document.addEventListener("click", () => {
+  hideHelp();
+});
+
+window.addEventListener("resize", () => {
+  if (activeHelpButton) positionHelpPopup(activeHelpButton);
+});
+
+document.addEventListener("scroll", () => {
+  if (activeHelpButton) positionHelpPopup(activeHelpButton);
+}, true);
 const monitorView = createMonitorView({
   statusEl: els.status,
   phaseEl: els.phase,
@@ -131,8 +269,10 @@ function setResultsEnabled(enabled) {
   els.tabResults.disabled = !enabled;
 }
 
-function parseTaxidTokens(raw) {
-  return parseDelimitedTokens(raw);
+function renderResultJobDir() {
+  els.resultJobDirPath.textContent = state.jobDir;
+  els.openJobDir.title = state.jobDir;
+  els.openJobDir.disabled = !state.jobDir;
 }
 
 function currentBuildSource() {
@@ -163,10 +303,7 @@ function syncSourceMode({ resetDuplicateForBoth = false } = {}) {
   }
 
   if (els.resumeInput) {
-    if (!usesNcbi) {
-      els.resumeInput.checked = false;
-    }
-    els.resumeInput.disabled = !usesNcbi;
+    els.resumeInput.disabled = false;
   }
 
   if (resetDuplicateForBoth && source === "both" && els.duplicateReportStep) {
@@ -194,11 +331,16 @@ function renderTaxids() {
 }
 
 function addTaxids(raw) {
-  const tokens = parseTaxidTokens(raw);
+  const tokens = parseDelimitedTokens(raw);
   if (!tokens.length) return;
   state.taxids = mergeUniqueValues(state.taxids, tokens);
   renderTaxids();
   syncTaxidsHidden();
+}
+
+function commitTaxidInput() {
+  addTaxids(els.taxidInput.value);
+  els.taxidInput.value = "";
 }
 
 function clearTaxonCandidates() {
@@ -295,6 +437,21 @@ function addMarkers(values) {
   renderMarkers();
 }
 
+function setMarkerOptions(options) {
+  if (!options?.length) return;
+  const valid = new Set(options);
+  state.markers = state.markers.filter((marker) => valid.has(marker));
+  els.markerSelect.replaceChildren(
+    ...options.map((marker) => {
+      const option = document.createElement("option");
+      option.value = marker;
+      option.textContent = marker;
+      return option;
+    }),
+  );
+  renderMarkers();
+}
+
 function setFlowItemState(el, done) {
   if (!el) return;
   el.classList.toggle("done", done);
@@ -317,7 +474,24 @@ function setPrimerCandidateSelection(primerSets) {
   setCheckedValues(primerCandidateEls, primerSets);
 }
 
+function setOutputExportFormatSelection(formats, inferMifish = false) {
+  const requested = (formats || []).find(
+    (format) => outputExportHeaderFormats[format],
+  );
+  const isMifish =
+    els.outputMifishHeaderFormatInput.value ===
+    outputExportHeaderFormats.mifish_pipeline;
+  const selected =
+    requested || (inferMifish && isMifish ? "mifish_pipeline" : "");
+  setCheckedValues(outputHeaderFormatChoiceEls, selected ? [selected] : []);
+  if (requested) {
+    els.outputMifishHeaderFormatInput.value = outputExportHeaderFormats[requested];
+  }
+}
+
 function applyImportedDbToml(imported) {
+  state.baseConfigPath = imported.sourcePath || "";
+  setMarkerOptions(imported.markerOptions);
   els.sourceInput.value = imported.source || "ncbi";
   els.emailInput.value = imported.email || "";
 
@@ -334,26 +508,34 @@ function applyImportedDbToml(imported) {
 
   const postPrep = imported.postPrep || {};
   els.postEnableInput.checked = Boolean(postPrep.enable);
+  setMsaTreeMode(postPrep.msaTreeMode);
   els.primerFileInput.value = postPrep.primerFile || "";
   els.primerSetInput.value = (postPrep.primerSet || []).join(",");
   setPrimerCandidateSelection(postPrep.primerSet);
   els.postLengthMinInput.value = postPrep.sequenceLengthMin ?? "";
   els.postLengthMaxInput.value = postPrep.sequenceLengthMax ?? "";
+  els.qualityMaxAmbiguousFractionInput.value =
+    postPrep.qualityMaxAmbiguousFraction ?? "";
+  els.qualityRejectInvalidIupacInput.checked =
+    postPrep.qualityRejectInvalidIupac !== false;
+  els.duplicateSequencePolicyInput.value =
+    postPrep.duplicateSequencePolicy || "keep";
   setPostPrepStepSelection(postPrep.steps || []);
 
   const ncbiOptions = imported.ncbiOptions || {};
-  els.ncbiDbInput.value = ncbiOptions.db || DEFAULTS.ncbiDb;
-  els.ncbiRettypeInput.value = ncbiOptions.rettype || DEFAULTS.ncbiRettype;
-  els.ncbiRetmodeInput.value = ncbiOptions.retmode || DEFAULTS.ncbiRetmode;
-  els.ncbiPerQueryInput.value = ncbiOptions.perQuery || DEFAULTS.ncbiPerQuery;
+  els.ncbiDbInput.value = ncbiOptions.db || els.ncbiDbInput.value;
+  els.ncbiRettypeInput.value = ncbiOptions.rettype || els.ncbiRettypeInput.value;
+  els.ncbiRetmodeInput.value = ncbiOptions.retmode || els.ncbiRetmodeInput.value;
+  els.ncbiPerQueryInput.value = ncbiOptions.perQuery || els.ncbiPerQueryInput.value;
   els.ncbiUseHistoryInput.checked = ncbiOptions.useHistory !== false;
   els.ncbiDelaySecInput.value = ncbiOptions.delaySec ?? "";
 
   const outputOptions = imported.outputOptions || {};
   els.outputDefaultHeaderFormatInput.value =
-    outputOptions.defaultHeaderFormat || DEFAULTS.defaultHeaderFormat;
+    outputOptions.defaultHeaderFormat || els.outputDefaultHeaderFormatInput.value;
   els.outputMifishHeaderFormatInput.value =
-    outputOptions.mifishHeaderFormat || DEFAULTS.mifishHeaderFormat;
+    outputOptions.mifishHeaderFormat || els.outputMifishHeaderFormatInput.value;
+  setOutputExportFormatSelection(outputOptions.exportFormats, true);
   syncSourceMode();
 }
 
@@ -380,7 +562,7 @@ function updatePostPrepGuidance() {
   setFlowItemState(els.flowPostEnable, true);
 
   if (selectedSteps.has("primer_trim")) {
-    const hasPrimerSet = parseCommaSeparatedList(els.primerSetInput.value).length > 0;
+    const hasPrimerSet = parseDelimitedTokens(els.primerSetInput.value, /,+/).length > 0;
     setFlowItemState(els.flowPostPrimer, hasPrimerSet);
   } else {
     setFlowItemNeutral(els.flowPostPrimer);
@@ -404,22 +586,127 @@ function updateGuidanceState() {
 }
 
 function getSelectedPostPrepSteps() {
-  return readCheckedValues(postStepEls);
+  const steps = readCheckedValues(postStepEls);
+  if (getSelectedMsaTreeMode() !== "disabled" && !steps.includes("msa_tree")) {
+    steps.push("msa_tree");
+  }
+  return steps;
+}
+
+function getSelectedMsaTreeMode() {
+  return els.msaTreeModeEls.find((element) => element.checked)?.value || "disabled";
+}
+
+function setMsaTreeMode(mode) {
+  const selected = ["disabled", "combined", "per_taxid"].includes(mode)
+    ? mode
+    : "disabled";
+  els.msaTreeModeEls.forEach((element) => {
+    element.checked = element.value === selected;
+  });
+}
+
+function setTreeViewControlsEnabled(enabled) {
+  [
+    els.treeSelect,
+    els.treeSearch,
+    els.msaConservation,
+    els.treeZoomIn,
+    els.treeZoomOut,
+    els.treeZoomReset,
+    els.treeExport,
+  ].forEach((element) => {
+    element.disabled = !enabled;
+  });
+}
+
+async function renderRunTree() {
+  const collectedTreePaths = state.files.filter((path) =>
+    path.toLowerCase().endsWith(".tree.nwk"),
+  );
+  const fallbackTreePath = state.outputPath ? `${state.outputPath}.tree.nwk` : "";
+  state.treePaths = collectedTreePaths.length
+    ? collectedTreePaths
+    : (fallbackTreePath ? [fallbackTreePath] : []);
+  els.treeSelect.replaceChildren();
+  for (const path of state.treePaths) {
+    const filename = path.split(/[\\/]/).pop() || path;
+    const taxidMatch = filename.match(/\.taxid([^\.]+)\.tree\.nwk$/i);
+    const option = document.createElement("option");
+    option.value = path;
+    option.textContent = taxidMatch ? `TaxID ${taxidMatch[1]}` : filename;
+    els.treeSelect.appendChild(option);
+  }
+  els.treeSelect.disabled = state.treePaths.length === 0;
+  const treePath = state.treePaths.includes(state.selectedTreePath)
+    ? state.selectedTreePath
+    : state.treePaths[0] || "";
+  state.selectedTreePath = treePath;
+  els.treeSelect.value = treePath;
+  const treeFilename = treePath ? treePath.split(/[\\/]/).pop() || treePath : "";
+  const unavailableMessage = formatTreeUnavailableMessage(
+    state.msaTreeStatus,
+    state.msaTreeTaxa,
+  );
+
+  if (!treePath) {
+    treeViewController?.dispose();
+    treeViewController = null;
+    setTreeViewControlsEnabled(false);
+    els.treeViewStatus.textContent = "No phylogenetic tree file found.";
+    renderTreeStatus(els.treeViewContainer, unavailableMessage);
+    return;
+  }
+
+  els.treeViewStatus.textContent = `Loading: ${treeFilename}`;
+  try {
+    const newickText = await invoke("read_text_file", { path: treePath });
+    const root = parseNewick(newickText);
+    const msaPath = treePath.replace(/\.tree\.nwk$/i, ".msa.fasta");
+    let alignment = new Map();
+    let msaStatus = "No MSA";
+    try {
+      alignment = parseFasta(await invoke("read_text_file", { path: msaPath }));
+      msaStatus = `${alignment.size} sequences × ${alignment.values().next().value.length} bases`;
+    } catch (error) {
+      console.warn(`Failed to load MSA: ${msaPath}`, error);
+    }
+    treeViewController?.dispose();
+    treeViewController = renderTreeSVG(
+      root,
+      els.treeViewContainer,
+      alignment,
+      Number(els.msaConservation.value),
+    );
+    els.treeSearch.value = "";
+    setTreeViewControlsEnabled(true);
+    els.msaConservation.disabled = alignment.size === 0;
+    els.treeViewStatus.textContent = `${treeFilename} / ${msaStatus}`;
+  } catch (error) {
+    treeViewController?.dispose();
+    treeViewController = null;
+    setTreeViewControlsEnabled(false);
+    els.treeViewStatus.textContent = "Failed to load the phylogenetic tree file.";
+    renderTreeStatus(els.treeViewContainer, unavailableMessage);
+  }
 }
 
 function collectRequest() {
+  commitTaxidInput();
   const steps = getSelectedPostPrepSteps();
-  const primerSet = parseCommaSeparatedList(els.primerSetInput.value);
+  const qualityEnabled = steps.includes("quality_filter");
+  const primerSet = parseDelimitedTokens(els.primerSetInput.value, /,+/);
 
   return {
     taxids: [...state.taxids],
     markers: [...state.markers],
     source: currentBuildSource(),
-    outputPrefix: els.outputPrefixInput.value.trim() || DEFAULTS.outputPrefix,
+    outputPrefix: els.outputPrefixInput.value.trim(),
     outputRoot: els.outputRootInput.value.trim(),
     email: els.emailInput.value.trim(),
     apiKey: els.apiKeyInput.value.trim(),
     saveApiKey: els.saveApiKeyInput.checked,
+    baseConfigPath: state.baseConfigPath,
     filters: {
       mitochondrion: els.filterMitoInput.checked,
       ddbjEmblGenbank: els.filterDdbjInput.checked,
@@ -428,26 +715,41 @@ function collectRequest() {
       lengthMax: parseIntOrNull(els.filterLengthMaxInput.value)
     },
     postPrep: {
-      enable: els.postEnableInput.checked,
+      enable: els.postEnableInput.checked || getSelectedMsaTreeMode() !== "disabled",
+      msaTreeMode: getSelectedMsaTreeMode(),
       primerFile: els.primerFileInput.value.trim(),
       primerSet,
       steps,
       sequenceLengthMin: parseIntOrNull(els.postLengthMinInput.value),
-      sequenceLengthMax: parseIntOrNull(els.postLengthMaxInput.value)
+      sequenceLengthMax: parseIntOrNull(els.postLengthMaxInput.value),
+      qualityMaxAmbiguousFraction: qualityEnabled
+        ? parseFloatOrNull(els.qualityMaxAmbiguousFractionInput.value)
+        : null,
+      qualityRejectInvalidIupac: qualityEnabled
+        ? els.qualityRejectInvalidIupacInput.checked
+        : null,
+      duplicateSequencePolicy: qualityEnabled
+        ? els.duplicateSequencePolicyInput.value
+        : null,
     },
     ncbiOptions: {
-      db: els.ncbiDbInput.value.trim() || DEFAULTS.ncbiDb,
-      rettype: els.ncbiRettypeInput.value.trim() || DEFAULTS.ncbiRettype,
-      retmode: els.ncbiRetmodeInput.value.trim() || DEFAULTS.ncbiRetmode,
-      perQuery: Math.max(1, Number.parseInt(els.ncbiPerQueryInput.value, 10) || DEFAULTS.ncbiPerQuery),
+      db: els.ncbiDbInput.value.trim(),
+      rettype: els.ncbiRettypeInput.value.trim(),
+      retmode: els.ncbiRetmodeInput.value.trim(),
+      perQuery: Math.max(
+        1,
+        Number.parseInt(els.ncbiPerQueryInput.value, 10) ||
+          Number(els.ncbiPerQueryInput.defaultValue),
+      ),
       useHistory: els.ncbiUseHistoryInput.checked,
       delaySec: parseFloatOrNull(els.ncbiDelaySecInput.value)
     },
     outputOptions: {
-      defaultHeaderFormat: els.outputDefaultHeaderFormatInput.value.trim() || DEFAULTS.defaultHeaderFormat,
-      mifishHeaderFormat: els.outputMifishHeaderFormatInput.value.trim() || DEFAULTS.mifishHeaderFormat
+      defaultHeaderFormat: els.outputDefaultHeaderFormatInput.value.trim(),
+      mifishHeaderFormat: els.outputMifishHeaderFormatInput.value.trim(),
+      exportFormats: readCheckedValues(outputExportFormatEls),
     },
-    workers: Number.parseInt(els.speedInput.value, 10),
+    workers: DEFAULT_WORKERS,
     resume: els.resumeInput.checked
   };
 }
@@ -472,14 +774,22 @@ async function setupEventListener() {
       if (payload.phase) els.phase.textContent = payload.phase;
       if (payload.percent != null) els.progress.value = payload.percent;
       monitorView.renderProgressDetail(payload.phase, payload.percent, payload.metrics);
-      if (payload.metrics) monitorView.renderMetrics(payload.metrics);
+      if (payload.metrics) {
+        monitorView.renderMetrics(payload.metrics);
+        if (payload.metrics.msaTreeStatus) {
+          state.msaTreeStatus = payload.metrics.msaTreeStatus;
+          state.msaTreeTaxa = payload.metrics.msaTreeTaxa ?? null;
+        }
+      }
     }
     if (payload.eventType === "result") {
       state.jobDir = payload.jobDir || "";
       state.files = payload.files || [];
       setResultsEnabled(true);
+      renderResultJobDir();
       monitorView.renderResultFiles(state.files);
       switchView("results");
+      renderRunTree();
     }
     if (payload.eventType === "error" && payload.message) {
       monitorView.appendLog(`[error] ${payload.message}`);
@@ -493,7 +803,7 @@ async function loadSavedConfig() {
     const saved = await invoke("load_gui_config");
     if (!saved) return;
     els.outputRootInput.value = saved.outputRoot || "";
-    els.outputPrefixInput.value = saved.outputPrefix || DEFAULTS.outputPrefix;
+    els.outputPrefixInput.value = saved.outputPrefix || els.outputPrefixInput.value;
     els.emailInput.value = saved.email || "";
     els.apiKeyInput.value = saved.saveApiKey ? saved.apiKey || "" : "";
     els.saveApiKeyInput.checked = Boolean(saved.saveApiKey);
@@ -507,7 +817,6 @@ async function loadSavedConfig() {
       els.sourceInput.value = saved.source;
       syncSourceMode();
     }
-    if (saved.workers) els.speedInput.value = `${saved.workers}`;
     if (saved.ncbiDb) els.ncbiDbInput.value = saved.ncbiDb;
     if (saved.ncbiRettype) els.ncbiRettypeInput.value = saved.ncbiRettype;
     if (saved.ncbiRetmode) els.ncbiRetmodeInput.value = saved.ncbiRetmode;
@@ -520,6 +829,7 @@ async function loadSavedConfig() {
     if (saved.outputMifishHeaderFormat) {
       els.outputMifishHeaderFormatInput.value = saved.outputMifishHeaderFormat;
     }
+    setOutputExportFormatSelection(["mifish_pipeline"]);
     updateGuidanceState();
   } catch (error) {
     monitorView.appendLog(`[warn] load config failed: ${error}`);
@@ -535,11 +845,28 @@ async function runJob() {
 
   await setupEventListener();
   monitorView.reset();
+  state.jobDir = "";
+  renderResultJobDir();
+  state.outputPath = "";
+  state.files = [];
+  state.msaTreeStatus = "";
+  state.msaTreeTaxa = null;
+  state.treePaths = [];
+  state.selectedTreePath = "";
+  els.metricsDisclosure.open = false;
+  els.outputFilesDisclosure.open = false;
+  treeViewController?.dispose();
+  treeViewController = null;
+  setTreeViewControlsEnabled(false);
+  els.treeSearch.value = "";
+  els.treeViewStatus.textContent = "Checking the phylogenetic tree result.";
+  renderTreeStatus(els.treeViewContainer, "The phylogenetic tree will be displayed after the run completes.");
   setMonitorEnabled(true);
   setResultsEnabled(false);
   switchView("monitor");
 
   const resp = await invoke("start_run", { req });
+  state.outputPath = resp.outputPath || "";
   monitorView.appendLog(`job dir: ${resp.jobDir}`);
   monitorView.appendLog(`log path: ${resp.logPath}`);
 }
@@ -557,10 +884,18 @@ function resetForm() {
   els.filterLengthMaxInput.value = "";
   els.postLengthMinInput.value = "";
   els.postLengthMaxInput.value = "";
+  els.qualityMaxAmbiguousFractionInput.value = "";
+  els.qualityRejectInvalidIupacInput.checked = true;
+  els.duplicateSequencePolicyInput.value = "keep";
   els.primerFileInput.value = "";
   els.primerSetInput.value = "";
-  els.postEnableInput.checked = false;
-  setPostPrepStepSelection([]);
+  els.postEnableInput.checked = true;
+  setPrimerCandidateSelection(["mifish_unity"]);
+  setMsaTreeMode("per_taxid");
+  setPostPrepStepSelection(["primer_trim", "length_filter", "quality_filter"]);
+  setOutputExportFormatSelection([]);
+  state.baseConfigPath = "";
+  els.loadedDbTomlPath.textContent = "";
   syncSourceMode();
   updateGuidanceState();
 }
@@ -616,8 +951,7 @@ els.loadDbTomlBtn.addEventListener("click", async () => {
 });
 
 els.addTaxid.addEventListener("click", () => {
-  addTaxids(els.taxidInput.value);
-  els.taxidInput.value = "";
+  commitTaxidInput();
   els.taxidInput.focus();
   updateGuidanceState();
 });
@@ -625,8 +959,7 @@ els.addTaxid.addEventListener("click", () => {
 els.taxidInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     event.preventDefault();
-    addTaxids(els.taxidInput.value);
-    els.taxidInput.value = "";
+    commitTaxidInput();
     updateGuidanceState();
   }
 });
@@ -672,6 +1005,12 @@ els.sourceInput.addEventListener("change", () => {
   updateGuidanceState();
 });
 els.postEnableInput.addEventListener("change", updateGuidanceState);
+els.msaTreeModeEls.forEach((el) => {
+  el.addEventListener("change", () => {
+    if (el.checked && el.value !== "disabled") els.postEnableInput.checked = true;
+    updateGuidanceState();
+  });
+});
 els.primerFileInput.addEventListener("input", updateGuidanceState);
 els.primerSetInput.addEventListener("input", updateGuidanceState);
 els.postLengthMinInput.addEventListener("input", updateGuidanceState);
@@ -685,24 +1024,59 @@ primerCandidateEls.forEach((el) => {
     updateGuidanceState();
   });
 });
-
-els.openJobDir.addEventListener("click", async () => {
-  if (state.jobDir) {
-    await invoke("open_path", { path: state.jobDir });
-  }
+outputHeaderFormatChoiceEls.forEach((el) => {
+  el.addEventListener("change", () => {
+    setOutputExportFormatSelection(el.checked ? [el.value] : []);
+  });
 });
 
 els.newJob.addEventListener("click", () => {
   switchView("setup");
 });
 
+els.openJobDir.addEventListener("click", async () => {
+  if (state.jobDir) await invoke("open_path", { path: state.jobDir });
+});
+
+els.treeSearch.addEventListener("input", () => {
+  treeViewController?.setSearch(els.treeSearch.value);
+});
+
+els.msaConservation.addEventListener("change", () => {
+  treeViewController?.setConservationThreshold(els.msaConservation.value);
+});
+
+els.treeSelect.addEventListener("change", () => {
+  state.selectedTreePath = els.treeSelect.value;
+  renderRunTree();
+});
+
+els.treeZoomIn.addEventListener("click", () => treeViewController?.zoomIn());
+els.treeZoomOut.addEventListener("click", () => treeViewController?.zoomOut());
+els.treeZoomReset.addEventListener("click", () => treeViewController?.resetView());
+
+els.treeExport.addEventListener("click", async () => {
+  if (!treeViewController) return;
+  const content = treeViewController.getSVGMarkup();
+  if (!content) return;
+  try {
+    const savedPath = await invoke("save_svg_file", { content });
+    if (savedPath) els.treeViewStatus.textContent = `SVG saved: ${savedPath}`;
+  } catch (error) {
+    els.treeViewStatus.textContent = "Failed to save SVG.";
+  }
+});
+
 els.tabSetup.addEventListener("click", () => switchView("setup"));
 els.tabMonitor.addEventListener("click", () => switchView("monitor"));
 els.tabResults.addEventListener("click", () => switchView("results"));
 
+initHelpTips();
 addTaxids(els.taxidsHidden.value);
 renderTaxids();
 syncTaxidsHidden();
 syncSourceMode();
 loadSavedConfig();
+renderResultJobDir();
+setTreeViewControlsEnabled(false);
 updateGuidanceState();

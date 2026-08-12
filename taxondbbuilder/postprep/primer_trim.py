@@ -593,7 +593,6 @@ class _PrimerTrimContext:
     recheck_tool: str
     recheck_min_identity: float
     recheck_min_query_cov: float
-    phylo_target_confidence: str
     retained_path: Path
 
 
@@ -697,9 +696,6 @@ def _build_primer_trim_context(
         recheck_tool=str(opts.get("recheck_tool", "off")).strip().lower(),
         recheck_min_identity=float(opts.get("recheck_min_identity", 0.85)),
         recheck_min_query_cov=float(opts.get("recheck_min_query_cov", 0.7)),
-        phylo_target_confidence=str(opts.get("phylo_target_confidence", "medium"))
-        .strip()
-        .lower(),
         retained_path=fasta_path.with_suffix(
             fasta_path.suffix + ".postprep.primer.retained.fasta"
         ),
@@ -733,7 +729,6 @@ def _empty_primer_trim_result(ctx: _PrimerTrimContext) -> dict[str, Any]:
         "sidecar_path": None,
         "retained_path": str(ctx.retained_path) if ctx.keep_retained_fasta else None,
         "recheck_tool": ctx.recheck_tool,
-        "phylo_target_confidence": ctx.phylo_target_confidence,
     }
 
 
@@ -1055,7 +1050,6 @@ def _build_primer_trim_result(
         "recheck_attempted": recheck_attempted,
         "recheck_rescued": recheck_rescued,
         "recheck_error": recheck_error,
-        "phylo_target_confidence": ctx.phylo_target_confidence,
     }
 
 
