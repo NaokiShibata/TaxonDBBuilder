@@ -45,7 +45,7 @@ tar -zxvf taxdump.tar.gz -C taxdump
 ### 4.1 names.dmp -> CSV
 
 ```bash
-python3 tools/build_taxonomy_db.py extract-csv \
+pixi run python tools/build_taxonomy_db.py extract-csv \
   --names-dmp taxdump/names.dmp \
   --out-csv taxdump/taxid_scientific_name.csv
 ```
@@ -53,7 +53,7 @@ python3 tools/build_taxonomy_db.py extract-csv \
 ### 4.2 CSV -> SQLite
 
 ```bash
-python3 tools/build_taxonomy_db.py build-sqlite \
+pixi run python tools/build_taxonomy_db.py build-sqlite \
   --in-csv taxdump/taxid_scientific_name.csv \
   --out-db taxdump/taxonomy.db
 ```
@@ -61,7 +61,7 @@ python3 tools/build_taxonomy_db.py build-sqlite \
 ### 4.3 一括実行 (推奨)
 
 ```bash
-python3 tools/build_taxonomy_db.py all \
+pixi run python tools/build_taxonomy_db.py all \
   --names-dmp taxdump/names.dmp \
   --out-csv taxdump/taxid_scientific_name.csv \
   --out-db tauri-gui/resources/taxonomy.db
@@ -81,7 +81,8 @@ CREATE INDEX idx_taxonomy_scientific_name_nocase
 
 ## 6. GUI 側の利用前提
 
-- GUI は `tauri-gui/resources/taxonomy.db` を固定参照します。
+- 開発時は `tauri-gui/resources/taxonomy.db` に配置します。
+- 配布版ではアプリのresourceディレクトリなども探索します。
 - テーブル名は `taxonomy`、列は `tax_id` / `scientific_name` を前提に検索します。
 
 ## 7. 更新ポリシー (推奨)

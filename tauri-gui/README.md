@@ -14,19 +14,14 @@ GUIアプリをビルドして配列ダウンロードを実行可能です。�
 
 以下のツールが必要です。
 
-- `uv` (Python環境/パッケージ管理)
+- `pixi` (Python環境/パッケージ管理)
 - Node.js / npm
 - Rust / cargo
 - Linuxの場合はTauri依存ライブラリ
 
-#### 1) uv のインストール
+#### 1) pixi のインストール
 
-```bash
-mkdir -p ~/tools/uv
-curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="$HOME/tools/uv" sh
-export PATH="$HOME/tools/uv:$PATH"
-uv --version
-```
+[ルートREADMEの環境構築手順](../README.md#環境構築-pixi)を参照してください。
 
 #### 2) Node.js / npm のインストール
 
@@ -73,7 +68,7 @@ GUI は起動時に `taxonomy.db` を探索します（例: `tauri-gui/resources
 
 ```bash
 # names.dmp から CSV と SQLite を一括生成
-python3 tools/build_taxonomy_db.py all \
+pixi run python tools/build_taxonomy_db.py all \
   --names-dmp /path/to/taxdump/names.dmp \
   --out-csv tauri-gui/resources/taxid_scientific_name.csv \
   --out-db tauri-gui/resources/taxonomy.db
@@ -83,35 +78,34 @@ python3 tools/build_taxonomy_db.py all \
 
 ```bash
 # 1) names.dmp -> CSV
-python3 tools/build_taxonomy_db.py extract-csv \
+pixi run python tools/build_taxonomy_db.py extract-csv \
   --names-dmp /path/to/taxdump/names.dmp \
   --out-csv tauri-gui/resources/taxid_scientific_name.csv
 
 # 2) CSV -> taxonomy.db
-python3 tools/build_taxonomy_db.py build-sqlite \
+pixi run python tools/build_taxonomy_db.py build-sqlite \
   --in-csv tauri-gui/resources/taxid_scientific_name.csv \
   --out-db tauri-gui/resources/taxonomy.db
 ```
 
-> 配布済みsidecarを使って実行するだけならPythonランタイムは不要です。sidecarを作成する場合は、リポジトリルートでPython依存を導入してください。
+> 配布済みsidecarを使う場合、Pythonランタイムは不要です。
 
-続けて `tauri-gui/` でGUIをビルドします。
+リポジトリルートでsidecarとGUIをビルドします。
 
 ```bash
-# 移動
-cd tauri-gui
-# 依存パッケージをすべてインストール
-npm install
-# Python sidecarを作成してsrc-tauri/binへ配置
-python3 scripts/build_sidecar.py --repo-root .. --tauri-root .
-# Build
-npm run tauri:build
+pixi install -e dev
+pixi run -e dev build-sidecar
+npm --prefix tauri-gui install
+npm --prefix tauri-gui run tauri:build
 ```
 
 オフラインでRust側だけを確認する場合は、実バイナリの代わりにstubを配置できます。
 
 ```bash
-python3 scripts/build_sidecar.py --repo-root .. --tauri-root . --stub
+pixi run -e dev python tauri-gui/scripts/build_sidecar.py \
+  --repo-root . \
+  --tauri-root tauri-gui \
+  --stub
 ```
 
 ### 実行
@@ -119,7 +113,7 @@ python3 scripts/build_sidecar.py --repo-root .. --tauri-root . --stub
 生成物を起動します。Linuxですと`.AppImage`ファイルが対象になります。
 
 ```bash
-${PWD}/src-tauri/target/release/bundle/appimage/TaxonDBBuilderGUI_0.1.0_amd64.AppImage
+${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilderGUI_0.1.0_amd64.AppImage
 ```
 
 アプリが立ち上がれば完了

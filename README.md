@@ -2,105 +2,92 @@
 
 NCBI と BOLD Data Portal から任意の分類群・任意のマーカーの配列を取得し、DB用のFASTAを生成するツールです。分類群は **taxid / 学名** のどちらでも指定でき、マーカーは **TOMLで定義したフレーズ群** をprefix指定で呼び出せます。
 
-もとにあったMiFish プライマー用のDB作成リポジトリから、「汎用DB FASTA生成」へ方針変更しています。解析 (抽出・フィルタリング・分類付与など)は対象外で、**DB用FASTAの生成が目的**です。
+CLI は `taxondbbuilder/` パッケージを実行します。リポジトリ直下の `taxondbbuilder.py` は既存の起動方法を維持する互換シムです。
 
-CLI は `taxondbbuilder/` パッケージを実行します。
-リポジトリ直下の `taxondbbuilder.py` は既存の起動方法を維持する互換シムです。
-GUI は Tauri アプリから Python sidecar を起動し、CLI と同じ Python パッケージで build と post-prep を実行します。
-GUI の詳細は[こちらの README](tauri-gui/README.md)を参照してください。
+GUI は Tauri アプリから Python sidecar を起動し、CLI と同じ Python パッケージで build と post-prep を実行します。GUI の詳細は[こちらの README](tauri-gui/README.md)を参照してください。
 
 ![](tauri-gui/figures/TaxonDBBuilderGUI.drawio.png)
 
 ## 動作環境
+
 - Python 3.12+
 - 主要依存: biopython, kalign-python, piqtree, rich, typer
-- パッケージ管理: uv (推奨)
+- パッケージ管理: pixi (推奨)
 
-開発・sidecar ビルド用の依存は `requirements-dev.txt` に記録しています
-(pytest / pytest-cov / pyinstaller)。
+### 環境構築 (pixi)
 
-### 開発時の検証
-
-Python のテストはリポジトリ直下で実行します。
+プロジェクト直下にpixiをインストールする例です。
 
 ```bash
-.venv/bin/python -m pytest --cov=taxondbbuilder --cov=taxondb_bold --cov-report=term
-```
+export PIXI_VERSION="latest"
+export PIXI_HOME="${PWD}/tools/pixi"
+export PIXI_BIN_DIR="${PIXI_HOME}/bin"
+export PIXI_CACHE_DIR="${PWD}/.cache/pixi"
+export PIXI_NO_PATH_UPDATE=1
 
-Rust 側の GUI adapter は `tauri-gui/src-tauri` で検証します。
+mkdir -p \
+  "${PIXI_HOME}" \
+  "${PIXI_BIN_DIR}" \
+  "${PIXI_CACHE_DIR}"
 
-```bash
-cd tauri-gui/src-tauri
-cargo test
-cargo clippy --all-targets -- -D warnings
-cargo fmt --check
-```
-
-### 環境構築 (uv)
-任意のフォルダにuvをインストールする例です (例: `~/tools/uv`)。
-
-```bash
-# uvを任意のフォルダにインストール
-mkdir -p ~/tools/uv
-curl -LsSf https://astral.sh/uv/install.sh | env UV_INSTALL_DIR="~/tools/uv" sh
-
+curl -fsSL https://pixi.sh/install.sh | sh
 # PATHへ追加 (bashの場合)
-echo 'export PATH="$HOME/tools/uv:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# zshの場合は ~/.zshrc を更新してください
+export PATH="${PIXI_BIN_DIR}:${PATH}"
 
 # 動作確認
-uv --version
+pixi --version
 ```
+
+### ツールのインストール
+
+リポジトリをクローンし、`pixi.toml` があるリポジトリルートへ移動します。
 
 ```bash
-# Pythonのインストール (必要な場合)
-uv python install 3.12
-
-# 仮想環境
-uv venv --python 3.12
-source .venv/bin/activate
-
-# 依存導入
-uv pip install -r requirements-dev.txt
+git clone https://github.com/NaokiShibata/TaxonDBBuilder.git
+cd TaxonDBBuilder
 ```
 
-### 補足
-- uvはPythonパッケージのみを扱います。現時点で外部ツールは不要です。
-- `kalign-python` はWindows向けビルド済みwheelがないため、WindowsではCMakeとC++コンパイラを使ったソースビルドが必要です。
-- `piqtree` はIntel Mac向けwheelを提供していません。
+実行に必要なパッケージをインストールします。
+
+```bash
+pixi install
+```
+
+開発用パッケージを含める場合は、`dev` 環境をインストールします。
+
+```bash
+pixi install -e dev
+pixi run -e dev test
+```
 
 ## クイックスタート
-環境構築から **GenBankキャッシュ付きの実行** までの最短手順です。
+
+環境構築後から **GenBankキャッシュ付きの実行** までの手順です。
 
 ```bash
-# 1) 仮想環境と依存導入
-uv python install 3.12
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install -r requirements.txt
-
-# 2) 設定（api_key / email を入力）
+# 1) 設定（api_key / email を入力）
 # configs/db.toml を編集
 
-# 3) 実行（NCBI / GenBank キャッシュ保存）
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --source ncbi --dump-gb Results/gb
+# 2) 実行（NCBI / GenBank キャッシュ保存）: Rhinogobiusを対象
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --source ncbi --dump-gb Results/gb
 ```
 
-再実行時にキャッシュを優先して使う場合:
+再実行時にキャッシュを優先して使う場合
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --source ncbi --dump-gb Results/gb --resume
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --source ncbi --dump-gb Results/gb --resume
 ```
 
-BOLD のみ取得する場合:
+BOLD のみ取得する場合
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m coi --source bold
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t "Rhinogobius" -m coi --source bold
 ```
 
-NCBI と BOLD を統合する場合:
+NCBI と BOLD を統合する場合
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m coi --source both
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t "Rhinogobius" -m coi --source both
 ```
 
 ## Source の選択
@@ -108,18 +95,14 @@ python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m coi --sou
 `build` では次の source を選べます。
 
 - `--source ncbi`
-  - 従来通り NCBI / GenBank のみを使います。
+  - NCBI / GenBank のみが対象
 - `--source bold`
-  - BOLD Data Portal のみを使います。
+  - BOLD Data Portal のみが対象
 - `--source both`
-  - NCBI と BOLD の両方を取得し、BOLD `insdcacs` と NCBI accession の strict match のみで BOLD record を抑制します。
+  - NCBI と BOLD の両方を取得し、BOLD `insdcacs` と NCBI accession の strict match のみで BOLD record をフィルタリング
 
-補足:
-- `--dump-gb` はNCBIのGenBankデータとBOLDの応答を保存します。
-- `--resume` はNCBIとBOLDの保存済み応答を再利用します。
-- `--from-gb` はNCBIの保存済みGenBankデータだけを読み込みます。
+## 設定ファイル (TOML形式)
 
-## 設定ファイル (TOML)
 `configs/db.toml` を編集して使います。
 
 ```toml
@@ -201,6 +184,7 @@ file = "configs/markers_mitogenome.toml"
 ```
 
 ### 検索・抽出の考え方
+
 - `phrases`: **検索用**の簡易フレーズ。自動的に `"..."[All Fields]` として扱われます。
 - `terms`: **検索用**の生クエリ。`rrnS[Gene]` のようにフィールド指定をそのまま書けます。
 - `region_patterns`: **GenBank feature抽出用**の正規表現。`gene/product/note/standard_name` などの注釈に対してマッチします。
@@ -211,41 +195,47 @@ file = "configs/markers_mitogenome.toml"
 一方 BOLD では taxon で広く取得し、`marker_code` を client-side で絞り込みます。
 
 ### markers.file について
+
 - `[markers].file` でマーカー定義を外部TOMLへ分離できます。
 - 外部定義は `[markers]` テーブルを持つ必要があります。
 - `db.toml` 側にも `[markers]` セクションが必要です（`file` のみでもOK）。
 - トップレベルの `markers_file` はサポートしていません。
-- `file` のパス解決は以下の順です:
-  1) 絶対パス
-  2) `db.toml` のある場所からの相対
-  3) 実行ディレクトリからの相対
-  4) `taxondbbuilder` パッケージのある場所からの相対
+- `file` のパス解決は以下の順です
+  1. 絶対パス
+  2. `db.toml` のある場所からの相対
+  3. 実行ディレクトリからの相対
+  4. `taxondbbuilder` パッケージのある場所からの相対
 - `db.toml` 側に書いた `[markers.<id>]` は外部ファイル定義を**上書き**します。
 
 ### taxon.noexp について
+
 - `[taxon].noexp = false` (デフォルト): `txid{taxid}[Organism]` を使って検索します。
 - `[taxon].noexp = true`: `txid{taxid}[Organism:noexp]` を使い、taxid 展開なしで検索します。
 - まずは `false` のまま使い、検索対象を taxid 直下に絞りたい場合に `true` を検討してください。
 
 ## 設定ガイド
+
 このツールの設定は「検索 / 取得」と「抽出 / 出力」を分けて考えると整理しやすいです。
 
 ### 設定ファイルの役割
+
 - `db.toml` は「**共通設定** (NCBI / BOLD / 出力 / filters / markers.file)」を持ちます。
 - `markers` 外部ファイルは「**マーカー定義**」だけを持ちます ([markers] テーブル)。
 - これにより、用途ごとにマーカー定義を差し替える運用ができます。
 - `[markers]` セクションは必須で、`file` 指定とインライン定義を併用できます。
 
 ### 1. 最小構成 (必須)
-- `source=ncbi` / `source=both` を使う場合:
+
+- `source=ncbi` / `source=both` を使う場合
   - `ncbi` セクション: `email` / `api_key` / `db` / `rettype` など
-- `source=bold` のみを使う場合:
+- `source=bold` のみを使う場合
   - `ncbi` セクションは省略可能
   - 必要なら `bold` セクションで timeout / retry などを調整
 - `[markers]` セクション: `file` もしくはインライン定義
 - `output`: FASTAヘッダーの形式
 
 ### 2. マーカー定義の考え方
+
 マーカー定義は以下の 4 要素で構成されます。
 
 - **検索用 (phrases / terms)**
@@ -265,7 +255,9 @@ file = "configs/markers_mitogenome.toml"
   未指定時は `aliases` / `phrases` / marker key にフォールバックします。
 
 ### 3. よくあるパターン
+
 **rRNA系 (12S/16S など)**
+
 ```toml
 [markers."12s"]
 aliases = ["12", "12s"]
@@ -279,6 +271,7 @@ marker_codes = ["12S"]
 ```
 
 **タンパク質コーディング (COI/ND1 など)**
+
 ```toml
 [markers."coi"]
 aliases = ["coi", "co1", "cox1"]
@@ -292,14 +285,16 @@ marker_codes = ["COI-5P", "COI-3P", "COI"]
 ```
 
 ### 4. FASTAヘッダーの指定
+
 - `[output.header_formats]` にテンプレートを定義
 - `markers.<id>.header_format` でテンプレート名を選択
- (直接テンプレート文字列を書いてもOK)
+  (直接テンプレート文字列を書いてもOK)
 
 > [!NOTE]
 > `markers_mitogenome.toml`にデフォルトで設定している`header_format=mifish_pipeline`はPMiFishパイプラインとMiFishパイプラインのDBに対応するフォーマットになっています。
 
-例:
+例
+
 ```toml
 [output.header_formats]
 simple = "{acc_id}|{marker}|{loc}"
@@ -310,27 +305,29 @@ header_format = "mifish_pipeline"
 ```
 
 #### FASTAヘッダーで使える変数
-| 変数 | 出典 | 意味 |
-| --- | --- | --- |
-| `{acc}` | GenBank レコード | accession (record.id) |
-| `{acc_id}` | 内部生成 | 出力用 accession。重複配列がある場合は `_dupN` 付与 |
-| `{organism}` | GenBank レコード | `ORGANISM` のサニタイズ済み文字列 |
-| `{organism_raw}` | GenBank レコード | `ORGANISM` の生文字列 |
-| `{marker}` | 設定/内部 | マーカーIDのサニタイズ済み文字列 |
-| `{marker_raw}` | 設定/内部 | マーカーIDの生文字列 |
-| `{label}` | GenBank feature | `gene/product/note/standard_name` などから一致した値 (サニタイズ済み) |
-| `{label_raw}` | GenBank feature | 一致した値の生文字列 |
-| `{type}` | GenBank feature | feature type (例: `rRNA`, `gene`, `CDS`) のサニタイズ済み |
-| `{type_raw}` | GenBank feature | feature type の生文字列 |
-| `{start}` | GenBank feature | feature の開始位置 (1-based) |
-| `{end}` | GenBank feature | feature の終了位置 |
-| `{loc}` | GenBank feature | `start-end` 形式の位置 |
-| `{strand}` | GenBank feature | strand (`1`, `-1`, もしくは `0`) |
-| `{dup}` | 内部生成 | 重複配列のタグ (`dupN` or 空文字) |
-| `{source}` | 内部生成 | `ncbi` または `bold` |
-| `{source_id}` | 内部生成 | source 側の record ID |
+
+| 変数             | 出典             | 意味                                                                  |
+| ---------------- | ---------------- | --------------------------------------------------------------------- |
+| `{acc}`          | GenBank レコード | accession (record.id)                                                 |
+| `{acc_id}`       | 内部生成         | 出力用 accession。重複配列がある場合は `_dupN` 付与                   |
+| `{organism}`     | GenBank レコード | `ORGANISM` のサニタイズ済み文字列                                     |
+| `{organism_raw}` | GenBank レコード | `ORGANISM` の生文字列                                                 |
+| `{marker}`       | 設定/内部        | マーカーIDのサニタイズ済み文字列                                      |
+| `{marker_raw}`   | 設定/内部        | マーカーIDの生文字列                                                  |
+| `{label}`        | GenBank feature  | `gene/product/note/standard_name` などから一致した値 (サニタイズ済み) |
+| `{label_raw}`    | GenBank feature  | 一致した値の生文字列                                                  |
+| `{type}`         | GenBank feature  | feature type (例: `rRNA`, `gene`, `CDS`) のサニタイズ済み             |
+| `{type_raw}`     | GenBank feature  | feature type の生文字列                                               |
+| `{start}`        | GenBank feature  | feature の開始位置 (1-based)                                          |
+| `{end}`          | GenBank feature  | feature の終了位置                                                    |
+| `{loc}`          | GenBank feature  | `start-end` 形式の位置                                                |
+| `{strand}`       | GenBank feature  | strand (`1`, `-1`, もしくは `0`)                                      |
+| `{dup}`          | 内部生成         | 重複配列のタグ (`dupN` or 空文字)                                     |
+| `{source}`       | 内部生成         | `ncbi` または `bold`                                                  |
+| `{source_id}`    | 内部生成         | source 側の record ID                                                 |
 
 ### 補助出力
+
 - `*.fasta.acc_organism.csv`
   - FASTAに出たレコードとaccession、organism、record固有のTaxID、lineage、source情報の対応表です。
 - `*.fasta.source_merge.csv`
@@ -339,14 +336,17 @@ header_format = "mifish_pipeline"
 - `*.fasta.manifest.json`
   - バージョン、実行時刻、入力Taxon、検索クエリ、設定ファイルと出力ファイルのSHA-256を記録します。
 
-## 逆引き (よくある目的別)
-### Q. 目的のマーカー情報が登録されていない
-1) `markers.file` (例: `configs/markers_mitogenome.toml`)に新規マーカーを追加
-   もしくは `db.toml` 側の `[markers.<id>]` で追加
-2) `aliases` を付けてCLIから指定できるようにする
-3) `phrases/terms` を検索用に、`region_patterns` を抽出用に設定
+## 逆引き
 
-最小例:
+### Q. 目的のマーカー情報が登録されていない
+
+1. `markers.file` (例: `configs/markers_mitogenome.toml`)に新規マーカーを追加
+   もしくは `db.toml` 側の `[markers.<id>]` で追加
+2. `aliases` を付けてCLIから指定できるようにする
+3. `phrases/terms` を検索用に、`region_patterns` を抽出用に設定
+
+最小例
+
 ```toml
 [markers."mygene"]
 aliases = ["mygene", "mg"]
@@ -357,44 +357,51 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 ```
 
 ### Q. 検索はヒットするが抽出されない
+
 - `region_patterns` がfeature注釈に合っていない可能性があります。
   → GenBankの該当レコードを確認し、`gene/product/note` の表記に合わせて調整してください。
 
 ### Q. ヒット数が多すぎる / 少なすぎる
+
 - `terms` を使ってフィールド指定 (例: `rrnS[Gene]`)すると検索精度が上がります。
 - 必要に応じて `[filters]` を追加して絞り込みます。
 
 ### Q. 12S/16S 以外 (ITS/18S など)を使いたい
+
 - `markers.file` に追加でOKです。
   例: `ITS`, `18S`, `28S` は `feature_types = ["rRNA", "gene"]` で定義するケースが多いです。
 
 ## 使い方
+
 ### コマンドと設定ファイルの対応
+
 以下の対応関係を押さえると、設定とコマンドが繋がって理解できます。
 
-| コマンド引数 | 参照する設定 | 説明 |
-| --- | --- | --- |
-| `-c/--config` | `db.toml` | 共通設定 (NCBI/出力/filters/markers.file) |
-| `-m/--marker` | `markers.file` / `db.toml` の `[markers.<id>]` | 使うマーカー定義 (aliases で選択) |
-| `-t/--taxon` | なし | taxid/学名を指定 (学名はTaxonomyで解決) |
-| `--workers` | なし | 抽出処理の並列数 |
-| `--out` | なし | 出力先 (省略時は `Results/db/YYYYMMDD/`) |
-| `--output-prefix` | なし | 出力FASTAファイル名のプレフィックス (default: `taxondbbuilder_`) |
-| `--export-format` | `[output].export_formats` | 下流ツール向け副生成物を追加 (`qiime2` / `dada2_species`のどちらか一方) |
-| `--dump-gb` | なし | GenBankチャンクを保存 (キャッシュ) |
-| `--from-gb` | なし | 保存済みGenBankチャンクから抽出 |
-| `--resume` | なし | キャッシュを優先して利用 |
-| `--dry-run` | なし | 実際の取得・抽出を行わず、生成されるNCBIクエリのみ表示 |
-| `--post-prep` | `db.toml` の `[post_prep]` | 生成FASTAに後処理を有効化 |
-| `--post-prep-step` | `db.toml` の `[post_prep]` | 実行する後処理カテゴリを選択 (`primer_trim` / `length_filter` / `quality_filter` / `duplicate_report` / `msa_tree`) |
-| `--post-prep-primer-set` | `[post_prep].primer_file` | primer_trim で使う primer_set をCLIから指定 (複数可・config上書き) |
+| コマンド引数             | 参照する設定                                   | 説明                                                                                                                |
+| ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `-c/--config`            | `db.toml`                                      | 共通設定 (NCBI/出力/filters/markers.file)                                                                           |
+| `-m/--marker`            | `markers.file` / `db.toml` の `[markers.<id>]` | 使うマーカー定義 (aliases で選択)                                                                                   |
+| `-t/--taxon`             | なし                                           | taxid/学名を指定 (学名はTaxonomyで解決)                                                                             |
+| `--workers`              | なし                                           | 抽出処理の並列数                                                                                                    |
+| `--out`                  | なし                                           | 出力先 (省略時は `Results/db/YYYYMMDD/`)                                                                            |
+| `--output-prefix`        | なし                                           | 出力FASTAファイル名のプレフィックス (default: `taxondbbuilder_`)                                                    |
+| `--export-format`        | `[output].export_formats`                      | 下流ツール向け副生成物を追加 (`qiime2` / `dada2_species`のどちらか一方)                                             |
+| `--dump-gb`              | なし                                           | GenBankチャンクを保存 (キャッシュ)                                                                                  |
+| `--from-gb`              | なし                                           | 保存済みGenBankチャンクから抽出                                                                                     |
+| `--resume`               | なし                                           | キャッシュを優先して利用                                                                                            |
+| `--dry-run`              | なし                                           | 実際の取得・抽出を行わず、生成されるNCBIクエリのみ表示                                                              |
+| `--post-prep`            | `db.toml` の `[post_prep]`                     | 生成FASTAに後処理を有効化                                                                                           |
+| `--post-prep-step`       | `db.toml` の `[post_prep]`                     | 実行する後処理カテゴリを選択 (`primer_trim` / `length_filter` / `quality_filter` / `duplicate_report` / `msa_tree`) |
+| `--post-prep-primer-set` | `[post_prep].primer_file`                      | primer_trim で使う primer_set をCLIから指定 (複数可・config上書き)                                                  |
 
-### 具体例 (設定とコマンドの対応)
-1) `markers.file` に `12s` を定義しておく
-2) `-m 12s` を指定 → `markers."12s"` の設定が適用される
-3) `phrases/terms` で検索し、`region_patterns` で抽出する
+### 具体例
 
-設定例 (抜粋):
+1. `markers.file` に `12s` を定義しておく
+2. `-m 12s` を指定 → `markers."12s"` の設定が適用される
+3. `phrases/terms` で検索し、`region_patterns` で抽出する
+
+設定例 (抜粋)
+
 ```toml
 [markers."12s"]
 aliases = ["12", "12s"]
@@ -402,72 +409,84 @@ phrases = ["12S", "rrnS"]
 region_patterns = ["12S", "rrnS"]
 ```
 
-実行例:
+実行例
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s
 ```
 
-ファイル名にプレフィックスを付けたい場合:
+ファイル名にプレフィックスを付けたい場合
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --output-prefix "mifish"
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --output-prefix "rhinogobius"
 ```
 
-GenBankを保存しつつ実行 (acc_idごとに `.gb` を保存):
+GenBankを保存しつつ実行 (acc_idごとに `.gb` を保存)
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dump-gb Results/gb
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --dump-gb Results/gb
 ```
 
-保存済みGenBankから再抽出:
+保存済みGenBankから再抽出
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --from-gb Results/gb
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --from-gb Results/gb
 ```
 
-中断後の再開 (キャッシュ利用):
+中断後の再開 (キャッシュ利用)
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dump-gb Results/gb --resume
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --dump-gb Results/gb --resume
 ```
 
-生成されるNCBIクエリだけを確認 (`--dry-run`):
+生成されるNCBIクエリだけを確認 (`--dry-run`)
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --dry-run
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --dry-run
 ```
 
-既存FASTAを保ったままQIIME 2用ファイルも生成:
+既存FASTAを保ったままQIIME 2用ファイルも生成
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml \
-  -t 117570 -m 12s --export-format qiime2
+pixi run python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 63457 -m 12s --export-format qiime2
 ```
 
-DADA2 `assignSpecies`用ファイルを生成:
+DADA2 `assignSpecies`用ファイルを生成
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml \
-  -t 117570 -m 12s \
+pixi run python3 -m taxondbbuilder build -c configs/db.toml \
+  -t 63457 -m 12s \
   --export-format dada2_species
 ```
 
-post-prep を有効化 (primer trim + 長さフィルタ + 重複ACCレポート):
+post-prep を有効化 (primer trim + 長さフィルタ + 重複ACCレポート)
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --post-prep
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --post-prep
 ```
 
-post-prep のカテゴリを明示指定 (primer trim + 重複ACCレポートのみ):
+post-prep のカテゴリを明示指定 (primer trim + 重複ACCレポートのみ)
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --post-prep \
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --post-prep \
   --post-prep-step primer_trim \
   --post-prep-step duplicate_report
 ```
 
-primer_set を複数指定して primer_trim を実行 (config の primer_set を上書き):
+primer_set を複数指定して primer_trim を実行 (config の primer_set を上書き)
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --post-prep \
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --post-prep \
   --post-prep-primer-set mifish_12s \
   --post-prep-primer-set mifish_ev2 \
   --post-prep-step primer_trim
 ```
 
-primer_set の候補を一覧表示:
+primer_set の候補を一覧表示
+
 ```bash
-python3 -m taxondbbuilder list-primer-sets -c configs/db.toml
+pixi run python3 -m taxondbbuilder list-primer-sets -c configs/db.toml
 ```
 
 TaxIDごとの系統樹を作成する場合は、`[post_prep]` に以下を設定して実行します。
@@ -479,53 +498,60 @@ msa_tree_bootstrap_replicates = 1000
 ```
 
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml \
+pixi run python3 -m taxondbbuilder build -c configs/db.toml \
   -t 32443 -t 7777 -m 12s --post-prep --post-prep-step msa_tree
 ```
 
 キャッシュは `Results/gb/.cache/` に保存されます。
 
-GenBankのresumeキャッシュはTaxIDと検索クエリごとに
-`Results/gb/.cache/taxid{ID}/query-{HASH}/`へ分離されます。
+GenBankのresumeキャッシュはTaxIDと検索クエリごとに`Results/gb/.cache/taxid{ID}/query-{HASH}/`へ分離されます。
 
 ### taxid指定
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 32443 -m 12s
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 32443 -m 12s
 ```
 
 ### 学名指定
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t "Salmo salar" -m 12s
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t "Rhinogobius" -m 12s
 ```
 
 ### 複数 taxon / marker
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 32443 -t 7777 -m 12 -m coi
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 32443 -t 7777 -m 12 -m coi
 ```
 
 ### マーカー一覧の確認
+
 ```bash
-python3 -m taxondbbuilder list-markers -c configs/db.toml
+pixi run python3 -m taxondbbuilder list-markers -c configs/db.toml
 ```
 
 ### 並列抽出 (ダウンロードと変換の並列化)
+
 ```bash
-python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --workers 2
 ```
 
 ## 抽出ロジック
+
 - NCBIから**GenBank形式**で取得し、feature注釈から目的領域を抽出します。
 - `region_patterns` が `gene/product/note/standard_name` などの注釈に一致したfeatureのみFASTAへ出力します。
 - `feature_types` を指定すると対象feature型を限定できます (例: rRNA, gene, CDS)。
 
 ## FASTAヘッダーフォーマット
+
 - `[output.header_formats]` にテンプレートを定義し、`markers.<id>.header_format` で選択できます。
 - 直接テンプレート文字列を `header_format` に書くことも可能です。
 
-使用できるプレースホルダ:
+使用できるプレースホルダ
 `{acc}`, `{acc_id}`, `{db}`, `{organism}`, `{organism_raw}`, `{marker}`, `{marker_raw}`, `{label}`, `{label_raw}`, `{type}`, `{type_raw}`, `{start}`, `{end}`, `{loc}`, `{strand}`, `{dup}`
 
 ## 出力
+
 - 出力先: `Results/db/YYYYMMDD/`
 - ファイル名: `taxid{ID}__{marker}.fasta` (複数指定時は `multi_taxon` / `multi_marker`)
 - 実行ログ: 出力FASTAと同名の `.log`
@@ -533,7 +559,7 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
 - source merge 対応表: `*.fasta.source_merge.csv`（NCBI/BOLDのsource、要求TaxID、record固有TaxID、lineage、accession、出力ヘッダーを記録）
 - 実行manifest: `*.fasta.manifest.json`
 
-`[output].export_formats` または `--export-format` 指定時:
+`[output].export_formats` または `--export-format` 指定時
 
 指定できる形式は一つだけです。
 
@@ -545,11 +571,10 @@ python3 -m taxondbbuilder build -c configs/db.toml -t 117570 -m 12s --workers 2
   - `*.fasta.dada2.species.fasta`: `>ID Genus species`形式
   - 二名法として判定できないレコードは出力せず、件数をログに記録します。
 
-GUIではPMiFish、QIIME 2、DADA2から一つを選択でき、選択に合わせて
-`output.header_formats.mifish_pipeline`を`gb|{acc_id}|{organism}`、
-`{acc_id}`、または`{acc_id} {organism_raw}`へ切り替えます。
+GUIではPMiFish、QIIME 2、DADA2から一つを選択でき、選択に合わせて`output.header_formats.mifish_pipeline`を`gb|{acc_id}|{organism}`、`{acc_id}`、または`{acc_id} {organism_raw}`へ切り替えます。
 
-`--post-prep` 指定時:
+`--post-prep` 指定時
+
 - デフォルトでは、設定が存在するカテゴリを実行
   - `primer_trim` (primer設定がある場合)
   - `length_filter` (length設定がある場合)
@@ -578,14 +603,16 @@ GUIではPMiFish、QIIME 2、DADA2から一つを選択でき、選択に合わ�
 - `*.fasta.duplicate_acc.groups.csv` (重複グループの集約。`cross_organism_duplicate` を含む)
 - 条件を満たさないヘッダーテンプレートの場合、重複ACCレポートCSVはスキップされ、理由はコンソールと `.log` に出力
 
-primer list ファイル例 (`configs/primers.toml`):
+primer list ファイル例 (`configs/primers.toml`)
+
 ```toml
 [primer_sets.mifish_12s]
 forward = ["GTCGGTAAAACTCGTGCCAGC"]
 reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 ```
 
-`*.fasta.duplicate_acc.records.csv` の主な列:
+`*.fasta.duplicate_acc.records.csv` の主な列
+
 - `group_id`
 - `sequence_hash`
 - `sequence_length`
@@ -598,7 +625,8 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 - `organism_name`
 - `header`
 
-`*.fasta.duplicate_acc.groups.csv` の主な列:
+`*.fasta.duplicate_acc.groups.csv` の主な列
+
 - `group_id`
 - `sequence_hash`
 - `sequence_length`
@@ -610,6 +638,7 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 - `organism_names` (`;`区切り)
 
 ## キャッシュと再抽出
+
 - `--dump-gb` で **acc_idごとのGenBankファイル** を保存します。
 - NCBIキャッシュはTaxIDと検索クエリのハッシュごとに`--dump-gb/.cache/`へ保存します。
 - BOLDキャッシュは正規化した検索語と形式のハッシュごとに`--dump-gb/.cache/bold/`へ保存します。
@@ -617,10 +646,12 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 - `--from-gb` はネットワークを使わず、保存済みGenBankから抽出のみを実行します。
 
 ## 重複の扱い
+
 - **同一アクセッション + 同一配列**: 重複として除外
 - **同一アクセッション + 異なる配列**: 両方残し、IDに `_dupN` を付与して警告ログに記録
 
 ## フィルタについて
+
 フィルタは**指定なしを受け付けます**。必要な場合のみTOMLの `[filters]` に追加してください。
 `[filters]` は NCBI Nucleotide の Filtering 項目に合わせています (Advanced Search の index list を参照)。
 
@@ -632,59 +663,6 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 - `all_fields_include`, `all_fields_exclude` (文字列 or 文字列配列): `"..."[All Fields]` を OR / NOT で合成
 - `raw`: 生クエリ文字列 (配列も可) をそのまま追加
 
-## Legacy
-旧パイプラインは削除済みです。
-現行方針では**DB用FASTA生成のみ**を対象とします。
-リポジトリ直下の `taxondbbuilder.py` は互換シムとして残しているため、既存の `python3 taxondbbuilder.py ...` も利用できます。
+## GUI
 
-## 補助スクリプト (GUI向け)
-- `tauri-gui/scripts/build_sidecar.py`: Tauri GUI 用の sidecar バイナリを作成/配置するスクリプトです。
-- `--repo-root` でリポジトリルート、`--tauri-root` で `tauri-gui` の場所を指定できます。
-- `--stub` を付けると実バイナリの代わりに stub を作成し、オフラインの `cargo check` 用に利用できます。
-- 詳細手順は `tauri-gui/README.md` を参照してください。
-
-## tauri-gui の実行方法
-`tauri-gui` は Python sidecar の `taxondbbuilder build` を実行する Tauri アプリです。
-Rust 側は Tauri command、設定 I/O、sidecar の起動、進捗イベントへの変換、キャンセルを担当します。
-build と post-prep の処理は sidecar 内の Python パッケージが担当するため、CLI と GUI は同じ実装を共有します。
-
-### 1. Python実行環境を作成 (uv)
-リポジトリルートで実行します。
-```bash
-uv python install 3.12
-uv venv --python 3.12
-source .venv/bin/activate
-uv pip install -r requirements-dev.txt
-```
-`tauri-gui/` にいる状態で実行する場合は `uv pip install -r ../requirements-dev.txt` を使ってください。
-
-### 2. セットアップ
-```bash
-cd tauri-gui
-npm install
-```
-
-### 3. sidecar バイナリを作成
-`build_sidecar.py` はPyInstallerで作成した実バイナリを、現在のOS/target triple用の
-`tauri-gui/src-tauri/bin/` へコピーします。
-
-```bash
-python3 scripts/build_sidecar.py --repo-root .. --tauri-root .
-```
-
-実バイナリを作らずRust側だけを検証する場合はstubを配置できます。
-
-```bash
-python3 scripts/build_sidecar.py --repo-root .. --tauri-root . --stub
-```
-
-### 4. 開発モードで起動
-```bash
-npm run tauri:dev
-```
-
-### 補足
-- sidecar は `src-tauri/bin/` に配置されます。
-- `scripts/build_sidecar.py` は `requirements-dev.txt` の `PyInstaller` が必要です。
-- 開発時は `TAXONDBBUILDER_BIN` 環境変数で sidecar の絶対パスを直接指定することもできます（ディレクトリではなく実行ファイルを指定）。
-- Linux のビルド依存関係は `tauri-gui/README.md` の `Linux build dependencies` を参照してください。
+GUIの環境構築、sidecar作成、ビルド手順は[GUI README](tauri-gui/README.md)を参照してください。
