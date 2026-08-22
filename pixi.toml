@@ -1,0 +1,33 @@
+[workspace]
+name = "taxondbbuilder"
+version = "3.3.1"
+channels = ["conda-forge"]
+platforms = ["linux-64"]
+
+[dependencies]
+python = "3.12.*"
+
+[pypi-dependencies]
+biopython = "*"
+kalign-python = "*"
+piqtree = "*"
+rich = "*"
+typer = "*"
+
+[feature.dev.pypi-dependencies]
+pytest = "*"
+pytest-cov = "*"
+pyflakes = "*"
+pyinstaller = "==6.21.0"
+
+[feature.dev.tasks]
+test = "python -m pytest --cov=taxondbbuilder --cov=taxondb_bold --cov-report=term"
+
+build-sidecar = """
+python tauri-gui/scripts/build_sidecar.py \
+  --repo-root . \
+  --tauri-root tauri-gui
+"""
+
+[environments]
+dev = ["dev"]

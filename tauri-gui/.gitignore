@@ -2,8 +2,6 @@
 node_modules/
 dist/
 
-# Python env for sidecar build
-.venv/
 scripts/__pycache__/
 
 # Tauri/Rust build artifacts

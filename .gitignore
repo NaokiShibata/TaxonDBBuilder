@@ -6,8 +6,12 @@ __pycache__/
 build/
 dist/
 
-# Virtual env / uv
-.venv/
+# Pixi
+.pixi/
+.cache/pixi/
+tools/pixi/
+
+# Environment variables
 .env
 .env.*
 
