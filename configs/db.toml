@@ -1,7 +1,7 @@
 [ncbi]
 # Provide either in config or via env vars NCBI_EMAIL / NCBI_API_KEY.
-email = "your.email@example.com"
-api_key = "YOUR_API_KEY"
+email = ""   #"your.email@example.com"
+api_key = ""
 
 db = "nucleotide"
 rettype = "gb"
