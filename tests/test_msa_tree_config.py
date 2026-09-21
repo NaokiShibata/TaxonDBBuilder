@@ -24,7 +24,7 @@ def test_msa_tree_config_defaults_apply_when_keys_are_omitted(tmp_path: Path) ->
     path = tmp_path / "defaults.toml"
     _write_config(path)
 
-    post_prep = builder.load_config(path)["post_prep"]
+    post_prep = builder.load_config(path, post_prep=True)["post_prep"]
 
     assert post_prep["msa_tree_enable"] is False
     assert post_prep["msa_tree_min_taxa"] == 3
@@ -51,7 +51,7 @@ def test_msa_tree_enable_uses_existing_boolean_parsing_convention(
     path = tmp_path / "bool.toml"
     _write_config(path, f"msa_tree_enable = {raw}\n")
 
-    assert builder.load_config(path)["post_prep"]["msa_tree_enable"] is expected
+    assert builder.load_config(path, post_prep=True)["post_prep"]["msa_tree_enable"] is expected
 
 
 @pytest.mark.parametrize("raw", ["1", "'sometimes'"])
@@ -64,7 +64,7 @@ def test_msa_tree_enable_rejects_non_boolean_values(tmp_path: Path, raw: str) ->
     with pytest.raises(
         typer.BadParameter, match="post_prep.msa_tree_enable must be a boolean"
     ):
-        builder.load_config(path)
+        builder.load_config(path, post_prep=True)
 
 
 @pytest.mark.parametrize(
@@ -87,7 +87,7 @@ def test_msa_tree_counts_reject_invalid_values(
     with pytest.raises(
         typer.BadParameter, match=rf"post_prep\.{key} {re.escape(message)}"
     ):
-        builder.load_config(path)
+        builder.load_config(path, post_prep=True)
 
 
 def test_msa_tree_counts_accept_non_negative_integers(tmp_path: Path) -> None:
@@ -100,7 +100,7 @@ def test_msa_tree_counts_accept_non_negative_integers(tmp_path: Path) -> None:
         "msa_tree_max_samples = 12\n",
     )
 
-    post_prep = builder.load_config(path)["post_prep"]
+    post_prep = builder.load_config(path, post_prep=True)["post_prep"]
     assert post_prep["msa_tree_min_taxa"] == 0
     assert post_prep["msa_tree_max_samples"] == 12
 
@@ -115,7 +115,7 @@ def test_msa_tree_model_rejects_empty_or_non_string_values(
     _write_config(path, f"msa_tree_model = {raw}\n")
 
     with pytest.raises(typer.BadParameter, match="post_prep.msa_tree_model"):
-        builder.load_config(path)
+        builder.load_config(path, post_prep=True)
 
 
 def test_msa_tree_model_accepts_a_non_empty_string(tmp_path: Path) -> None:
@@ -124,7 +124,7 @@ def test_msa_tree_model_accepts_a_non_empty_string(tmp_path: Path) -> None:
     path = tmp_path / "model.toml"
     _write_config(path, "msa_tree_model = 'HKY+G'\n")
 
-    assert builder.load_config(path)["post_prep"]["msa_tree_model"] == "HKY+G"
+    assert builder.load_config(path, post_prep=True)["post_prep"]["msa_tree_model"] == "HKY+G"
 
 
 @pytest.mark.parametrize("mode", ["combined", "per_taxid"])
@@ -134,7 +134,7 @@ def test_msa_tree_mode_accepts_supported_values(tmp_path: Path, mode: str) -> No
     path = tmp_path / "mode.toml"
     _write_config(path, f"msa_tree_mode = '{mode}'\n")
 
-    assert builder.load_config(path)["post_prep"]["msa_tree_mode"] == mode
+    assert builder.load_config(path, post_prep=True)["post_prep"]["msa_tree_mode"] == mode
 
 
 def test_msa_tree_mode_rejects_unknown_value(tmp_path: Path) -> None:
@@ -144,7 +144,7 @@ def test_msa_tree_mode_rejects_unknown_value(tmp_path: Path) -> None:
     _write_config(path, "msa_tree_mode = 'per_marker'\n")
 
     with pytest.raises(typer.BadParameter, match="post_prep.msa_tree_mode"):
-        builder.load_config(path)
+        builder.load_config(path, post_prep=True)
 
 
 def test_msa_tree_disabled_mode_is_valid_when_disabled(tmp_path: Path) -> None:
@@ -153,4 +153,4 @@ def test_msa_tree_disabled_mode_is_valid_when_disabled(tmp_path: Path) -> None:
     path = tmp_path / "disabled.toml"
     _write_config(path, "msa_tree_mode = 'disabled'\n")
 
-    assert builder.load_config(path)["post_prep"]["msa_tree_mode"] == "disabled"
+    assert builder.load_config(path, post_prep=True)["post_prep"]["msa_tree_mode"] == "disabled"

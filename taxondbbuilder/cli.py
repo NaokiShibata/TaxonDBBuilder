@@ -30,7 +30,7 @@ from .config import (
     tomllib,
 )
 from .console import console, print_header, render_result_table, render_run_table
-from .fasta import emit_records_to_fasta
+from .fasta import emit_records_to_fasta, write_region_fallback_tsv
 from .exports import write_interoperability_exports
 from .headers import resolve_header_format
 from .logging_utils import (
@@ -205,13 +205,14 @@ def _collect_marker_header_formats(
 def _build_ncbi_marker_rule(
     key: str, cfg_m: dict[str, Any], header_format: str
 ) -> dict[str, Any]:
+    full_record = cfg_m.get("full_record", False)
     region_patterns = build_region_patterns(cfg_m)
-    if not region_patterns:
+    if not region_patterns and not full_record:
         raise typer.BadParameter(
             f"markers.{key} has no patterns for region extraction."
         )
     compiled = compile_patterns(region_patterns)
-    if not compiled:
+    if not compiled and not full_record:
         raise typer.BadParameter(f"markers.{key} patterns did not compile.")
 
     feature_types = cfg_m.get("feature_types")
@@ -226,6 +227,9 @@ def _build_ncbi_marker_rule(
         raise typer.BadParameter(f"markers.{key}.feature_fields cannot be empty.")
     return {
         "key": key,
+        "fallback": cfg_m.get("fallback", "none"),
+        "fallback_targets": cfg_m.get("fallback_targets", []),
+        "full_record": full_record,
         "patterns": compiled,
         "feature_types": feature_types,
         "feature_fields": feature_fields,
@@ -383,6 +387,7 @@ def _process_ncbi_chunks(
                     task_id,
                     taxid,
                     ctx.dump_gb,
+                    run_logger=ctx.run_logger,
                 )
                 append_records_to_spool(records, spool_f, ctx.lock)
             except Exception as exc:
@@ -533,6 +538,14 @@ def _merge_source_records(
                 ctx.lock,
                 source_merge_rows=ctx.source_merge_rows,
             )
+
+    if any(rule.get("fallback") == "mitogenome" for rule in ctx.marker_rules):
+        path, count = write_region_fallback_tsv(ctx.out_path, ncbi_records)
+        ctx.run_logger.info("# region_fallback_tsv: %s rows=%s inferred=%s recovered=%s skipped=%s partial_unresolved=%s",
+                            path, count, ctx.counters.get("fallback_inferred", 0),
+                            ctx.counters.get("fallback_recovered", 0), ctx.counters.get("fallback_skipped", 0),
+                            ctx.counters.get("fallback_partial_unresolved", 0))
+        console.print(f"Region fallback TSV: {path}")
 
 
 def _run_source_stages(ctx: _BuildContext, spool_dir: Path) -> None:
@@ -861,8 +874,10 @@ def list_primer_sets(
     console.print(table)
 
 
-def _resolve_build_configuration(config: Path, source: BuildSource) -> dict[str, Any]:
-    cfg = load_config(config, source=source)
+def _resolve_build_configuration(
+    config: Path, source: BuildSource, post_prep: bool = False
+) -> dict[str, Any]:
+    cfg = load_config(config, source=source, post_prep=post_prep)
     ncbi_cfg = cfg.get("ncbi", {})
     uses_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
     uses_bold = source in {BuildSource.BOLD, BuildSource.BOTH}
@@ -1248,7 +1263,7 @@ def build(
       taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --from-gb Results/gb
       taxondbbuilder.py build -c configs/db.toml -t 117570 -m coi --source ncbi
     """
-    settings = _resolve_build_configuration(config, source)
+    settings = _resolve_build_configuration(config, source, post_prep)
     marker_settings = _resolve_build_markers(
         marker,
         settings["marker_map"],

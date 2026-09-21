@@ -9,6 +9,7 @@ src-tauri/target/
 
 # Generated sidecar binaries (keep README.md in this dir)
 src-tauri/bin/taxondbbuilder-*
+src-tauri/bin/.taxondbbuilder-*.sha256
 !src-tauri/bin/README.md
 
 # Local logs / caches

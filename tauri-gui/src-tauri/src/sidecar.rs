@@ -156,6 +156,14 @@ fn sidecar_candidates(app: &AppHandle) -> Vec<PathBuf> {
         candidates.push(resource_dir.join(SIDECAR_NAME));
     }
 
+    // Tauri externalBin lives alongside the GUI executable (AppImage: usr/bin).
+    // Prefer the bundled engine to any checkout left on the build machine.
+    if let Ok(executable) = env::current_exe() {
+        if let Some(directory) = executable.parent() {
+            candidates.push(directory.join(SIDECAR_NAME));
+        }
+    }
+
     let manifest_dir = PathBuf::from(env!("CARGO_MANIFEST_DIR"));
     if let Some(repo_dir) = manifest_dir.parent().and_then(Path::parent) {
         candidates.push(repo_dir.join("dist").join(SIDECAR_NAME));

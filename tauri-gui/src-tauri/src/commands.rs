@@ -203,15 +203,23 @@ pub(crate) fn cancel_run(state: State<AppState>) -> Result<(), String> {
     }
 }
 
+fn validate_taxids(taxids: &[String]) -> Result<(), String> {
+    if taxids.is_empty() {
+        return Err("taxids must not be empty".to_string());
+    }
+    if taxids.iter().any(|id| id.is_empty() || !id.bytes().all(|byte| byte.is_ascii_digit())) {
+        return Err("TaxIDは半角数字のみ入力できます。".to_string());
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub(crate) fn start_run(
     app: AppHandle,
     state: State<AppState>,
     req: RunRequest,
 ) -> Result<StartRunResponse, String> {
-    if req.taxids.is_empty() {
-        return Err("taxids must not be empty".to_string());
-    }
+    validate_taxids(&req.taxids)?;
     if req.markers.is_empty() {
         return Err("markers must not be empty".to_string());
     }
@@ -396,4 +404,19 @@ pub(crate) fn start_run(
         log_path: to_abs_string(&log_path),
         command: "rust-runner (integrated)".to_string(),
     })
+}
+
+
+#[cfg(test)]
+mod taxid_tests {
+    use super::validate_taxids;
+
+    #[test]
+    fn taxids_accept_only_ascii_digit_ids() {
+        assert!(validate_taxids(&["30991".into(), "1756094".into()]).is_ok());
+        assert!(validate_taxids(&[]).is_err());
+        for invalid in ["", "Silurus", "ナマズ", "１２３", "1e3", "1.5", "-1", "12abc", " 12", "12,34"] {
+            assert!(validate_taxids(&["30991".into(), invalid.into()]).is_err(), "{invalid}");
+        }
+    }
 }

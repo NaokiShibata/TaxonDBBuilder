@@ -352,7 +352,9 @@ def _normalize_post_prep_config(post_prep: Any, path: Path) -> None:
     )
 
 
-def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> dict:
+def load_config(
+    path: Path, source: BuildSource = BuildSource.NCBI, *, post_prep: bool = False
+) -> dict:
     if not path.exists():
         raise typer.BadParameter(f"Config file not found: {path}")
     with path.open("rb") as f:
@@ -417,8 +419,8 @@ def load_config(path: Path, source: BuildSource = BuildSource.NCBI) -> dict:
     if source == BuildSource.BOTH and bold_cfg is None:
         data["bold"] = {}
 
-    post_prep = data.get("post_prep")
-    _normalize_post_prep_config(post_prep, path)
+    if post_prep:
+        _normalize_post_prep_config(data.get("post_prep"), path)
 
     return data
 

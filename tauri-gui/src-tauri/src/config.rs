@@ -87,6 +87,7 @@ pub(crate) struct FiltersInput {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub(crate) struct PostPrepInput {
+    #[serde(default)]
     pub(crate) enable: bool,
     #[serde(default = "default_msa_tree_mode")]
     pub(crate) msa_tree_mode: String,
@@ -562,7 +563,7 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
             sequence_length_min: req.filters.length_min,
             sequence_length_max: req.filters.length_max,
         },
-        post_prep: Some(PostPrepToml {
+        post_prep: req.post_prep.enable.then(|| PostPrepToml {
             msa_tree_enable: msa_tree_mode != "disabled",
             msa_tree_mode: msa_tree_mode.to_string(),
             primer_file: if req.post_prep.primer_file.trim().is_empty() {
@@ -631,6 +632,11 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
         }
         merge_toml(&mut base, value);
         value = base;
+    }
+    if !req.post_prep.enable {
+        if let Some(table) = value.as_table_mut() {
+            table.remove("post_prep");
+        }
     }
     let text = toml::to_string_pretty(&value)
         .map_err(|e| format!("failed to serialize job config: {e}"))?;
@@ -970,6 +976,7 @@ mod tests {
             base_config_path: String::new(),
             filters: FiltersInput::default(),
             post_prep: PostPrepInput {
+                enable: true,
                 msa_tree_mode: "combined".to_string(),
                 ..PostPrepInput::default()
             },
@@ -983,7 +990,7 @@ mod tests {
         };
 
         let path = write_job_config(&request, &dir).expect("write config");
-        let config: DbToml = toml::from_str(&fs::read_to_string(path).expect("read config"))
+        let config: DbToml = toml::from_str(&fs::read_to_string(&path).expect("read config"))
             .expect("parse generated config");
         assert_eq!(config.ncbi.expect("ncbi").email, "test@example.com");
         let post_prep = config.post_prep.expect("post_prep");
@@ -1031,6 +1038,13 @@ mod tests {
         );
         assert_eq!(merged["filters"]["advanced"].as_bool(), Some(true));
         assert!(Path::new(merged["markers"]["file"].as_str().expect("marker file")).is_absolute());
+        request.post_prep.enable = false;
+        request.base_config_path = path.to_string_lossy().to_string();
+        let disabled_path = write_job_config(&request, &dir.join("disabled")).expect("disabled config");
+        let disabled: toml::Value = toml::from_str(
+            &fs::read_to_string(disabled_path).expect("read disabled config")
+        ).expect("parse disabled config");
+        assert!(disabled.get("post_prep").is_none());
         fs::remove_dir_all(dir).expect("remove test directory");
     }
 }

@@ -96,6 +96,9 @@
                     <input
                       id="taxid-input"
                       type="text"
+                      inputmode="numeric"
+                      pattern="[0-9,;\s]*"
+                      title="TaxIDは半角数字のみ。複数指定はカンマで区切ってください。"
                       placeholder="32443 or 32443,7777,1476529"
                       autocomplete="off"
                     />
