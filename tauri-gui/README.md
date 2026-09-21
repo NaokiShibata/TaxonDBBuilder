@@ -113,7 +113,7 @@ pixi run -e dev python tauri-gui/scripts/build_sidecar.py \
 生成物を起動します。Linuxですと`.AppImage`ファイルが対象になります。
 
 ```bash
-${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilderGUI_0.1.0_amd64.AppImage
+${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilder_3.3.1_amd64.AppImage
 ```
 
 アプリが立ち上がれば完了
