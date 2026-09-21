@@ -10,7 +10,9 @@
     "preview": "vite preview",
     "tauri": "tauri",
     "tauri:dev": "tauri dev",
-    "tauri:build": "tauri build"
+    "tauri:build": "tauri build",
+    "tauri:build:appimage:fast": "bash scripts/build-appimage-fast.sh",
+    "build:sidecar": "cd .. && pixi run -e dev build-sidecar"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.10.1"

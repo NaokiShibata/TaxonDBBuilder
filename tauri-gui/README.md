@@ -97,10 +97,17 @@ pixi run python tools/build_taxonomy_db.py build-sqlite \
 
 ```bash
 pixi install -e dev
-pixi run -e dev build-sidecar
 npm --prefix tauri-gui install
 npm --prefix tauri-gui run tauri:build
 ```
+
+`tauri:build`と`tauri:dev`は、Python抽出プログラムの入力に変更があればsidecarを再ビルドします。
+変更がない場合は既存sidecarを再利用し、GUIだけを更新して古い抽出処理が残ることも防ぎます。
+抽出プログラムのビルドに失敗した場合は、古いバイナリで続行せず停止します。
+
+既存のAppDirを使ってAppImageだけを更新する場合は `npm run tauri:build:appimage:fast` を実行します。
+この経路はGTK/WebKit依存ライブラリを再収集しないため、アプリのコード変更時に使えます。
+依存関係を変更した場合や初回は `npm run tauri:build` でAppDirを作り直してください。
 
 オフラインでRust側だけを確認する場合は、実バイナリの代わりにstubを配置できます。
 

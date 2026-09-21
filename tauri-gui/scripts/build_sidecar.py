@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import platform
 import shutil
 import subprocess
@@ -40,6 +41,24 @@ def write_stub_binary(path: Path, os_key: str) -> None:
         )
         path.write_text(content, encoding="utf-8")
         path.chmod(0o755)
+
+
+def sidecar_fingerprint(repo_root: Path, target_triple: str) -> str:
+    inputs = [
+        repo_root / "taxondbbuilder.py",
+        repo_root / "taxondb_bold.py",
+        repo_root / "taxondbbuilder.spec",
+        repo_root / "VERSION",
+        repo_root / "pixi.toml",
+        repo_root / "pixi.lock",
+        Path(__file__).resolve(),
+        *sorted((repo_root / "taxondbbuilder").rglob("*.py")),
+    ]
+    digest = hashlib.sha256(f"{sys.version}|{target_triple}".encode())
+    for path in inputs:
+        digest.update(str(path.relative_to(repo_root)).encode())
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
 
 
 def main() -> int:
@@ -84,6 +103,13 @@ def main() -> int:
         print(f"created sidecar stub: {dest_bin}")
         return 0
 
+    fingerprint = sidecar_fingerprint(repo_root, target_triple)
+    fingerprint_path = target_dir / f".{bundled_name}.sha256"
+    if dest_bin.is_file() and fingerprint_path.is_file():
+        if fingerprint_path.read_text(encoding="ascii").strip() == fingerprint:
+            print(f"sidecar unchanged, reusing: {dest_bin}")
+            return 0
+
     try:
         subprocess.run(
             [sys.executable, "-m", "PyInstaller", "--version"],
@@ -106,6 +132,7 @@ def main() -> int:
         raise FileNotFoundError(f"built sidecar not found: {dist_bin}")
 
     shutil.copy2(dist_bin, dest_bin)
+    fingerprint_path.write_text(fingerprint + "\n", encoding="ascii")
     print(f"built sidecar: {dest_bin}")
 
     return 0
