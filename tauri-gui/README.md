@@ -53,11 +53,14 @@ sudo apt-get install -y \
   libwayland-dev \
   libxkbcommon-dev \
   libwebkit2gtk-4.1-dev \
+  gstreamer1.0-plugins-base \
   libgtk-3-dev \
   libayatana-appindicator3-dev \
   librsvg2-dev \
   patchelf
 ```
+
+AppImageの実行時にも `gstreamer1.0-plugins-base` が必要です。未導入の場合、WebKitから `GStreamer element appsink not found` と表示されます。
 
 ### ビルド手順
 
