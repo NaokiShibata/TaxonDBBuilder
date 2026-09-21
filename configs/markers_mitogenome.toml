@@ -1,9 +1,15 @@
 # Marker definitions for full mitochondrial genomes and individual regions.
 
-[markers."Full"]
+[markers."complete"]
 full_record = true
 aliases = ["full", "full mitogenome", "complete mitogenome"]
-phrases = ["complete mitochondrial genome", "mitochondrial DNA, complete genome", "mitochondrion, complete genome", "mitochondrion complete genome"]
+phrases = [
+  "mitochondrion",
+  "complete mitochondrial genome",
+  "mitochondrial DNA, complete genome",
+  "mitochondrion, complete genome",
+  "mitochondrion complete genome",
+]
 region_patterns = []
 feature_types = []
 feature_fields = ["gene"]
