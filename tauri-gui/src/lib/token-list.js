@@ -1,3 +1,11 @@
+export function parseTaxids(raw) {
+  const tokens = parseDelimitedTokens(raw);
+  if (tokens.some((value) => !/^[0-9]+$/.test(value))) {
+    throw new Error("TaxIDは半角数字のみ入力できます。複数指定はカンマで区切ってください。");
+  }
+  return tokens;
+}
+
 export function parseDelimitedTokens(raw, pattern = /[\s,;]+/) {
   return `${raw}`
     .split(pattern)

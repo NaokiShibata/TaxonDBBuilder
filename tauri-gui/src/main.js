@@ -8,7 +8,7 @@ import {
   setCheckedValues
 } from "./lib/form-utils.js";
 import { createMonitorView } from "./lib/monitor-view.js";
-import { mergeUniqueValues, parseDelimitedTokens, renderTokenPills } from "./lib/token-list.js";
+import { mergeUniqueValues, parseDelimitedTokens, parseTaxids, renderTokenPills } from "./lib/token-list.js";
 import {
   formatTreeUnavailableMessage,
   parseFasta,
@@ -331,16 +331,24 @@ function renderTaxids() {
 }
 
 function addTaxids(raw) {
-  const tokens = parseDelimitedTokens(raw);
-  if (!tokens.length) return;
-  state.taxids = mergeUniqueValues(state.taxids, tokens);
-  renderTaxids();
-  syncTaxidsHidden();
+  try {
+    const tokens = parseTaxids(raw);
+    els.taxidInput.setCustomValidity("");
+    state.taxids = mergeUniqueValues(state.taxids, tokens);
+    renderTaxids();
+    syncTaxidsHidden();
+    return true;
+  } catch (error) {
+    els.taxidInput.setCustomValidity(error.message);
+    els.taxidInput.reportValidity();
+    return false;
+  }
 }
 
 function commitTaxidInput() {
-  addTaxids(els.taxidInput.value);
+  if (!addTaxids(els.taxidInput.value)) return false;
   els.taxidInput.value = "";
+  return true;
 }
 
 function clearTaxonCandidates() {
@@ -542,6 +550,7 @@ function applyImportedDbToml(imported) {
 function isReadyToRun() {
   return (
     state.taxids.length > 0 &&
+    els.taxidInput.validity.valid &&
     state.markers.length > 0 &&
     els.outputRootInput.value.trim().length > 0 &&
     (!sourceUsesNcbi() || els.emailInput.value.trim().length > 0)
@@ -692,7 +701,7 @@ async function renderRunTree() {
 }
 
 function collectRequest() {
-  commitTaxidInput();
+  if (!commitTaxidInput()) throw new Error(els.taxidInput.validationMessage);
   const steps = getSelectedPostPrepSteps();
   const qualityEnabled = steps.includes("quality_filter");
   const primerSet = parseDelimitedTokens(els.primerSetInput.value, /,+/);
@@ -953,6 +962,11 @@ els.loadDbTomlBtn.addEventListener("click", async () => {
 els.addTaxid.addEventListener("click", () => {
   commitTaxidInput();
   els.taxidInput.focus();
+  updateGuidanceState();
+});
+
+els.taxidInput.addEventListener("input", () => {
+  els.taxidInput.setCustomValidity("");
   updateGuidanceState();
 });
 
