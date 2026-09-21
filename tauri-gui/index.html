@@ -82,8 +82,16 @@
             <div class="setup-columns">
               <div class="setup-column">
                 <section class="card card-taxon">
-                  <h3 data-help="Add TaxIDs directly or find them by scientific name.">Taxon Input</h3>
-                  <label for="taxon-name-input" data-help="Search taxonomy candidates by scientific name.">scientific name search</label>
+                  <h3
+                    data-help="Add TaxIDs directly or find them by scientific name."
+                  >
+                    Taxon Input
+                  </h3>
+                  <label
+                    for="taxon-name-input"
+                    data-help="Search taxonomy candidates by scientific name."
+                    >scientific name search</label
+                  >
                   <input
                     id="taxon-name-input"
                     type="text"
@@ -91,7 +99,11 @@
                     autocomplete="off"
                   />
                   <ul id="taxon-candidates" class="taxon-candidate-list"></ul>
-                  <label for="taxid-input" data-help="Enter one or more NCBI TaxIDs separated by commas.">taxid</label>
+                  <label
+                    for="taxid-input"
+                    data-help="Enter one or more NCBI TaxIDs separated by commas."
+                    >taxid</label
+                  >
                   <div class="taxid-entry">
                     <input
                       id="taxid-input"
@@ -117,8 +129,16 @@
                 </section>
 
                 <section class="card card-ncbi">
-                  <h3 data-help="Select the source and NCBI connection settings for the run.">Data Source</h3>
-                  <label for="source" data-help="Choose NCBI, BOLD, or both data sources.">source</label>
+                  <h3
+                    data-help="Select the source and NCBI connection settings for the run."
+                  >
+                    Data Source
+                  </h3>
+                  <label
+                    for="source"
+                    data-help="Choose NCBI, BOLD, or both data sources."
+                    >source</label
+                  >
                   <select id="source">
                     <option value="ncbi" selected>ncbi</option>
                     <option value="bold">bold</option>
@@ -128,7 +148,9 @@
                     Threads: 8 (automatic fallback if unavailable)
                   </p>
                   <div class="source-field-pair">
-                    <label for="email" data-help="NCBI email required for NCBI queries."
+                    <label
+                      for="email"
+                      data-help="NCBI email required for NCBI queries."
                       >email
                       <input
                         id="email"
@@ -137,7 +159,9 @@
                         required
                       />
                     </label>
-                    <label for="api-key" data-help="Optional NCBI API key for higher request limits."
+                    <label
+                      for="api-key"
+                      data-help="Optional NCBI API key for higher request limits."
                       >api_key
                       <input
                         id="api-key"
@@ -157,27 +181,37 @@
                     >
                   </div>
                   <details class="advanced-block">
-                    <summary data-help="Optional NCBI request and rate-control settings.">NCBI query options</summary>
+                    <summary
+                      data-help="Optional NCBI request and rate-control settings."
+                    >
+                      NCBI query options
+                    </summary>
                     <div class="ncbi-advanced-grid">
                       <label for="ncbi-db" data-help="NCBI database to search."
                         >db
                         <input id="ncbi-db" type="text" value="nucleotide" />
                       </label>
-                      <label for="ncbi-rettype" data-help="GenBank record type returned by NCBI."
+                      <label
+                        for="ncbi-rettype"
+                        data-help="GenBank record type returned by NCBI."
                         >rettype
                         <select id="ncbi-rettype">
                           <option value="gb" selected>gb</option>
                           <option value="gbwithparts">gbwithparts</option>
                         </select>
                       </label>
-                      <label for="ncbi-retmode" data-help="Response format returned by NCBI."
+                      <label
+                        for="ncbi-retmode"
+                        data-help="Response format returned by NCBI."
                         >retmode
                         <select id="ncbi-retmode">
                           <option value="text" selected>text</option>
                           <option value="xml">xml</option>
                         </select>
                       </label>
-                      <label for="ncbi-per-query" data-help="Number of records requested per NCBI fetch."
+                      <label
+                        for="ncbi-per-query"
+                        data-help="Number of records requested per NCBI fetch."
                         >per_query
                         <input
                           id="ncbi-per-query"
@@ -190,7 +224,9 @@
                         ><input id="ncbi-use-history" type="checkbox" checked />
                         use_history</label
                       >
-                      <label for="ncbi-delay-sec" data-help="Delay between NCBI requests in seconds."
+                      <label
+                        for="ncbi-delay-sec"
+                        data-help="Delay between NCBI requests in seconds."
                         >delay_sec (optional)
                         <input
                           id="ncbi-delay-sec"
@@ -204,7 +240,11 @@
                 </section>
 
                 <section class="card card-filters">
-                  <h3 data-help="Filters narrow the source records before post-processing.">Filters</h3>
+                  <h3
+                    data-help="Filters narrow the source records before post-processing."
+                  >
+                    Filters
+                  </h3>
                   <div class="step-grid filter-options">
                     <label class="check"
                       ><input id="f-mito" type="checkbox" checked />
@@ -220,7 +260,10 @@
                     >
                   </div>
                   <div class="field-pair">
-                    <label for="f-length-min" data-help="Minimum length for source sequences.">
+                    <label
+                      for="f-length-min"
+                      data-help="Minimum length for source sequences."
+                    >
                       length_min
                       <input
                         id="f-length-min"
@@ -229,7 +272,10 @@
                         placeholder="example: 120"
                       />
                     </label>
-                    <label for="f-length-max" data-help="Maximum length for source sequences.">
+                    <label
+                      for="f-length-max"
+                      data-help="Maximum length for source sequences."
+                    >
                       length_max
                       <input
                         id="f-length-max"
@@ -244,10 +290,22 @@
 
               <div class="setup-column">
                 <section class="card card-output">
-                  <h3 data-help="Output templates and export formats control the generated files.">Output Options</h3>
-                  <label for="output-prefix" data-help="Prefix used for generated output files.">output_prefix</label>
+                  <h3
+                    data-help="Output templates and export formats control the generated files."
+                  >
+                    Output Options
+                  </h3>
+                  <label
+                    for="output-prefix"
+                    data-help="Prefix used for generated output files."
+                    >output_prefix</label
+                  >
                   <input id="output-prefix" type="text" value="MiFish" />
-                  <label for="output-root" data-help="Directory where the run folder and results are written.">output directory</label>
+                  <label
+                    for="output-root"
+                    data-help="Directory where the run folder and results are written."
+                    >output directory</label
+                  >
                   <div class="inline">
                     <input
                       id="output-root"
@@ -258,8 +316,14 @@
                     <button id="pick-output" type="button">Browse</button>
                   </div>
                   <details class="advanced-block">
-                    <summary data-help="Optional FASTA header templates and export formats.">Output file format</summary>
-                    <label for="output-default-header-format" data-help="Header template used for the default FASTA output."
+                    <summary
+                      data-help="Optional FASTA header templates and export formats."
+                    >
+                      Output file format
+                    </summary>
+                    <label
+                      for="output-default-header-format"
+                      data-help="Header template used for the default FASTA output."
                       >default_header_format</label
                     >
                     <input
@@ -267,7 +331,9 @@
                       type="text"
                       value="{acc_id}|{organism}|{marker}|{label}|{type}|{loc}|{strand}"
                     />
-                    <label for="output-mifish-header-format" data-help="Header template used by the PMiFish format."
+                    <label
+                      for="output-mifish-header-format"
+                      data-help="Header template used by the PMiFish format."
                       >output.header_formats.mifish_pipeline</label
                     >
                     <input
@@ -311,10 +377,15 @@
                 </section>
 
                 <section class="card card-marker">
-                  <h3 data-help="Select the marker region used for sequence retrieval.">Marker</h3>
+                  <h3
+                    data-help="Select the marker region used for sequence retrieval."
+                  >
+                    Marker
+                  </h3>
                   <label for="marker">marker selector</label>
                   <div class="taxid-entry">
                     <select id="marker" required>
+                      <option value="complete">complete</option>
                       <option value="mitogenome">mitogenome</option>
                       <option value="12s">12s</option>
                       <option value="16s">16s</option>
@@ -343,12 +414,21 @@
                 </section>
 
                 <section class="card card-postprep">
-                  <h3 data-help="Post Prep trims, filters, quality-checks, and reports the downloaded sequences.">Post Prep</h3>
+                  <h3
+                    data-help="Post Prep trims, filters, quality-checks, and reports the downloaded sequences."
+                  >
+                    Post Prep
+                  </h3>
                   <label class="check"
-                    ><input id="post-enable" type="checkbox" checked /> enable</label
+                    ><input id="post-enable" type="checkbox" checked />
+                    enable</label
                   >
                   <fieldset class="post-group">
-                    <legend data-help="Choose built-in or custom primers used to trim sequences.">Primer trimming</legend>
+                    <legend
+                      data-help="Choose built-in or custom primers used to trim sequences."
+                    >
+                      Primer trimming
+                    </legend>
                     <label class="check"
                       ><input
                         class="post-step"
@@ -376,71 +456,71 @@
                       >primer candidates</label
                     >
                     <div class="step-grid">
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="mifish_u"
-                      />
-                      MiFish-U</label
-                    >
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="mideca"
-                      />
-                      MiDeca</label
-                    >
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="mtinsects_16s"
-                      />
-                      MtInsects-16S</label
-                    >
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="mimammal_u"
-                      />
-                      MiMammal-U</label
-                    >
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="mibird_u"
-                      />
-                      MiBird-U</label
-                    >
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="amph_16s"
-                      />
-                      Amph_16S</label
-                    >
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="uceta"
-                      />
-                      μCeta</label
-                    >
-                    <label class="check"
-                      ><input
-                        class="primer-candidate"
-                        type="checkbox"
-                        value="mifish_unity"
-                        checked
-                      />
-                      MiFish-Unity</label
-                    >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="mifish_u"
+                        />
+                        MiFish-U</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="mideca"
+                        />
+                        MiDeca</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="mtinsects_16s"
+                        />
+                        MtInsects-16S</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="mimammal_u"
+                        />
+                        MiMammal-U</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="mibird_u"
+                        />
+                        MiBird-U</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="amph_16s"
+                        />
+                        Amph_16S</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="uceta"
+                        />
+                        μCeta</label
+                      >
+                      <label class="check"
+                        ><input
+                          class="primer-candidate"
+                          type="checkbox"
+                          value="mifish_unity"
+                          checked
+                        />
+                        MiFish-Unity</label
+                      >
                     </div>
                     <label for="primer-set">primer_set (comma separated)</label>
                     <input
@@ -451,7 +531,11 @@
                   </fieldset>
 
                   <fieldset class="radio-group">
-                    <legend data-help="Choose whether to align sequences and build one or more trees.">MSA / Phylogenetic tree</legend>
+                    <legend
+                      data-help="Choose whether to align sequences and build one or more trees."
+                    >
+                      MSA / Phylogenetic tree
+                    </legend>
                     <label class="check"
                       ><input
                         class="msa-tree-mode"
@@ -483,7 +567,11 @@
                   </fieldset>
 
                   <fieldset class="post-group">
-                    <legend data-help="Keep post-processed sequences within the specified length range.">Length filter</legend>
+                    <legend
+                      data-help="Keep post-processed sequences within the specified length range."
+                    >
+                      Length filter
+                    </legend>
                     <label class="check"
                       ><input
                         class="post-step"
@@ -515,7 +603,11 @@
                     </div>
                   </fieldset>
                   <fieldset class="post-group">
-                    <legend data-help="Reject sequences with too many ambiguous or invalid bases.">Quality filter</legend>
+                    <legend
+                      data-help="Reject sequences with too many ambiguous or invalid bases."
+                    >
+                      Quality filter
+                    </legend>
                     <label class="check"
                       ><input
                         class="post-step"
@@ -548,7 +640,11 @@
                     </div>
                   </fieldset>
                   <fieldset class="post-group">
-                    <legend data-help="Generate reports describing duplicate sequence groups.">Duplicate report</legend>
+                    <legend
+                      data-help="Generate reports describing duplicate sequence groups."
+                    >
+                      Duplicate report
+                    </legend>
                     <label class="check"
                       ><input
                         class="post-step"
