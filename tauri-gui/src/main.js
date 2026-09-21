@@ -724,7 +724,7 @@ function collectRequest() {
       lengthMax: parseIntOrNull(els.filterLengthMaxInput.value)
     },
     postPrep: {
-      enable: els.postEnableInput.checked || getSelectedMsaTreeMode() !== "disabled",
+      enable: els.postEnableInput.checked,
       msaTreeMode: getSelectedMsaTreeMode(),
       primerFile: els.primerFileInput.value.trim(),
       primerSet,
@@ -1021,7 +1021,6 @@ els.sourceInput.addEventListener("change", () => {
 els.postEnableInput.addEventListener("change", updateGuidanceState);
 els.msaTreeModeEls.forEach((el) => {
   el.addEventListener("change", () => {
-    if (el.checked && el.value !== "disabled") els.postEnableInput.checked = true;
     updateGuidanceState();
   });
 });

@@ -460,6 +460,10 @@ pixi run python3 -m taxondbbuilder build -c configs/db.toml \
   --export-format dada2_species
 ```
 
+Post prep は GUI の Enable または CLI の `--post-prep` で明示的に有効化した場合だけ実行します。
+無効時は、設定が残っていても primer trim・フィルタ・MSA/系統樹の処理やプライマーファイルの読み込みを行いません。
+Python の `load_config()` でも後処理設定の検証には `post_prep=True` が必要です。
+
 post-prep を有効化 (primer trim + 長さフィルタ + 重複ACCレポート)
 
 ```bash

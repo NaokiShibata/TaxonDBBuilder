@@ -11,9 +11,9 @@ def test_load_config_source_branches_and_normalization(fixture_dir: Path):
     import taxondbbuilder as builder
 
     config_path = fixture_dir / "minimal_config.toml"
-    ncbi = builder.load_config(config_path, builder.BuildSource.NCBI)
-    bold = builder.load_config(config_path, builder.BuildSource.BOLD)
-    both = builder.load_config(config_path, builder.BuildSource.BOTH)
+    ncbi = builder.load_config(config_path, builder.BuildSource.NCBI, post_prep=True)
+    bold = builder.load_config(config_path, builder.BuildSource.BOLD, post_prep=True)
+    both = builder.load_config(config_path, builder.BuildSource.BOTH, post_prep=True)
 
     assert sorted(ncbi["markers"]) == ["12s", "coi"]
     assert ncbi["post_prep"]["primer_max_mismatch"] == 0
@@ -54,7 +54,7 @@ def test_load_config_rejects_invalid_post_prep_range(tmp_path: Path):
         encoding="utf-8",
     )
     with pytest.raises(typer.BadParameter, match="sequence_length_min must be <="):
-        builder.load_config(path)
+        builder.load_config(path, post_prep=True)
 
 
 def test_load_config_resolves_builtin_primer_set_without_file(tmp_path: Path):
@@ -67,7 +67,7 @@ def test_load_config_resolves_builtin_primer_set_without_file(tmp_path: Path):
         "[post_prep]\nprimer_set = 'mifish_unity'\n",
         encoding="utf-8",
     )
-    result = builder.load_config(path)
+    result = builder.load_config(path, post_prep=True)
     assert result["post_prep"]["_primer_forward"] == ["GYYGGTAAAWCTCGTGCCAGC"]
     assert result["post_prep"]["_primer_reverse"] == [
         "CATAGKRGGGTRTCTAATCCYMGTTTG"
@@ -81,7 +81,7 @@ def test_load_config_resolves_builtin_primer_set_without_file(tmp_path: Path):
         encoding="utf-8",
     )
     with pytest.raises(typer.BadParameter, match="was not found"):
-        builder.load_config(unknown_path)
+        builder.load_config(unknown_path, post_prep=True)
 
 
 def test_marker_normalization_resolution_query_and_region_patterns():
@@ -171,3 +171,19 @@ def test_header_characterization():
         None,
         None,
     )
+
+
+@pytest.mark.parametrize("enabled", [None, False, True])
+def test_disabled_post_prep_skips_invalid_child_settings(tmp_path: Path, enabled):
+    from taxondbbuilder.config import load_config
+
+    path = tmp_path / "db.toml"
+    path.write_text("[ncbi]\nemail = 'test@example.com'\n"
+                    "[markers.foo]\nphrases = ['foo']\n"
+                    "[post_prep]\nprimer_file = 'missing.toml'\nprimer_set = 'missing'\n")
+    kwargs = {} if enabled is None else {"post_prep": enabled}
+    if enabled:
+        with pytest.raises(typer.BadParameter):
+            load_config(path, **kwargs)
+    else:
+        assert "_primer_forward" not in load_config(path, **kwargs)["post_prep"]
