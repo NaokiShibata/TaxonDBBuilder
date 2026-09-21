@@ -666,3 +666,60 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 ## GUI
 
 GUIの環境構築、sidecar作成、ビルド手順は[GUI README](tauri-gui/README.md)を参照してください。
+
+
+## ミトコンドリア領域の注釈補完
+
+`-m Full`はcomplete mitochondrial genomeと明示されたレコードを全長配列で出力します。
+`-m mitogenome`は注釈された各領域を個別に出力し、FASTAヘッダー末尾に`|region=<領域名>`を付けます。
+
+同梱のmitogenomeマーカー設定では、D-loop、12S、16S、13種類のCDSの不十分なFeature注釈を補完します。
+`-m mitogenome`でまとめて抽出する場合と、`-m nd4`などの個別指定で同じ処理を使います。
+正常な領域は元の注釈を優先し、不十分な領域だけを評価します。
+
+```toml
+[markers."nd4"]
+# 既存のphrases、feature_typesなどに追加
+fallback = "mitogenome"
+fallback_targets = ["ND4"]
+```
+
+`fallback_targets`は`12S`、`16S`、`COI`、`COII`、`COIII`、`CYTB`、`ATP6`、`ATP8`、`ND1`〜`ND6`、`ND4L`、`control_region`を指定できます。
+tRNAを明示的に抽出する設定では、`tRNA-Phe`などの名前も指定できます。
+LeuとSerは`tRNA-Leu(UUR)`、`tRNA-Leu(CUN)`、`tRNA-Ser(UCN)`、`tRNA-Ser(AGY)`で区別します。
+設定を省略するか`fallback = "none"`にすると、そのマーカーは従来通り抽出します。
+BOLDの取得には適用しません。
+
+補完は次の順序で進みます。
+
+1. 同じ座位の正常な別Featureがあれば、その境界を使用します。
+2. ミトコンドリア由来で、脊椎動物の配置と整合する場合に両側の遺伝子から候補範囲を求めます。
+3. RNAと非コード領域では遺伝子間の推定区間を使います。CDSでは翻訳情報、開始と終止、元の位置を検証し、一意に決まる候補だけを採用します。
+
+単一塩基、10 bp以下、無効なLocation、部分境界、翻訳注釈との不一致が補完の契機になります。
+対象Feature自体がない場合も候補を調べますが、CDSの位置もtranslationもない場合は推測でORFを選びません。
+10 bpという値は明らかな短縮注釈の検出用で、各領域の正常長の下限ではありません。
+原点越えは`topology=circular`の場合に限ります。
+アンカーの欠損、曖昧な複数コピー、配置の不一致、十分な境界根拠がないCDSは理由付きで見送ります。
+
+CDSの重複部分は検証した範囲で保持します。
+不完全終止コドンのTまたはTAは、同じ鎖の隣接RNAとの境界および既存のTERM注釈がある場合はその位置を確認して扱い、塩基を人工的に追加しません。
+`codon_start`が2または3のCDS補完、TERM以外の翻訳例外、fuzzyまたは原点を跨ぐ複合アンカーは現在の補完では扱わず、ログに理由を記録します。
+正常な元Featureの抽出はこれらの制限の対象外です。
+
+補完結果は`<output.fasta>.region_fallback.tsv`と既存の`.log`で確認できます。
+TSVにはFASTAヘッダー、領域ID、補完方法、理由、元座標、採用座標、アンカー、鎖、翻訳表、重複塩基数を記録します。
+`recovered`は別注釈による補完、`inferred`は境界推定、`partial_unresolved`は補完できず元の部分配列を保持した結果です。
+構造不備の補完に失敗した1塩基などの配列は出力せず、見送り理由をログに残します。
+補完が0件でも、有効な設定ではTSVの列名を出力します。
+
+座標は1-based inclusiveで、原点を跨ぐ場合は`join(...)`、負鎖は`complement(...)`と表します。
+補完結果のヘッダー変数`{loc}`にもこの表記を使い、`{start}`と`{end}`はレコード正方向の区間の入口と出口です。
+原点越えでは`start > end`になる場合があります。
+FASTAヘッダーの設定形式は維持しつつ領域suffixを付けるため、PMiFishなどの専用形式でも領域を識別できます。
+
+TSVの`stage=extraction_before_post_prep`は、抽出時点の座標と配列長を表します。
+後続のトリミングやフィルターで配列が変わってもTSVの元座標を更新しないため、最終FASTAへの残存状況はヘッダーで照合してください。
+両側遺伝子からの推定区間は実験的に確定した境界を保証しません。
+
+例としてOQ851455.1の`D-loop 15637`は、tRNA-Proの終端と原点にあるtRNA-Pheから`15637..17610`（1,974 bp）と推定されます。

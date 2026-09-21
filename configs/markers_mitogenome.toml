@@ -1,7 +1,17 @@
-# Marker definitions for mitochondrial genome regions
-# Each marker uses phrases/terms for search and region_patterns for feature extraction.
+# Marker definitions for full mitochondrial genomes and individual regions.
+
+[markers."Full"]
+full_record = true
+aliases = ["full", "full mitogenome", "complete mitogenome"]
+phrases = ["complete mitochondrial genome", "mitochondrial DNA, complete genome", "mitochondrion, complete genome", "mitochondrion complete genome"]
+region_patterns = []
+feature_types = []
+feature_fields = ["gene"]
+header_format = "mifish_pipeline"
 
 [markers."mitogenome"]
+fallback = "mitogenome"
+fallback_targets = ["12S", "16S", "COI", "COII", "COIII", "CYTB", "ATP6", "ATP8", "ND1", "ND2", "ND3", "ND4", "ND4L", "ND5", "ND6", "control_region"]
 aliases = ["mitogenome", "mtgenome", "mtDNA", "mt"]
 phrases = ["mitochondrial genome", "mitogenome", "mtDNA", "mitochondrion"]
 region_patterns = [
@@ -27,6 +37,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."12s"]
+fallback = "mitogenome"
+fallback_targets = ["12S"]
 aliases = ["12", "12s", "rrns"]
 phrases = ["12S", "rrnS", "small subunit ribosomal RNA"]
 region_patterns = ["12S", "rrnS", "small subunit ribosomal RNA"]
@@ -38,6 +50,8 @@ header_format = "mifish_pipeline"
 marker_codes = ["12S"]
 
 [markers."16s"]
+fallback = "mitogenome"
+fallback_targets = ["16S"]
 aliases = ["16", "16s", "rrnl"]
 phrases = ["16S", "rrnL", "large subunit ribosomal RNA"]
 region_patterns = ["16S", "rrnL", "large subunit ribosomal RNA"]
@@ -46,6 +60,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."coi"]
+fallback = "mitogenome"
+fallback_targets = ["COI"]
 aliases = ["coi", "co1", "cox1"]
 phrases = ["COI", "CO1", "COX1", "cytochrome c oxidase subunit I"]
 region_patterns = ["COI", "CO1", "COX1", "cytochrome c oxidase subunit I"]
@@ -57,6 +73,8 @@ header_format = "mifish_pipeline"
 marker_codes = ["COI-5P", "COI-3P", "COI"]
 
 [markers."coii"]
+fallback = "mitogenome"
+fallback_targets = ["COII"]
 aliases = ["coii", "cox2"]
 phrases = ["COII", "COX2", "cytochrome c oxidase subunit II"]
 region_patterns = ["COII", "COX2", "cytochrome c oxidase subunit II"]
@@ -65,6 +83,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."coiii"]
+fallback = "mitogenome"
+fallback_targets = ["COIII"]
 aliases = ["coiii", "cox3"]
 phrases = ["COIII", "COX3", "cytochrome c oxidase subunit III"]
 region_patterns = ["COIII", "COX3", "cytochrome c oxidase subunit III"]
@@ -73,6 +93,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."cytb"]
+fallback = "mitogenome"
+fallback_targets = ["CYTB"]
 aliases = ["cytb", "cyt b", "cytb1"]
 phrases = ["CYTB", "cytochrome b", "cyt b"]
 region_patterns = ["CYTB", "cytochrome b", "cyt b"]
@@ -81,6 +103,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."atp6"]
+fallback = "mitogenome"
+fallback_targets = ["ATP6"]
 aliases = ["atp6"]
 phrases = ["ATP6", "ATPase subunit 6", "ATP synthase F0 subunit 6"]
 region_patterns = ["ATP6", "ATPase subunit 6", "ATP synthase F0 subunit 6"]
@@ -89,6 +113,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."atp8"]
+fallback = "mitogenome"
+fallback_targets = ["ATP8"]
 aliases = ["atp8"]
 phrases = ["ATP8", "ATPase subunit 8", "ATP synthase F0 subunit 8"]
 region_patterns = ["ATP8", "ATPase subunit 8", "ATP synthase F0 subunit 8"]
@@ -97,6 +123,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."nd1"]
+fallback = "mitogenome"
+fallback_targets = ["ND1"]
 aliases = ["nd1"]
 phrases = ["ND1", "NADH dehydrogenase subunit 1"]
 region_patterns = ["ND1", "NADH dehydrogenase subunit 1"]
@@ -105,6 +133,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."nd2"]
+fallback = "mitogenome"
+fallback_targets = ["ND2"]
 aliases = ["nd2"]
 phrases = ["ND2", "NADH dehydrogenase subunit 2"]
 region_patterns = ["ND2", "NADH dehydrogenase subunit 2"]
@@ -113,6 +143,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."nd3"]
+fallback = "mitogenome"
+fallback_targets = ["ND3"]
 aliases = ["nd3"]
 phrases = ["ND3", "NADH dehydrogenase subunit 3"]
 region_patterns = ["ND3", "NADH dehydrogenase subunit 3"]
@@ -121,6 +153,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."nd4"]
+fallback = "mitogenome"
+fallback_targets = ["ND4"]
 aliases = ["nd4"]
 phrases = ["ND4", "NADH dehydrogenase subunit 4"]
 region_patterns = ["ND4", "NADH dehydrogenase subunit 4"]
@@ -129,6 +163,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."nd4l"]
+fallback = "mitogenome"
+fallback_targets = ["ND4L"]
 aliases = ["nd4l"]
 phrases = ["ND4L", "NADH dehydrogenase subunit 4L"]
 region_patterns = ["ND4L", "NADH dehydrogenase subunit 4L"]
@@ -137,6 +173,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."nd5"]
+fallback = "mitogenome"
+fallback_targets = ["ND5"]
 aliases = ["nd5"]
 phrases = ["ND5", "NADH dehydrogenase subunit 5"]
 region_patterns = ["ND5", "NADH dehydrogenase subunit 5"]
@@ -145,6 +183,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."nd6"]
+fallback = "mitogenome"
+fallback_targets = ["ND6"]
 aliases = ["nd6"]
 phrases = ["ND6", "NADH dehydrogenase subunit 6"]
 region_patterns = ["ND6", "NADH dehydrogenase subunit 6"]
@@ -153,6 +193,8 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
 [markers."control_region"]
+fallback = "mitogenome"
+fallback_targets = ["control_region"]
 aliases = ["control", "control-region", "dloop", "d-loop"]
 phrases = ["D-loop", "control region"]
 region_patterns = ["D-loop", "control region"]

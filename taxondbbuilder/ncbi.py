@@ -7,7 +7,7 @@ import re
 import sys
 import time
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from http import HTTPStatus
 from http.client import HTTPException, RemoteDisconnected
@@ -22,6 +22,7 @@ from rich.progress import Progress
 
 from .console import console
 from .headers import sanitize_header
+from .mitogenome import identify_region, resolve_regions
 from .models import DEFAULT_HEADER_FORMAT, BuildSource, CanonicalRecord, ResolvedTaxon
 
 
@@ -35,6 +36,7 @@ class _MatchedNCBIFeature:
     start: int
     end: int
     strand: int
+    provenance: dict[str, str] = field(default_factory=dict)
 
 
 def _record_taxonomy(record: Any) -> tuple[str | None, list[str]]:
@@ -54,6 +56,24 @@ def _record_taxonomy(record: Any) -> tuple[str | None, list[str]]:
         if str(value).strip()
     ]
     return organism_taxid, lineage
+
+
+def _is_complete_mitogenome(record: Any) -> bool:
+    text = " ".join([
+        str(record.description),
+        *(str(value) for value in record.annotations.get("keywords", [])),
+    ]).lower()
+    complete = bool(re.search(r"\bcomplete\b.{0,40}\bgenome\b|\bgenome\b.{0,40}\bcomplete\b", text))
+    if not complete:
+        return False
+    for feature in record.features:
+        if feature.type != "source":
+            continue
+        organelles = " ".join(str(value) for value in feature.qualifiers.get("organelle", []))
+        genomes = " ".join(str(value) for value in feature.qualifiers.get("genome", []))
+        if re.search(r"mitochond", organelles + " " + genomes, re.IGNORECASE):
+            return True
+    return "mitochond" in text
 
 
 def _dump_genbank_record(
@@ -120,7 +140,7 @@ def _build_ncbi_canonical_record(
     label_safe = sanitize_header(matched.label)
     marker_safe = sanitize_header(matched.marker or "marker")
     type_safe = sanitize_header(matched.feature_type)
-    loc = f"{matched.start}-{matched.end}"
+    loc = matched.provenance.get("inferred_location") or f"{matched.start}-{matched.end}"
     header_values = {
         "acc": acc,
         "acc_id": acc_id,
@@ -153,6 +173,7 @@ def _build_ncbi_canonical_record(
         sequence=matched.sequence,
         header_values=header_values,
         metadata={
+            **matched.provenance,
             "organism_name": organism,
             "matched_type": matched.feature_type,
             "header_format": matched.header_format or DEFAULT_HEADER_FORMAT,
@@ -215,6 +236,7 @@ def _extract_ncbi_record(
     taxid: str,
     dump_gb_dir: Path | None,
     source: BuildSource,
+    run_logger=None,
 ) -> list[CanonicalRecord]:
     if not record.seq:
         return []
@@ -225,11 +247,91 @@ def _extract_ncbi_record(
     _dump_genbank_record(record, acc, taxid, dump_gb_dir, lock)
     extracted_records: list[CanonicalRecord] = []
     record_matched = False
-    for feature in record.features:
-        matched = _match_ncbi_feature(record, feature, marker_rules)
+    # Assign features in rule order. Enabled rules use exact biological identities.
+    owners = {}
+    for rule in marker_rules:
+        if rule.get("fallback") == "mitogenome":
+            for target in rule["fallback_targets"]:
+                owners.setdefault(target, rule)
+    matches = []
+    match_order = {}
+    feature_positions = {id(f): i for i, f in enumerate(record.features)}
+    region_positions = {}
+    legacy_claimed = set()
+    for rule in marker_rules:
+        if rule.get("full_record") and _is_complete_mitogenome(record):
+            matches.append(_MatchedNCBIFeature(
+                sequence=str(record.seq).upper(),
+                label="complete mitochondrial genome",
+                marker=rule["key"],
+                feature_type="genome",
+                header_format=rule["header_format"],
+                start=1,
+                end=len(record.seq),
+                strand=1,
+            ))
+            match_order[id(matches[-1])] = -1
+    for position, feature in enumerate(record.features):
+        region = identify_region(feature)
+        if region:
+            region_positions.setdefault(region, position)
+        for rule in marker_rules:
+            if rule.get("full_record"):
+                continue
+            if rule["feature_types"] and feature.type not in rule["feature_types"]:
+                continue
+            if rule.get("fallback") == "mitogenome":
+                if region in rule["fallback_targets"]:
+                    break
+            else:
+                matched = _match_ncbi_feature(record, feature, [rule])
+                if matched is not None:
+                    matches.append(matched)
+                    match_order[id(matched)] = position
+                    if region:
+                        legacy_claimed.add(region)
+                    break
+    targets = [region for region in owners if region not in legacy_claimed]
+    repaired, events = resolve_regions(record, targets) if targets else ([], [])
+    for region, feature, provenance in repaired:
+        rule = owners[region]
+        # Honor feature-type restrictions for original annotations. Repaired annotations
+        # represent the requested biological region even when the input type was gene.
+        if not provenance and rule["feature_types"] and feature.type not in rule["feature_types"]:
+            feature = next((f for f in record.features if f.type in rule["feature_types"]
+                            and identify_region(f) == region and f.location == feature.location), None)
+            if feature is None:
+                continue
+        loc = feature.location
+        parts = list(loc.parts)
+        if loc.strand == -1:
+            parts.reverse()
+        matches.append(_MatchedNCBIFeature(
+            sequence=str(feature.extract(record.seq)).upper(),
+            label=match_feature(feature, rule["patterns"], rule["feature_fields"]) or region,
+            marker=rule["key"], feature_type=feature.type,
+            header_format=rule["header_format"],
+            start=int(parts[0].start if provenance else loc.start) + 1,
+            end=int(parts[-1].end if provenance else loc.end),
+            strand=loc.strand or 0, provenance={**provenance, "region_id": region},
+        ))
+        match_order[id(matches[-1])] = feature_positions.get(
+            id(feature), region_positions.get(region, len(record.features))
+        )
+    matches.sort(key=lambda match: match_order[id(match)])
+    for event in events:
+        with lock:
+            key = "fallback_" + event["status"]
+            counters[key] = counters.get(key, 0) + 1
+        if run_logger:
+            run_logger.info("# region_fallback accession=%s marker=%s %s", acc,
+                            owners[event["region_id"]]["key"],
+                            " ".join(f"{k}={v}" for k, v in event.items()))
+    for matched in matches:
         if matched is None:
             continue
         record_matched = True
+        before = len(extracted_records)
         _append_ncbi_feature_record(
             acc,
             organism,
@@ -245,6 +347,9 @@ def _extract_ncbi_record(
             organism_taxid,
             taxonomy_lineage,
         )
+        if matched.provenance and len(extracted_records) == before and run_logger:
+            run_logger.info("# region_fallback accession=%s region_id=%s status=deduplicated",
+                            acc, matched.provenance["region_id"])
     if record_matched:
         with lock:
             counters["matched_records"] += 1
@@ -263,6 +368,7 @@ def extract_ncbi_records_from_genbank_chunk(
     taxid: str,
     dump_gb_dir: Path | None,
     source: BuildSource = BuildSource.NCBI,
+    run_logger=None,
 ) -> list[CanonicalRecord]:
     extracted_records: list[CanonicalRecord] = []
     handle = io.StringIO(chunk)
@@ -281,6 +387,7 @@ def extract_ncbi_records_from_genbank_chunk(
                 taxid,
                 dump_gb_dir,
                 source,
+                run_logger,
             )
         )
     return extracted_records

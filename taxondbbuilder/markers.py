@@ -5,6 +5,7 @@ import re
 import typer
 
 from .models import BuildSource
+from .mitogenome import ORDER
 
 
 def normalize_marker_map(
@@ -21,6 +22,17 @@ def normalize_marker_map(
         feature_types = cfg.get("feature_types")
         feature_fields = cfg.get("feature_fields")
         aliases = cfg.get("aliases") or []
+        fallback = cfg.get("fallback", "none")
+        targets = cfg.get("fallback_targets", [])
+        full_record = cfg.get("full_record", False)
+        if not isinstance(full_record, bool):
+            raise typer.BadParameter(f"markers.{key}.full_record must be a boolean.")
+        if fallback not in ("none", "mitogenome"):
+            raise typer.BadParameter(f"markers.{key}.fallback must be none or mitogenome.")
+        if not isinstance(targets, list) or any(not isinstance(t, str) or t not in ORDER for t in targets):
+            raise typer.BadParameter(f"markers.{key}.fallback_targets must list known mitochondrial regions.")
+        if fallback == "mitogenome" and not targets:
+            raise typer.BadParameter(f"markers.{key}.fallback_targets is required for mitogenome fallback.")
         bold_cfg = cfg.get("bold") or {}
         if bold_cfg and not isinstance(bold_cfg, dict):
             raise typer.BadParameter(f"markers.{key}.bold must be a table (dict).")
@@ -64,8 +76,11 @@ def normalize_marker_map(
             "header_format": header_format,
             "feature_types": feature_types,
             "feature_fields": feature_fields,
+            "full_record": full_record,
             "bold": {"marker_codes": marker_codes},
         }
+        if fallback != "none":
+            marker_map[key].update(fallback=fallback, fallback_targets=list(dict.fromkeys(targets)))
     return marker_map
 
 

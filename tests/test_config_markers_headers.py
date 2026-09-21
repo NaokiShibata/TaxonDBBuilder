@@ -108,6 +108,7 @@ def test_marker_normalization_resolution_query_and_region_patterns():
             "header_format": None,
             "feature_types": ["rRNA"],
             "feature_fields": ["gene"],
+            "full_record": False,
             "bold": {"marker_codes": ["12S"]},
         },
         "raw": {
@@ -118,6 +119,7 @@ def test_marker_normalization_resolution_query_and_region_patterns():
             "header_format": None,
             "feature_types": None,
             "feature_fields": None,
+            "full_record": False,
             "bold": {"marker_codes": []},
         },
     }
