@@ -93,6 +93,57 @@ def test_primer_pure_functions_are_characterized():
     ) == (0, 0)
 
 
+def test_endpoint_matching_is_mirror_symmetric():
+    """The right primer end must score exactly like the left end on reversed input."""
+    import taxondbbuilder as builder
+
+    cases = [
+        ("ACGTACGTAA", ["ACGTAC"], 0, 0.0, None, 0.5, 4),
+        ("TCGTAA", ["ACGT"], 1, 0.5, None, 0.5, 0),
+        ("AACGTAAACGT", ["ACGT", "GTTT"], 1, 0.5, None, 0.5, 4),
+        ("AACGTAAGT", ["ACGTR"], 0, 0.0, None, 0.6, 2),
+        ("TTTTACGT", ["ACGT"], 0, 0.0, None, 0.5, 0),
+    ]
+    for seq, primers, max_mm, max_rate, min_bp, ratio, offset in cases:
+        right = builder.find_best_suffix_match(
+            seq, primers, max_mm, max_rate, min_bp, ratio, offset
+        )
+        mirrored = builder.find_best_prefix_match(
+            seq[::-1],
+            [primer[::-1] for primer in primers],
+            max_mm,
+            max_rate,
+            min_bp,
+            ratio,
+            offset,
+        )
+        assert (right is None) == (mirrored is None)
+        if right is None:
+            continue
+        assert (
+            right.overlap_bp,
+            right.mismatches,
+            right.score,
+            right.full_len_match,
+            right.trim_bp,
+            right.primer,
+        ) == (
+            mirrored.overlap_bp,
+            mirrored.mismatches,
+            mirrored.score,
+            mirrored.full_len_match,
+            mirrored.trim_bp,
+            mirrored.primer[::-1],
+        )
+
+    # Longer overlap wins, then score, then the smaller offset.
+    best = builder.find_best_prefix_match("ACGTACGTAA", ["ACGTAC"], 0, 0.0, None, 0.5, 4)
+    assert (best.overlap_bp, best.score, best.trim_bp) == (6, 6, 6)
+    # The error rate is checked against the overlap, not the primer length.
+    assert builder.find_best_prefix_match("TCGTAA", ["ACGT"], 1, 0.1, None, 0.5, 0) is None
+    assert builder.find_best_prefix_match("TCGTAA", ["ACGT"], 1, 0.5, None, 0.5, 0) is not None
+
+
 def test_primer_normalization_and_combination():
     import taxondbbuilder as builder
 
