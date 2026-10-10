@@ -8,58 +8,70 @@ from .models import BuildSource
 from .mitogenome import ORDER
 
 
+def _validated_str_list(key: str, name: str, values: object) -> list[str] | None:
+    """Type-check one optional marker list field; None means "not configured"."""
+    if values is None:
+        return None
+    if not isinstance(values, list):
+        raise typer.BadParameter(f"markers.{key}.{name} must be a list of strings.")
+    if any(not isinstance(item, str) for item in values):
+        raise typer.BadParameter(f"markers.{key}.{name} must contain only strings.")
+    return values
+
+
+def _validated_fallback(key: str, cfg: dict) -> tuple[str, list[str]]:
+    """Validate the mitogenome fallback pair, returning (fallback, deduplicated targets)."""
+    fallback = cfg.get("fallback", "none")
+    if fallback not in ("none", "mitogenome"):
+        raise typer.BadParameter(f"markers.{key}.fallback must be none or mitogenome.")
+    targets = cfg.get("fallback_targets", [])
+    if not isinstance(targets, list) or any(
+        not isinstance(t, str) or t not in ORDER for t in targets
+    ):
+        raise typer.BadParameter(
+            f"markers.{key}.fallback_targets must list known mitochondrial regions."
+        )
+    if fallback == "mitogenome" and not targets:
+        raise typer.BadParameter(
+            f"markers.{key}.fallback_targets is required for mitogenome fallback."
+        )
+    return fallback, list(dict.fromkeys(targets))
+
+
 def normalize_marker_map(
     markers_cfg: dict, source: BuildSource = BuildSource.NCBI
 ) -> dict[str, dict]:
+    """Validate every marker entry and return the map consumed by build and post-prep.
+
+    Field validation order is part of the contract: with several broken fields the
+    first one in this order is the one reported.
+    """
     marker_map: dict[str, dict] = {}
     uses_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
     uses_bold = source in {BuildSource.BOLD, BuildSource.BOTH}
     for key, cfg in markers_cfg.items():
-        phrases = cfg.get("phrases") or []
-        terms = cfg.get("terms") or []
-        region_patterns = cfg.get("region_patterns") or []
-        header_format = cfg.get("header_format")
-        feature_types = cfg.get("feature_types")
-        feature_fields = cfg.get("feature_fields")
-        aliases = cfg.get("aliases") or []
-        fallback = cfg.get("fallback", "none")
-        targets = cfg.get("fallback_targets", [])
         full_record = cfg.get("full_record", False)
         if not isinstance(full_record, bool):
             raise typer.BadParameter(f"markers.{key}.full_record must be a boolean.")
-        if fallback not in ("none", "mitogenome"):
-            raise typer.BadParameter(f"markers.{key}.fallback must be none or mitogenome.")
-        if not isinstance(targets, list) or any(not isinstance(t, str) or t not in ORDER for t in targets):
-            raise typer.BadParameter(f"markers.{key}.fallback_targets must list known mitochondrial regions.")
-        if fallback == "mitogenome" and not targets:
-            raise typer.BadParameter(f"markers.{key}.fallback_targets is required for mitogenome fallback.")
+        fallback, fallback_targets = _validated_fallback(key, cfg)
         bold_cfg = cfg.get("bold") or {}
         if bold_cfg and not isinstance(bold_cfg, dict):
             raise typer.BadParameter(f"markers.{key}.bold must be a table (dict).")
-        marker_codes = (
-            bold_cfg.get("marker_codes") if isinstance(bold_cfg, dict) else None
+        phrases = _validated_str_list(key, "phrases", cfg.get("phrases")) or []
+        terms = _validated_str_list(key, "terms", cfg.get("terms")) or []
+        region_patterns = _validated_str_list(
+            key, "region_patterns", cfg.get("region_patterns")
+        ) or []
+        aliases = _validated_str_list(key, "aliases", cfg.get("aliases")) or []
+        feature_types = _validated_str_list(
+            key, "feature_types", cfg.get("feature_types")
         )
-        if marker_codes is None:
-            marker_codes = []
-        for name, values in (
-            ("phrases", phrases),
-            ("terms", terms),
-            ("region_patterns", region_patterns),
-            ("aliases", aliases),
-            ("feature_types", feature_types),
-            ("feature_fields", feature_fields),
-            ("bold.marker_codes", marker_codes),
-        ):
-            if values is None:
-                continue
-            if not isinstance(values, list):
-                raise typer.BadParameter(
-                    f"markers.{key}.{name} must be a list of strings."
-                )
-            if any(not isinstance(item, str) for item in values):
-                raise typer.BadParameter(
-                    f"markers.{key}.{name} must contain only strings."
-                )
+        feature_fields = _validated_str_list(
+            key, "feature_fields", cfg.get("feature_fields")
+        )
+        marker_codes = _validated_str_list(
+            key, "bold.marker_codes", bold_cfg.get("marker_codes")
+        ) or []
         if uses_ncbi and not phrases and not terms:
             raise typer.BadParameter(
                 f"markers.{key} must define phrases or terms when source uses NCBI."
@@ -68,19 +80,20 @@ def normalize_marker_map(
             raise typer.BadParameter(
                 f"markers.{key} must define bold.marker_codes, aliases, phrases, terms, or marker key fallback when source uses BOLD."
             )
-        marker_map[key] = {
+        entry = {
             "phrases": phrases,
             "terms": terms,
             "aliases": aliases,
             "region_patterns": region_patterns,
-            "header_format": header_format,
+            "header_format": cfg.get("header_format"),
             "feature_types": feature_types,
             "feature_fields": feature_fields,
             "full_record": full_record,
             "bold": {"marker_codes": marker_codes},
         }
         if fallback != "none":
-            marker_map[key].update(fallback=fallback, fallback_targets=list(dict.fromkeys(targets)))
+            entry.update(fallback=fallback, fallback_targets=fallback_targets)
+        marker_map[key] = entry
     return marker_map
 
 
