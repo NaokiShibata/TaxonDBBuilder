@@ -324,6 +324,38 @@ def test_quality_filter_rejects_invalid_ambiguous_and_conflicting_sequences(
     assert "invalid_iupac:X" in report
 
 
+def test_quality_filter_duplicate_policy_keeps_or_rejects_duplicates(
+    tmp_path: Path,
+) -> None:
+    import taxondbbuilder as builder
+
+    emitted = [
+        {"header": "alpha", "organism_name": "Alpha fish"},
+        {"header": "beta", "organism_name": "Beta fish"},
+    ]
+
+    def run(policy: str) -> tuple[int, str]:
+        fasta_path = tmp_path / f"quality-{policy}.fasta"
+        fasta_path.write_text(">alpha\nACGT\n>beta\nACGT\n", encoding="utf-8")
+        result = builder.apply_post_prep_quality_filter(
+            fasta_path,
+            emitted,
+            max_ambiguous_fraction=None,
+            reject_invalid_iupac=True,
+            duplicate_policy=policy,
+        )
+        return result["after"], fasta_path.read_text(encoding="utf-8")
+
+    # The two rows share a sequence but name different organisms, so
+    # exclude_conflicts drops both while representative keeps the first.
+    after, kept = run("representative")
+    assert (after, kept) == (1, ">alpha\nACGT\n")
+    after, kept = run("exclude_conflicts")
+    assert (after, kept) == (0, "")
+    after, kept = run("keep")
+    assert (after, kept) == (2, ">alpha\nACGT\n>beta\nACGT\n")
+
+
 def test_run_manifest_records_queries_and_output_hashes(tmp_path: Path) -> None:
     import taxondbbuilder as builder
 

@@ -12,21 +12,16 @@ from Bio import SeqIO
 IUPAC_DNA_ALPHABET = set("ACGTRYSWKMBDHVN")
 
 
-def apply_post_prep_quality_filter(
-    fasta_path: Path,
-    emitted_records: list[dict[str, str]],
-    *,
-    max_ambiguous_fraction: float | None,
-    reject_invalid_iupac: bool,
-    duplicate_policy: str,
-) -> dict[str, Any]:
-    records = list(SeqIO.parse(fasta_path, "fasta"))
+def _annotated_rows(
+    fasta_path: Path, emitted_records: list[dict[str, str]]
+) -> list[dict[str, Any]]:
+    """Pair each FASTA record with the emitted row that produced its header."""
     organisms: dict[str, list[str]] = defaultdict(list)
     for row in emitted_records:
         organisms[row.get("header", "")].append(row.get("organism_name", ""))
     offsets: dict[str, int] = defaultdict(int)
-    rows = []
-    for record in records:
+    rows: list[dict[str, Any]] = []
+    for record in SeqIO.parse(fasta_path, "fasta"):
         header = str(record.description).strip()
         index = offsets[header]
         offsets[header] += 1
@@ -46,7 +41,15 @@ def apply_post_prep_quality_filter(
                 "reason": "",
             }
         )
+    return rows
 
+
+def _apply_quality_rules(
+    rows: list[dict[str, Any]],
+    *,
+    max_ambiguous_fraction: float | None,
+    reject_invalid_iupac: bool,
+) -> None:
     for row in rows:
         invalid = sorted(set(row["sequence"]) - IUPAC_DNA_ALPHABET)
         if reject_invalid_iupac and invalid:
@@ -57,6 +60,11 @@ def apply_post_prep_quality_filter(
         ):
             row["reason"] = "too_many_ambiguous_bases"
 
+
+def _apply_duplicate_policy(
+    rows: list[dict[str, Any]], duplicate_policy: str
+) -> None:
+    """Reject duplicate sequences among the rows that passed the quality rules."""
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for row in rows:
         if not row["reason"]:
@@ -74,7 +82,10 @@ def apply_post_prep_quality_filter(
                 for row in group[1:]:
                     row["reason"] = "duplicate_sequence"
 
-    report_path = fasta_path.with_suffix(fasta_path.suffix + ".quality_rejected.csv")
+
+def _write_rejection_report(
+    rows: list[dict[str, Any]], report_path: Path
+) -> None:
     with report_path.open("w", newline="", encoding="utf-8") as report_f:
         writer = csv.DictWriter(
             report_f,
@@ -99,6 +110,8 @@ def apply_post_prep_quality_filter(
                     }
                 )
 
+
+def _rewrite_fasta(rows: list[dict[str, Any]], fasta_path: Path) -> None:
     tmp_path = fasta_path.with_suffix(fasta_path.suffix + ".quality.tmp")
     try:
         with tmp_path.open("w", encoding="utf-8") as output_f:
@@ -110,6 +123,26 @@ def apply_post_prep_quality_filter(
         tmp_path.replace(fasta_path)
     finally:
         tmp_path.unlink(missing_ok=True)
+
+
+def apply_post_prep_quality_filter(
+    fasta_path: Path,
+    emitted_records: list[dict[str, str]],
+    *,
+    max_ambiguous_fraction: float | None,
+    reject_invalid_iupac: bool,
+    duplicate_policy: str,
+) -> dict[str, Any]:
+    rows = _annotated_rows(fasta_path, emitted_records)
+    _apply_quality_rules(
+        rows,
+        max_ambiguous_fraction=max_ambiguous_fraction,
+        reject_invalid_iupac=reject_invalid_iupac,
+    )
+    _apply_duplicate_policy(rows, duplicate_policy)
+    report_path = fasta_path.with_suffix(fasta_path.suffix + ".quality_rejected.csv")
+    _write_rejection_report(rows, report_path)
+    _rewrite_fasta(rows, fasta_path)
 
     rejected = sum(bool(row["reason"]) for row in rows)
     return {
