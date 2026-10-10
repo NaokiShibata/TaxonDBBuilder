@@ -80,17 +80,24 @@ def count_mismatches(seq_segment: str, primer_segment: str) -> int:
     )
 
 
-def find_best_prefix_match(
+def _best_endpoint_match(
     seq: str,
     primers: list[str],
     max_mismatch: int,
     max_error_rate: float,
     min_overlap_bp: int | None,
     min_overlap_ratio: float,
-    max_offset: int = 0,
+    max_offset: int,
+    from_end: bool,
 ) -> PrimerEndpointMatch | None:
+    """Anchor one primer end; the 3' end is searched as a mirror image of the 5' end.
+
+    trim_bp is the number of bases removed from the anchored end either way.
+    """
+    work_seq = seq[::-1] if from_end else seq
     best: PrimerEndpointMatch | None = None
     for primer in primers:
+        work_primer = primer[::-1] if from_end else primer
         max_overlap = min(len(primer), len(seq))
         required = required_overlap_bp(len(primer), min_overlap_bp, min_overlap_ratio)
         if max_overlap < required:
@@ -101,9 +108,9 @@ def find_best_prefix_match(
             if available < required:
                 continue
             for overlap in range(min(max_overlap, available), required - 1, -1):
-                primer_seg = primer[-overlap:]
-                seq_seg = seq[offset : offset + overlap]
-                mismatches = count_mismatches(seq_seg, primer_seg)
+                mismatches = count_mismatches(
+                    work_seq[offset : offset + overlap], work_primer[-overlap:]
+                )
                 if mismatches > max_mismatch:
                     continue
                 error_rate = mismatches / overlap if overlap else 1.0
@@ -139,6 +146,27 @@ def find_best_prefix_match(
     return best
 
 
+def find_best_prefix_match(
+    seq: str,
+    primers: list[str],
+    max_mismatch: int,
+    max_error_rate: float,
+    min_overlap_bp: int | None,
+    min_overlap_ratio: float,
+    max_offset: int = 0,
+) -> PrimerEndpointMatch | None:
+    return _best_endpoint_match(
+        seq,
+        primers,
+        max_mismatch,
+        max_error_rate,
+        min_overlap_bp,
+        min_overlap_ratio,
+        max_offset,
+        from_end=False,
+    )
+
+
 def find_best_suffix_match(
     seq: str,
     primers: list[str],
@@ -148,56 +176,16 @@ def find_best_suffix_match(
     min_overlap_ratio: float,
     max_offset: int = 0,
 ) -> PrimerEndpointMatch | None:
-    best: PrimerEndpointMatch | None = None
-    for primer in primers:
-        max_overlap = min(len(primer), len(seq))
-        required = required_overlap_bp(len(primer), min_overlap_bp, min_overlap_ratio)
-        if max_overlap < required:
-            continue
-        max_shift = min(max_offset, max(0, len(seq) - required))
-        for shift in range(max_shift + 1):
-            end = len(seq) - shift
-            if end < required:
-                continue
-            for overlap in range(min(max_overlap, end), required - 1, -1):
-                start = end - overlap
-                primer_seg = primer[:overlap]
-                seq_seg = seq[start:end]
-                mismatches = count_mismatches(seq_seg, primer_seg)
-                if mismatches > max_mismatch:
-                    continue
-                error_rate = mismatches / overlap if overlap else 1.0
-                if error_rate > max_error_rate:
-                    continue
-                candidate = PrimerEndpointMatch(
-                    primer=primer,
-                    overlap_bp=overlap,
-                    mismatches=mismatches,
-                    score=overlap - mismatches,
-                    full_len_match=(overlap == len(primer)),
-                    trim_bp=len(seq) - start,
-                )
-                if best is None:
-                    best = candidate
-                    continue
-                current_key = (
-                    candidate.overlap_bp,
-                    candidate.score,
-                    -candidate.mismatches,
-                    int(candidate.full_len_match),
-                    -shift,
-                )
-                best_shift = max(0, best.trim_bp - best.overlap_bp)
-                best_key = (
-                    best.overlap_bp,
-                    best.score,
-                    -best.mismatches,
-                    int(best.full_len_match),
-                    -best_shift,
-                )
-                if current_key > best_key:
-                    best = candidate
-    return best
+    return _best_endpoint_match(
+        seq,
+        primers,
+        max_mismatch,
+        max_error_rate,
+        min_overlap_bp,
+        min_overlap_ratio,
+        max_offset,
+        from_end=True,
+    )
 
 
 def resolve_orientation(
