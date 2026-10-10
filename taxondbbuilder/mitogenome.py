@@ -336,100 +336,140 @@ def _infer_cds(record, originals, gap, window, anchors):
                  "boundary_evidence": "unique_translation_and_stop" if expected else "known_start_and_unique_stop"}
 
 
-def resolve_regions(record, targets):
-    """Return (region, feature, provenance) results and diagnostic events."""
+def _feature_index(record):
     index = defaultdict(list)
     for feature in record.features:
         region = identify_region(feature)
         if region:
             index[region].append(feature)
-    results, events = [], []
-    for region in targets:
-        originals = index[region]
-        good, bad = [], []
-        for feature in originals:
-            reason = _issue(feature, record)
-            (bad if reason else good).append((feature, reason))
-        reason = ";".join(sorted({r for _, r in bad})) or "missing_feature"
-        original = ";".join(sorted({location_text(f.location) for f, _ in bad})) or "unknown"
-        provenance = {"region_id": region, "fallback_reason": reason, "original_location": original,
-                      "coordinate_system": "1-based-inclusive", "stage": "extraction_before_post_prep"}
-        if region in CDS_REGIONS and bad and good:
-            # A gene feature supplies a candidate span, not proof of CDS boundaries.
-            validated = []
-            for feature, _ in good:
-                if feature.type != "gene":
-                    validated.append((feature, None))
-                    continue
-                try:
-                    loc, _ = _infer_cds(record, [f for f, _ in bad], feature.location,
-                                        feature.location, [])
-                    if loc != feature.location:
-                        raise ValueError("gene_cds_boundary_mismatch")
-                    validated.append((feature, None))
-                except (ValueError, TypeError):
-                    bad.append((feature, "unverified_gene_boundary"))
-            good = validated
-        if good:
-            unique = {}
-            for f, _ in good:
-                unique.setdefault(str(f.location), f)
-            # Different gene and CDS boundaries at the same locus require review.
-            locations = [f.location for f in unique.values()]
-            conflict = any(_overlaps(a, b) for i, a in enumerate(locations) for b in locations[i + 1:])
-            if conflict:
-                events.append({**provenance, "status": "skipped", "reason": "conflicting_annotation"})
-                continue
-            for feature in unique.values():
-                metadata = {}
-                if bad and len(unique) == 1 and _compatible(feature.location, [f for f, _ in bad], len(record)):
-                    metadata = {**provenance, "status": "recovered", "extraction_method": "alternate_feature",
-                                "boundary_evidence": "same_locus_annotation"}
-                results.append((region, feature, metadata))
-            if bad:
-                recovered = next((m for r, f, m in results if r == region and m), None)
-                if recovered:
-                    chosen = next(f for r, f, m in results if r == region and m)
-                    events.append({**recovered, "reason": "alternate_feature",
-                                   "inferred_location": location_text(chosen.location),
-                                   "inferred_length": str(len(chosen.location)), "strand": str(chosen.location.strand or 0)})
-                else:
-                    events.append({**provenance, "status": "skipped",
-                                   "reason": "conflicting_annotation" if len(unique) == 1 else "ambiguous_copies"})
+    return index
+
+
+def _region_provenance(region, bad):
+    reason = ";".join(sorted({issue for _, issue in bad})) or "missing_feature"
+    original = ";".join(sorted({location_text(f.location) for f, _ in bad})) or "unknown"
+    return {"region_id": region, "fallback_reason": reason, "original_location": original,
+            "coordinate_system": "1-based-inclusive", "stage": "extraction_before_post_prep"}
+
+
+def _validate_gene_spans(record, bad, good):
+    # A gene feature supplies a candidate span, not proof of CDS boundaries.
+    validated = []
+    for feature, _ in good:
+        if feature.type != "gene":
+            validated.append((feature, None))
             continue
         try:
-            gap, window, metadata, anchors = _flanks(record, region, index)
-            if region in CDS_REGIONS:
-                loc, cds_metadata = _infer_cds(record, originals, gap, window, anchors)
-                metadata.update(cds_metadata)
-            else:
-                loc = gap
-                # Preserve exact endpoints of a partial, simple annotation.
-                for feature in originals:
-                    old = feature.location
-                    if _valid_location(old, len(record)) and not _valid_location(old, len(record), exact=True):
-                        if not isinstance(loc, SimpleLocation):
-                            raise ValueError("unsupported_partial_location")
-                        loc = SimpleLocation(old.start if type(old.start) is ExactPosition else loc.start,
-                                             old.end if type(old.end) is ExactPosition else loc.end,
-                                             strand=loc.strand)
-                metadata.update(extraction_method="flanking_interval", boundary_evidence="flanking_interval")
-            if len(loc) <= MIN_LENGTH or not _compatible(loc, originals, len(record)):
-                raise ValueError("conflicting_annotation")
-            str(loc.extract(record.seq))  # Reject undefined sequence before recording success.
-            kind = "CDS" if region in CDS_REGIONS else "tRNA" if region.startswith("tRNA") else "D-loop" if region == "control_region" else "rRNA"
-            feature = SeqFeature(loc, type=kind, qualifiers={"gene": [region]})
-            metadata.update(provenance, status="inferred")
-            results.append((region, feature, metadata))
-            events.append({**metadata, "reason": reason, "inferred_location": location_text(loc), "inferred_length": str(len(loc)), "strand": str(loc.strand or 0)})
-        except (ValueError, TypeError) as exc:
-            failure = str(exc)
-            status = "partial_unresolved" if any(issue == "partial_location" for _, issue in bad) else "skipped"
-            events.append({**provenance, "status": status, "reason": failure})
-            for feature, issue in bad:
-                if issue == "partial_location":
-                    results.append((region, deepcopy(feature), {**provenance, "status": "partial_unresolved",
-                                    "extraction_method": "original_partial", "boundary_evidence": failure}))
+            loc, _ = _infer_cds(record, [f for f, _ in bad], feature.location,
+                                feature.location, [])
+            if loc != feature.location:
+                raise ValueError("gene_cds_boundary_mismatch")
+            validated.append((feature, None))
+        except (ValueError, TypeError):
+            bad.append((feature, "unverified_gene_boundary"))
+    return validated
+
+
+def _resolve_annotated(record, region, good, bad, provenance):
+    unique = {}
+    for f, _ in good:
+        unique.setdefault(str(f.location), f)
+    # Different gene and CDS boundaries at the same locus require review.
+    locations = [f.location for f in unique.values()]
+    if any(_overlaps(a, b) for i, a in enumerate(locations) for b in locations[i + 1:]):
+        return [], [{**provenance, "status": "skipped", "reason": "conflicting_annotation"}]
+    results = []
+    for feature in unique.values():
+        metadata = {}
+        if bad and len(unique) == 1 and _compatible(feature.location, [f for f, _ in bad], len(record)):
+            metadata = {**provenance, "status": "recovered", "extraction_method": "alternate_feature",
+                        "boundary_evidence": "same_locus_annotation"}
+        results.append((region, feature, metadata))
+    if not bad:
+        return results, []
+    # A usable annotation at the same locus already replaced the broken one.
+    recovered = next((m for _, _, m in results if m), None)
+    if recovered is None:
+        return results, [{**provenance, "status": "skipped",
+                          "reason": "conflicting_annotation" if len(unique) == 1 else "ambiguous_copies"}]
+    chosen = next(f for _, f, m in results if m)
+    return results, [{**recovered, "reason": "alternate_feature",
+                      "inferred_location": location_text(chosen.location),
+                      "inferred_length": str(len(chosen.location)),
+                      "strand": str(chosen.location.strand or 0)}]
+
+
+def _gap_around_partials(record, originals, gap):
+    # Preserve exact endpoints of a partial, simple annotation.
+    loc = gap
+    for feature in originals:
+        old = feature.location
+        if _valid_location(old, len(record)) and not _valid_location(old, len(record), exact=True):
+            if not isinstance(loc, SimpleLocation):
+                raise ValueError("unsupported_partial_location")
+            loc = SimpleLocation(old.start if type(old.start) is ExactPosition else loc.start,
+                                 old.end if type(old.end) is ExactPosition else loc.end,
+                                 strand=loc.strand)
+    return loc
+
+
+def _feature_kind(region):
+    if region in CDS_REGIONS:
+        return "CDS"
+    if region.startswith("tRNA"):
+        return "tRNA"
+    return "D-loop" if region == "control_region" else "rRNA"
+
+
+def _infer_region(record, region, originals, bad, provenance, index):
+    try:
+        gap, window, metadata, anchors = _flanks(record, region, index)
+        if region in CDS_REGIONS:
+            loc, cds_metadata = _infer_cds(record, originals, gap, window, anchors)
+            metadata.update(cds_metadata)
+        else:
+            loc = _gap_around_partials(record, originals, gap)
+            metadata.update(extraction_method="flanking_interval", boundary_evidence="flanking_interval")
+        if len(loc) <= MIN_LENGTH or not _compatible(loc, originals, len(record)):
+            raise ValueError("conflicting_annotation")
+        str(loc.extract(record.seq))  # Reject undefined sequence before recording success.
+        feature = SeqFeature(loc, type=_feature_kind(region), qualifiers={"gene": [region]})
+        metadata.update(provenance, status="inferred")
+        return [(region, feature, metadata)], [{**metadata, "reason": provenance["fallback_reason"],
+                                                "inferred_location": location_text(loc),
+                                                "inferred_length": str(len(loc)),
+                                                "strand": str(loc.strand or 0)}]
+    except (ValueError, TypeError) as exc:
+        failure = str(exc)
+        status = "partial_unresolved" if any(issue == "partial_location" for _, issue in bad) else "skipped"
+        results = [(region, deepcopy(feature), {**provenance, "status": "partial_unresolved",
+                     "extraction_method": "original_partial", "boundary_evidence": failure})
+                   for feature, issue in bad if issue == "partial_location"]
+        return results, [{**provenance, "status": status, "reason": failure}]
+
+
+def _resolve_region(record, region, index):
+    originals = index[region]
+    good, bad = [], []
+    for feature in originals:
+        reason = _issue(feature, record)
+        (bad if reason else good).append((feature, reason))
+    provenance = _region_provenance(region, bad)
+    if region in CDS_REGIONS and bad and good:
+        good = _validate_gene_spans(record, bad, good)
+    if good:
+        return _resolve_annotated(record, region, good, bad, provenance)
+    return _infer_region(record, region, originals, bad, provenance, index)
+
+
+def resolve_regions(record, targets):
+    """Return (region, feature, provenance) results and diagnostic events."""
+    index = _feature_index(record)
+    results, events = [], []
+    for region in targets:
+        region_results, region_events = _resolve_region(record, region, index)
+        results.extend(region_results)
+        events.extend(region_events)
     for region, feature, metadata in results:
         if metadata:
             metadata.update(inferred_location=location_text(feature.location),
