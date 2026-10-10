@@ -1,20 +1,18 @@
 ╭──────────────── TaxonDBBuilder ─────────────────╮
 │ Generic NCBI GenBank fetch + feature extraction │
 ╰─────────────── DB FASTA builder ────────────────╯
-                                  Run Summary                                   
-┏━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Item    ┃ Value                                                              ┃
-┡━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ Config  │ <CONFIG> │
-│ Source  │ both                                                               │
-│ Taxids  │ 999                                                                │
-│ Markers │ 12s                                                                │
-│ Output  │ <TMP>/bo │
-│         │ th.fasta                                                           │
-│ Filters │ none                                                               │
-│ From GB │ <TMP>/bo │
-│         │ th-gb                                                              │
-└─────────┴────────────────────────────────────────────────────────────────────┘
+Run Summary
+┏┳┓
+│ Item │ Value │
+┡╇┩
+│ Config │ <CONFIG> │
+│ Source │ both │
+│ Taxids │ 999 │
+│ Markers │ 12s │
+│ Output │ <TMP>/both.fasta │
+│ Filters │ none │
+│ From GB │ <TMP>/both-gb │
+└┴┘
 # started: <TIMESTAMP>
 # config: <ROOT>/tests/fixtures/minimal_config.toml
 # source: both
@@ -49,25 +47,19 @@
 # kept duplicates (same accession, different sequence): 0
 # output: <TMP>/both.fasta
 # finished: <TIMESTAMP>
-                                 Result Summary                                 
-┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┳━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃ Metric                               ┃ Value                                 ┃
-┡━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━╇━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┩
-│ Total records                        │ 4                                     │
-│ Matched records                      │ 3                                     │
-│ Matched features                     │ 3                                     │
-│ Kept records                         │ 2                                     │
-│ Skipped duplicates (same acc+seq)    │ 0                                     │
-│ Kept duplicates (same acc, diff seq) │ 0                                     │
-│ Output                               │ <TMP> │
-│ Log                                  │ <TMP> │
-└──────────────────────────────────────┴───────────────────────────────────────┘
-ACC-organism mapping CSV: 
-<TMP>/both.fasta.acc_o
-rganism.csv
-Source merge CSV: 
-<TMP>/both.fasta.sourc
-e_merge.csv
-Run manifest: 
-<TMP>/both.fasta.manif
-est.json
+Result Summary
+┏┳┓
+│ Metric │ Value │
+┡╇┩
+│ Total records │ 4 │
+│ Matched records │ 3 │
+│ Matched features │ 3 │
+│ Kept records │ 2 │
+│ Skipped duplicates (same acc+seq) │ 0 │
+│ Kept duplicates (same acc, diff seq) │ 0 │
+│ Output │ <TMP>/both.fasta │
+│ Log │ <TMP>/both.fasta.log │
+└┴┘
+ACC-organism mapping CSV: <TMP>/both.fasta.acc_organism.csv
+Source merge CSV: <TMP>/both.fasta.source_merge.csv
+Run manifest: <TMP>/both.fasta.manifest.json

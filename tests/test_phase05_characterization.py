@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import os
 import re
 import shutil
 from http import HTTPStatus
@@ -26,12 +27,37 @@ def _normalize_log(text: str, root: Path, tmp_path: Path) -> str:
     text = _normalize_tmp_paths(text, tmp_path)
     text = re.sub(r"(?m)^(# (?:started|finished)): .*", r"\1: <TIMESTAMP>", text)
     text = re.sub(r"taxondbbuilder_spool_[^/]+", "taxondbbuilder_spool_<ID>", text)
-    return text
+    return _normalize_summary_tables(text)
 
 
 def _normalize_tmp_paths(text: str, tmp_path: Path) -> str:
     text = text.replace(str(tmp_path), "<TMP>")
     return re.sub(r"/tmp/pytest-of-[^/]+/pytest-\d+/[^ \n]+", "<TMP>", text)
+
+
+# rich sizes table columns from the rendered content, so the same run wraps and
+# pads differently depending on the temporary path length of the machine.
+_TABLE_BORDER_CHARS = "┏┳┓┡╇┩└┴┘╭╮╰╯├┼┤"
+
+
+def _normalize_summary_tables(text: str) -> str:
+    lines: list[str] = []
+    for line in text.splitlines():
+        stripped = line.strip()
+        if stripped[:1] in ("│", "┃"):
+            cells = [
+                cell.strip() for cell in re.split(r"[│┃]", stripped.strip("│┃"))
+            ]
+            if not cells[0] and lines and lines[-1].endswith(("│", "┃")):
+                lines[-1] = lines[-1][:-1].rstrip() + cells[1] + " │"
+            else:
+                lines.append("│ " + " │ ".join(cell for cell in cells if cell) + " │")
+            continue
+        if stripped and not re.search(r"[0-9A-Za-z]", stripped):
+            lines.append("".join(ch for ch in stripped if ch in _TABLE_BORDER_CHARS))
+            continue
+        lines.append(stripped.rstrip())
+    return "\n".join(lines) + "\n"
 
 
 def _assert_golden(
@@ -44,9 +70,14 @@ def _assert_golden(
     log: bool = False,
 ) -> None:
     actual = path.read_text(encoding="utf-8")
+    if os.environ.get("UPDATE_GOLDENS") == "1":
+        # Goldens are stored in normalized form so they hold no machine paths.
+        stored = _normalize_log(actual, root, tmp_path) if log else actual
+        (golden_dir / name).write_text(stored, encoding="utf-8")
+    expected = read_golden(golden_dir, name)
     if log:
         actual = _normalize_log(actual, root, tmp_path)
-    expected = read_golden(golden_dir, name)
+        expected = _normalize_log(expected, root, tmp_path)
     assert actual == expected
 
 
@@ -115,6 +146,8 @@ def _stub_prepared_query(builder):
 
 
 def _invoke_build(runner: CliRunner, builder, args: list[str]):
+    # Pin rich's wrap column so long paths stay on one line in the run log.
+    os.environ["COLUMNS"] = "200"
     return runner.invoke(builder.app, ["build", *args], catch_exceptions=True)
 
 
