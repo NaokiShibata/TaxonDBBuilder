@@ -106,320 +106,32 @@ impl ProgressParser {
         let line = strip_log_prefix(line);
 
         let mut changed = false;
-        let mut fetch_progress_changed = false;
-        let mut bold_progress_changed = false;
-        let mut record_progress_changed = false;
-
-        if let Some(taxid) = line
-            .strip_prefix("# query taxid=")
-            .and_then(|rest| rest.split_once(':').map(|(taxid, _)| taxid.trim()))
-        {
-            if !taxid.is_empty() {
-                self.metrics.active_taxid = Some(taxid.to_string());
-                self.phase = "NCBI Query".to_string();
-                self.percent = self.percent.max(2.0);
-                changed = true;
-            }
-        }
-
-        let retry_line = line.trim_start_matches('#').trim_start();
-        if (retry_line.starts_with("esearch ") || retry_line.starts_with("efetch "))
-            && retry_line.contains(" retry")
-        {
-            self.metrics.network_retries = self.metrics.network_retries.saturating_add(1);
-
-            self.phase = "NCBI Query (retry)".to_string();
-            self.percent = self.percent.max(2.0);
-            changed = true;
-        }
-
-        if let Some((taxid, count)) = line
-            .strip_prefix("# query count taxid=")
-            .and_then(|rest| rest.split_once(':'))
-            .map(|(taxid, count)| (taxid.trim(), count.trim().parse::<u64>().ok()))
-        {
-            if !taxid.is_empty() {
-                if let Some(value) = count {
-                    self.metrics
-                        .query_count_by_taxid
-                        .insert(taxid.to_string(), value);
-                }
-
-                self.metrics.active_taxid = Some(taxid.to_string());
-                self.query_seen.insert(taxid.to_string());
-                self.phase = "Query count".to_string();
-
-                let total = self.taxid_total.max(1) as f64;
-                self.percent = ((self.query_seen.len() as f64 / total) * 10.0).clamp(0.0, 10.0);
-
-                changed = true;
-            }
-        }
-
-        if let Some((taxid, fetched, total)) = line
-            .strip_prefix("# fetch progress taxid=")
-            .and_then(|rest| rest.split_once(':'))
-            .and_then(|(taxid, counts)| {
-                let (fetched, total) = counts.split_once('/')?;
-                Some((
-                    taxid.trim(),
-                    fetched.trim().parse::<u64>().ok()?,
-                    total.trim().parse::<u64>().ok()?,
-                ))
-            })
-        {
-            if !taxid.is_empty() && total > 0 {
-                self.metrics
-                    .query_count_by_taxid
-                    .insert(taxid.to_string(), total);
-                self.metrics
-                    .fetch_count_by_taxid
-                    .insert(taxid.to_string(), fetched.min(total));
-                self.phase = "NCBI Fetch/Parse".to_string();
-
-                fetch_progress_changed = true;
-                changed = true;
-            }
-        }
-
-        if let Some((taxon, phase, detail)) = line
-            .strip_prefix("# bold progress: taxon=")
-            .and_then(|rest| rest.split_once(" phase="))
-            .map(|(taxon, phase_and_detail)| {
-                let (phase, detail) = phase_and_detail
-                    .split_once(char::is_whitespace)
-                    .unwrap_or((phase_and_detail, ""));
-                (taxon.trim(), phase.trim(), detail.trim())
-            })
-        {
-            if !taxon.is_empty() {
-                let stage_ratio = match phase {
-                    "preprocess" => 0.15,
-                    "summary" => 0.30,
-                    "query" => 0.45,
-                    "download" => 0.75,
-                    "filter" => 1.00,
-                    _ => 0.0,
-                };
-                self.bold_progress_by_taxon
-                    .insert(taxon.to_string(), stage_ratio);
-                self.phase = match phase {
-                    "preprocess" => "BOLD Preprocess".to_string(),
-                    "summary" => "BOLD Summary".to_string(),
-                    "query" => "BOLD Query".to_string(),
-                    "download" => "BOLD Download".to_string(),
-                    "filter" => "BOLD Filter".to_string(),
-                    _ => "BOLD".to_string(),
-                };
-                if let Some(specimens_raw) = detail
-                    .split_whitespace()
-                    .find_map(|token| token.strip_prefix("specimens="))
-                {
-                    if let Ok(specimens) = specimens_raw.parse::<u64>() {
-                        self.metrics
-                            .bold_specimen_count_by_taxon
-                            .insert(taxon.to_string(), specimens);
-                    }
-                }
-                if let Some(downloaded_raw) = detail
-                    .split_whitespace()
-                    .find_map(|token| token.strip_prefix("downloaded="))
-                {
-                    if let Ok(downloaded) = downloaded_raw.parse::<u64>() {
-                        self.metrics
-                            .bold_downloaded_by_taxon
-                            .insert(taxon.to_string(), downloaded);
-                    }
-                }
-                if let Some(matched_raw) = detail
-                    .split_whitespace()
-                    .find_map(|token| token.strip_prefix("matched="))
-                {
-                    if let Ok(matched) = matched_raw.parse::<u64>() {
-                        self.metrics
-                            .bold_matched_by_taxon
-                            .insert(taxon.to_string(), matched);
-                    }
-                }
-                bold_progress_changed = true;
-                changed = true;
-            }
-        }
-
-        if let Some(taxon) = line.strip_prefix("# bold query: taxon=").and_then(|rest| {
-            rest.split_once(" normalized=")
-                .map(|(taxon, _)| taxon.trim())
-        }) {
-            let specimens = field_value(line, "specimens")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0);
-            let downloaded = field_value(line, "downloaded")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0);
-            let matched = field_value(line, "matched")
-                .and_then(|value| value.parse().ok())
-                .unwrap_or(0);
-            if !taxon.is_empty() {
-                self.metrics
-                    .bold_specimen_count_by_taxon
-                    .insert(taxon.to_string(), specimens);
-                self.metrics
-                    .bold_downloaded_by_taxon
-                    .insert(taxon.to_string(), downloaded);
-                self.metrics
-                    .bold_matched_by_taxon
-                    .insert(taxon.to_string(), matched);
-                self.bold_progress_by_taxon.insert(taxon.to_string(), 1.0);
-                self.phase = "BOLD Filter".to_string();
-                bold_progress_changed = true;
-                changed = true;
-            }
-        }
-
-        if let Some(total) = number_after(line, "# total records:") {
-            self.total_records = Some(total);
-            record_progress_changed = true;
-            changed = true;
-        }
-
-        if let Some(matched) = number_after(line, "# matched records:") {
-            self.matched_records = Some(matched);
-            self.metrics.matched_records = Some(matched);
-
-            record_progress_changed = true;
-            changed = true;
-        }
-
-        if let Some(kept) = number_after(line, "# kept records before post_prep:") {
-            self.metrics.kept_records_before_post_prep = Some(kept);
-            self.phase = "Post-Prep".to_string();
-            self.percent = self.percent.max(80.0);
-            changed = true;
-        }
-
-        if line.starts_with("# post_prep primer trim:") {
-            self.post_steps_seen.insert("primer_trim".to_string());
-            self.metrics.primer_trim_removed =
-                field_value(line, "removed").and_then(|value| value.parse().ok());
-            changed = true;
-        }
-
-        if line.starts_with("# post_prep length filter:") {
-            self.post_steps_seen.insert("length_filter".to_string());
-            self.metrics.length_filter_removed =
-                field_value(line, "removed").and_then(|value| value.parse().ok());
-            changed = true;
-        }
-
-        if line.starts_with("# post_prep duplicate_acc_report:") {
-            self.post_steps_seen.insert("duplicate_report".to_string());
-            self.metrics.duplicate_groups =
-                field_value(line, "groups").and_then(|value| value.parse().ok());
-            self.metrics.cross_organism_groups =
-                field_value(line, "cross_organism_groups").and_then(|value| value.parse().ok());
-            changed = true;
-        }
-
-        if line.starts_with("# post_prep msa_tree:") {
-            self.post_steps_seen.insert("msa_tree".to_string());
-            self.metrics.msa_tree_status = field_value(line, "status").map(str::to_string);
-            self.metrics.msa_tree_taxa =
-                field_value(line, "taxa").and_then(|value| value.parse().ok());
-            let msa_path = field_value(line, "msa").unwrap_or("none");
-            let tree_path = field_value(line, "tree").unwrap_or("none");
-            self.metrics.msa_tree_msa_path = (msa_path != "none").then(|| msa_path.to_string());
-            self.metrics.msa_tree_tree_path = (tree_path != "none").then(|| tree_path.to_string());
-            changed = true;
-        }
-
-        if line.starts_with("# output:") {
-            self.phase = "Finalize".to_string();
-            self.percent = self.percent.max(95.0);
-            changed = true;
-        }
-
-        if line.starts_with("# finished:") {
-            self.phase = "Finalize".to_string();
-            self.percent = 100.0;
-            changed = true;
-        }
+        changed |= self.apply_query_line(line);
+        changed |= self.apply_retry_line(line);
+        changed |= self.apply_query_count_line(line);
+        let fetch_progress_changed = self.apply_fetch_line(line);
+        let bold_progress_matched = self.apply_bold_progress_line(line);
+        let bold_query_matched = self.apply_bold_query_line(line);
+        let bold_progress_changed = bold_progress_matched || bold_query_matched;
+        let record_progress_changed = self.apply_record_count_line(line);
+        changed |= fetch_progress_changed;
+        changed |= bold_progress_changed;
+        changed |= record_progress_changed;
+        changed |= self.apply_kept_line(line);
+        changed |= self.apply_post_prep_line(line);
+        changed |= self.apply_finalize_line(line);
 
         if changed {
             if fetch_progress_changed {
-                let mut completed = 0.0;
-
-                for (taxid, total) in &self.metrics.query_count_by_taxid {
-                    if *total == 0 {
-                        completed += 1.0;
-                        continue;
-                    }
-
-                    let fetched = *self.metrics.fetch_count_by_taxid.get(taxid).unwrap_or(&0);
-
-                    completed += (fetched as f64 / *total as f64).clamp(0.0, 1.0);
-                }
-
-                let overall_ratio = (completed / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
-
-                let (base, span) = if self.uses_bold {
-                    // source=both
-                    (5.0, 45.0)
-                } else {
-                    // source=ncbi
-                    (10.0, 70.0)
-                };
-
-                self.percent = self
-                    .percent
-                    .max((base + overall_ratio * span).clamp(base, base + span));
+                self.apply_fetch_percent();
             }
-
             if bold_progress_changed {
-                let completed: f64 = self.bold_progress_by_taxon.values().copied().sum();
-
-                let overall_ratio = (completed / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
-
-                let (base, span) = if self.uses_ncbi {
-                    // source=both
-                    (50.0, 30.0)
-                } else {
-                    // source=bold
-                    (10.0, 70.0)
-                };
-
-                self.percent = self
-                    .percent
-                    .max((base + overall_ratio * span).clamp(base, base + span));
+                self.apply_bold_percent();
             }
-
             if record_progress_changed {
-                if let (Some(total), Some(matched)) = (self.total_records, self.matched_records) {
-                    if total > 0 {
-                        self.phase = "Record processing".to_string();
-
-                        let ratio = (matched as f64 / total as f64).clamp(0.0, 1.0);
-
-                        let (base, span) = if self.uses_bold {
-                            // source=both
-                            (70.0, 10.0)
-                        } else {
-                            // source=ncbi
-                            (10.0, 70.0)
-                        };
-
-                        self.percent = self
-                            .percent
-                            .max((base + ratio * span).clamp(base, base + span));
-                    }
-                }
+                self.apply_record_percent();
             }
-
-            if self.post_steps_total > 0 && !self.post_steps_seen.is_empty() {
-                self.phase = "Post-Prep".to_string();
-                let ratio = (self.post_steps_seen.len() as f64 / self.post_steps_total as f64)
-                    .clamp(0.0, 1.0);
-                self.percent = self.percent.max(80.0 + ratio * 15.0);
-            }
+            self.apply_post_prep_percent();
 
             // Finalization must win over the generic record-ratio updates
             // above when the terminal log lines arrive after the counters.
@@ -433,6 +145,276 @@ impl ProgressParser {
         }
 
         changed
+    }
+
+    fn apply_query_line(&mut self, line: &str) -> bool {
+        let taxid = line
+            .strip_prefix("# query taxid=")
+            .and_then(|rest| rest.split_once(':').map(|(taxid, _)| taxid.trim()));
+        let Some(taxid) = taxid.filter(|taxid| !taxid.is_empty()) else {
+            return false;
+        };
+        self.metrics.active_taxid = Some(taxid.to_string());
+        self.phase = "NCBI Query".to_string();
+        self.percent = self.percent.max(2.0);
+        true
+    }
+
+    fn apply_retry_line(&mut self, line: &str) -> bool {
+        let retry_line = line.trim_start_matches('#').trim_start();
+        if !(retry_line.starts_with("esearch ") || retry_line.starts_with("efetch "))
+            || !retry_line.contains(" retry")
+        {
+            return false;
+        }
+        self.metrics.network_retries = self.metrics.network_retries.saturating_add(1);
+        self.phase = "NCBI Query (retry)".to_string();
+        self.percent = self.percent.max(2.0);
+        true
+    }
+
+    fn apply_query_count_line(&mut self, line: &str) -> bool {
+        let parsed = line
+            .strip_prefix("# query count taxid=")
+            .and_then(|rest| rest.split_once(':'))
+            .map(|(taxid, count)| (taxid.trim(), count.trim().parse::<u64>().ok()));
+        let Some((taxid, count)) = parsed.filter(|(taxid, _)| !taxid.is_empty()) else {
+            return false;
+        };
+        if let Some(value) = count {
+            self.metrics.query_count_by_taxid.insert(taxid.to_string(), value);
+        }
+        self.metrics.active_taxid = Some(taxid.to_string());
+        self.query_seen.insert(taxid.to_string());
+        self.phase = "Query count".to_string();
+
+        let total = self.taxid_total.max(1) as f64;
+        self.percent = ((self.query_seen.len() as f64 / total) * 10.0).clamp(0.0, 10.0);
+        true
+    }
+
+    fn apply_fetch_line(&mut self, line: &str) -> bool {
+        let parsed = line
+            .strip_prefix("# fetch progress taxid=")
+            .and_then(|rest| rest.split_once(':'))
+            .and_then(|(taxid, counts)| {
+                let (fetched, total) = counts.split_once('/')?;
+                Some((
+                    taxid.trim(),
+                    fetched.trim().parse::<u64>().ok()?,
+                    total.trim().parse::<u64>().ok()?,
+                ))
+            });
+        let Some((taxid, fetched, total)) = parsed.filter(|(taxid, _, total)| {
+            !taxid.is_empty() && *total > 0
+        }) else {
+            return false;
+        };
+        self.metrics
+            .query_count_by_taxid
+            .insert(taxid.to_string(), total);
+        self.metrics
+            .fetch_count_by_taxid
+            .insert(taxid.to_string(), fetched.min(total));
+        self.phase = "NCBI Fetch/Parse".to_string();
+        true
+    }
+
+    fn apply_bold_progress_line(&mut self, line: &str) -> bool {
+        let parsed = line
+            .strip_prefix("# bold progress: taxon=")
+            .and_then(|rest| rest.split_once(" phase="))
+            .map(|(taxon, phase_and_detail)| {
+                let (phase, detail) = phase_and_detail
+                    .split_once(char::is_whitespace)
+                    .unwrap_or((phase_and_detail, ""));
+                (taxon.trim(), phase.trim(), detail.trim())
+            });
+        let Some((taxon, phase, detail)) = parsed.filter(|(taxon, _, _)| !taxon.is_empty())
+        else {
+            return false;
+        };
+        let (stage_ratio, phase_name) = match phase {
+            "preprocess" => (0.15, "BOLD Preprocess"),
+            "summary" => (0.30, "BOLD Summary"),
+            "query" => (0.45, "BOLD Query"),
+            "download" => (0.75, "BOLD Download"),
+            "filter" => (1.00, "BOLD Filter"),
+            _ => (0.0, "BOLD"),
+        };
+        self.bold_progress_by_taxon
+            .insert(taxon.to_string(), stage_ratio);
+        self.phase = phase_name.to_string();
+
+        let counters = [
+            ("specimens", &mut self.metrics.bold_specimen_count_by_taxon),
+            ("downloaded", &mut self.metrics.bold_downloaded_by_taxon),
+            ("matched", &mut self.metrics.bold_matched_by_taxon),
+        ];
+        for (name, counter) in counters {
+            if let Some(value) = field_value(detail, name).and_then(|value| value.parse::<u64>().ok()) {
+                counter.insert(taxon.to_string(), value);
+            }
+        }
+        true
+    }
+
+    fn apply_bold_query_line(&mut self, line: &str) -> bool {
+        let taxon = line.strip_prefix("# bold query: taxon=").and_then(|rest| {
+            rest.split_once(" normalized=")
+                .map(|(taxon, _)| taxon.trim())
+        });
+        let Some(taxon) = taxon.filter(|taxon| !taxon.is_empty()) else {
+            return false;
+        };
+        let count = |name: &str| {
+            field_value(line, name)
+                .and_then(|value| value.parse::<u64>().ok())
+                .unwrap_or(0)
+        };
+        self.metrics
+            .bold_specimen_count_by_taxon
+            .insert(taxon.to_string(), count("specimens"));
+        self.metrics
+            .bold_downloaded_by_taxon
+            .insert(taxon.to_string(), count("downloaded"));
+        self.metrics
+            .bold_matched_by_taxon
+            .insert(taxon.to_string(), count("matched"));
+        self.bold_progress_by_taxon.insert(taxon.to_string(), 1.0);
+        self.phase = "BOLD Filter".to_string();
+        true
+    }
+
+    fn apply_record_count_line(&mut self, line: &str) -> bool {
+        if let Some(total) = number_after(line, "# total records:") {
+            self.total_records = Some(total);
+            return true;
+        }
+        if let Some(matched) = number_after(line, "# matched records:") {
+            self.matched_records = Some(matched);
+            self.metrics.matched_records = Some(matched);
+            return true;
+        }
+        false
+    }
+
+    fn apply_kept_line(&mut self, line: &str) -> bool {
+        let Some(kept) = number_after(line, "# kept records before post_prep:") else {
+            return false;
+        };
+        self.metrics.kept_records_before_post_prep = Some(kept);
+        self.phase = "Post-Prep".to_string();
+        self.percent = self.percent.max(80.0);
+        true
+    }
+
+    fn apply_post_prep_line(&mut self, line: &str) -> bool {
+        if line.starts_with("# post_prep primer trim:") {
+            self.post_steps_seen.insert("primer_trim".to_string());
+            self.metrics.primer_trim_removed =
+                field_value(line, "removed").and_then(|value| value.parse().ok());
+            return true;
+        }
+        if line.starts_with("# post_prep length filter:") {
+            self.post_steps_seen.insert("length_filter".to_string());
+            self.metrics.length_filter_removed =
+                field_value(line, "removed").and_then(|value| value.parse().ok());
+            return true;
+        }
+        if line.starts_with("# post_prep duplicate_acc_report:") {
+            self.post_steps_seen.insert("duplicate_report".to_string());
+            self.metrics.duplicate_groups =
+                field_value(line, "groups").and_then(|value| value.parse().ok());
+            self.metrics.cross_organism_groups =
+                field_value(line, "cross_organism_groups").and_then(|value| value.parse().ok());
+            return true;
+        }
+        if line.starts_with("# post_prep msa_tree:") {
+            self.post_steps_seen.insert("msa_tree".to_string());
+            self.metrics.msa_tree_status = field_value(line, "status").map(str::to_string);
+            self.metrics.msa_tree_taxa =
+                field_value(line, "taxa").and_then(|value| value.parse().ok());
+            let msa_path = field_value(line, "msa").unwrap_or("none");
+            let tree_path = field_value(line, "tree").unwrap_or("none");
+            self.metrics.msa_tree_msa_path = (msa_path != "none").then(|| msa_path.to_string());
+            self.metrics.msa_tree_tree_path = (tree_path != "none").then(|| tree_path.to_string());
+            return true;
+        }
+        false
+    }
+
+    fn apply_finalize_line(&mut self, line: &str) -> bool {
+        if line.starts_with("# output:") {
+            self.phase = "Finalize".to_string();
+            self.percent = self.percent.max(95.0);
+            return true;
+        }
+        if line.starts_with("# finished:") {
+            self.phase = "Finalize".to_string();
+            self.percent = 100.0;
+            return true;
+        }
+        false
+    }
+
+    fn apply_fetch_percent(&mut self) {
+        let mut completed = 0.0;
+        for (taxid, total) in &self.metrics.query_count_by_taxid {
+            if *total == 0 {
+                completed += 1.0;
+                continue;
+            }
+            let fetched = *self.metrics.fetch_count_by_taxid.get(taxid).unwrap_or(&0);
+            completed += (fetched as f64 / *total as f64).clamp(0.0, 1.0);
+        }
+        let overall_ratio = (completed / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
+        // source=both leaves 45% of the bar for the BOLD and post-prep phases.
+        let (base, span) = if self.uses_bold {
+            (5.0, 45.0)
+        } else {
+            (10.0, 70.0)
+        };
+        self.percent = self.percent.max((base + overall_ratio * span).clamp(base, base + span));
+    }
+
+    fn apply_bold_percent(&mut self) {
+        let completed: f64 = self.bold_progress_by_taxon.values().copied().sum();
+        let overall_ratio = (completed / self.taxid_total.max(1) as f64).clamp(0.0, 1.0);
+        // source=both starts after the NCBI fetch phase has had its share.
+        let (base, span) = if self.uses_ncbi {
+            (50.0, 30.0)
+        } else {
+            (10.0, 70.0)
+        };
+        self.percent = self.percent.max((base + overall_ratio * span).clamp(base, base + span));
+    }
+
+    fn apply_record_percent(&mut self) {
+        let (Some(total), Some(matched)) = (self.total_records, self.matched_records) else {
+            return;
+        };
+        if total == 0 {
+            return;
+        }
+        self.phase = "Record processing".to_string();
+        let ratio = (matched as f64 / total as f64).clamp(0.0, 1.0);
+        // source=both leaves the tail of the bar for post-prep.
+        let (base, span) = if self.uses_bold {
+            (70.0, 10.0)
+        } else {
+            (10.0, 70.0)
+        };
+        self.percent = self.percent.max((base + ratio * span).clamp(base, base + span));
+    }
+
+    fn apply_post_prep_percent(&mut self) {
+        if self.post_steps_total == 0 || self.post_steps_seen.is_empty() {
+            return;
+        }
+        self.phase = "Post-Prep".to_string();
+        let ratio = (self.post_steps_seen.len() as f64 / self.post_steps_total as f64).clamp(0.0, 1.0);
+        self.percent = self.percent.max(80.0 + ratio * 15.0);
     }
 }
 
@@ -600,6 +582,26 @@ mod tests {
     fn consume_golden(parser: &mut ProgressParser, name: &str) {
         for line in golden(name).lines() {
             parser.consume_line(line);
+        }
+    }
+
+    #[test]
+    fn percent_and_phase_follow_the_golden_logs() {
+        let cases = [
+            ("build-ncbi", 1usize, 0usize, true, false),
+            ("build-bold", 1, 0, false, true),
+            ("build-both", 1, 0, true, true),
+            ("build-postprep", 1, 3, true, false),
+        ];
+        for (scenario, taxid_total, post_steps_total, uses_ncbi, uses_bold) in cases {
+            let mut parser =
+                ProgressParser::for_source(taxid_total, post_steps_total, uses_ncbi, uses_bold);
+            let mut trace = String::new();
+            for line in golden(&format!("{scenario}.log.golden")).lines() {
+                parser.consume_line(line);
+                trace.push_str(&format!("{}\t{:.4}\n", parser.phase, parser.percent));
+            }
+            assert_eq!(trace, golden(&format!("progress-{scenario}.trace")), "{scenario}");
         }
     }
 
