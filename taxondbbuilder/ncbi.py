@@ -226,6 +226,122 @@ def _append_ncbi_feature_record(
         )
 
 
+def _mitogenome_owners(marker_rules: list[dict]) -> dict[str, dict]:
+    owners: dict[str, dict] = {}
+    for rule in marker_rules:
+        if rule.get("fallback") == "mitogenome":
+            for target in rule["fallback_targets"]:
+                owners.setdefault(target, rule)
+    return owners
+
+
+def _full_record_matches(
+    record: Any, marker_rules: list[dict]
+) -> list[tuple[int, _MatchedNCBIFeature]]:
+    if not _is_complete_mitogenome(record):
+        return []
+    return [
+        (
+            -1,
+            _MatchedNCBIFeature(
+                sequence=str(record.seq).upper(),
+                label="complete mitochondrial genome",
+                marker=rule["key"],
+                feature_type="genome",
+                header_format=rule["header_format"],
+                start=1,
+                end=len(record.seq),
+                strand=1,
+            ),
+        )
+        for rule in marker_rules
+        if rule.get("full_record")
+    ]
+
+
+def _rule_feature_matches(
+    record: Any, marker_rules: list[dict]
+) -> tuple[list[tuple[int, _MatchedNCBIFeature]], dict[str, int], set[str]]:
+    """Match annotated features against the rules, in feature order."""
+    matches: list[tuple[int, _MatchedNCBIFeature]] = []
+    region_positions: dict[str, int] = {}
+    legacy_claimed: set[str] = set()
+    for position, feature in enumerate(record.features):
+        region = identify_region(feature)
+        if region:
+            region_positions.setdefault(region, position)
+        for rule in marker_rules:
+            if rule.get("full_record"):
+                continue
+            if rule["feature_types"] and feature.type not in rule["feature_types"]:
+                continue
+            if rule.get("fallback") == "mitogenome":
+                if region in rule["fallback_targets"]:
+                    break
+            else:
+                matched = _match_ncbi_feature(record, feature, [rule])
+                if matched is not None:
+                    matches.append((position, matched))
+                    if region:
+                        legacy_claimed.add(region)
+                    break
+    return matches, region_positions, legacy_claimed
+
+
+def _repaired_feature_matches(
+    record: Any,
+    repaired: list[tuple[str, Any, dict[str, str]]],
+    owners: dict[str, dict],
+    feature_positions: dict[int, int],
+    region_positions: dict[str, int],
+) -> list[tuple[int, _MatchedNCBIFeature]]:
+    matches: list[tuple[int, _MatchedNCBIFeature]] = []
+    for region, feature, provenance in repaired:
+        rule = owners[region]
+        # Honor feature-type restrictions for original annotations. Repaired annotations
+        # represent the requested biological region even when the input type was gene.
+        if not provenance and rule["feature_types"] and feature.type not in rule["feature_types"]:
+            feature = next((f for f in record.features if f.type in rule["feature_types"]
+                            and identify_region(f) == region and f.location == feature.location), None)
+            if feature is None:
+                continue
+        loc = feature.location
+        parts = list(loc.parts)
+        if loc.strand == -1:
+            parts.reverse()
+        matches.append((
+            feature_positions.get(id(feature), region_positions.get(region, len(record.features))),
+            _MatchedNCBIFeature(
+                sequence=str(feature.extract(record.seq)).upper(),
+                label=match_feature(feature, rule["patterns"], rule["feature_fields"]) or region,
+                marker=rule["key"], feature_type=feature.type,
+                header_format=rule["header_format"],
+                start=int(parts[0].start if provenance else loc.start) + 1,
+                end=int(parts[-1].end if provenance else loc.end),
+                strand=loc.strand or 0, provenance={**provenance, "region_id": region},
+            ),
+        ))
+    return matches
+
+
+def _log_region_events(
+    events: list[dict[str, str]],
+    owners: dict[str, dict],
+    acc: str,
+    lock: Lock,
+    counters: dict[str, int],
+    run_logger,
+) -> None:
+    for event in events:
+        with lock:
+            key = "fallback_" + event["status"]
+            counters[key] = counters.get(key, 0) + 1
+        if run_logger:
+            run_logger.info("# region_fallback accession=%s marker=%s %s", acc,
+                            owners[event["region_id"]]["key"],
+                            " ".join(f"{k}={v}" for k, v in event.items()))
+
+
 def _extract_ncbi_record(
     record: Any,
     marker_rules: list[dict],
@@ -248,88 +364,21 @@ def _extract_ncbi_record(
     extracted_records: list[CanonicalRecord] = []
     record_matched = False
     # Assign features in rule order. Enabled rules use exact biological identities.
-    owners = {}
-    for rule in marker_rules:
-        if rule.get("fallback") == "mitogenome":
-            for target in rule["fallback_targets"]:
-                owners.setdefault(target, rule)
-    matches = []
-    match_order = {}
-    feature_positions = {id(f): i for i, f in enumerate(record.features)}
-    region_positions = {}
-    legacy_claimed = set()
-    for rule in marker_rules:
-        if rule.get("full_record") and _is_complete_mitogenome(record):
-            matches.append(_MatchedNCBIFeature(
-                sequence=str(record.seq).upper(),
-                label="complete mitochondrial genome",
-                marker=rule["key"],
-                feature_type="genome",
-                header_format=rule["header_format"],
-                start=1,
-                end=len(record.seq),
-                strand=1,
-            ))
-            match_order[id(matches[-1])] = -1
-    for position, feature in enumerate(record.features):
-        region = identify_region(feature)
-        if region:
-            region_positions.setdefault(region, position)
-        for rule in marker_rules:
-            if rule.get("full_record"):
-                continue
-            if rule["feature_types"] and feature.type not in rule["feature_types"]:
-                continue
-            if rule.get("fallback") == "mitogenome":
-                if region in rule["fallback_targets"]:
-                    break
-            else:
-                matched = _match_ncbi_feature(record, feature, [rule])
-                if matched is not None:
-                    matches.append(matched)
-                    match_order[id(matched)] = position
-                    if region:
-                        legacy_claimed.add(region)
-                    break
+    owners = _mitogenome_owners(marker_rules)
+    matches = _full_record_matches(record, marker_rules)
+    feature_matches, region_positions, legacy_claimed = _rule_feature_matches(
+        record, marker_rules
+    )
+    matches.extend(feature_matches)
     targets = [region for region in owners if region not in legacy_claimed]
     repaired, events = resolve_regions(record, targets) if targets else ([], [])
-    for region, feature, provenance in repaired:
-        rule = owners[region]
-        # Honor feature-type restrictions for original annotations. Repaired annotations
-        # represent the requested biological region even when the input type was gene.
-        if not provenance and rule["feature_types"] and feature.type not in rule["feature_types"]:
-            feature = next((f for f in record.features if f.type in rule["feature_types"]
-                            and identify_region(f) == region and f.location == feature.location), None)
-            if feature is None:
-                continue
-        loc = feature.location
-        parts = list(loc.parts)
-        if loc.strand == -1:
-            parts.reverse()
-        matches.append(_MatchedNCBIFeature(
-            sequence=str(feature.extract(record.seq)).upper(),
-            label=match_feature(feature, rule["patterns"], rule["feature_fields"]) or region,
-            marker=rule["key"], feature_type=feature.type,
-            header_format=rule["header_format"],
-            start=int(parts[0].start if provenance else loc.start) + 1,
-            end=int(parts[-1].end if provenance else loc.end),
-            strand=loc.strand or 0, provenance={**provenance, "region_id": region},
-        ))
-        match_order[id(matches[-1])] = feature_positions.get(
-            id(feature), region_positions.get(region, len(record.features))
-        )
-    matches.sort(key=lambda match: match_order[id(match)])
-    for event in events:
-        with lock:
-            key = "fallback_" + event["status"]
-            counters[key] = counters.get(key, 0) + 1
-        if run_logger:
-            run_logger.info("# region_fallback accession=%s marker=%s %s", acc,
-                            owners[event["region_id"]]["key"],
-                            " ".join(f"{k}={v}" for k, v in event.items()))
-    for matched in matches:
-        if matched is None:
-            continue
+    feature_positions = {id(f): i for i, f in enumerate(record.features)}
+    matches.extend(
+        _repaired_feature_matches(record, repaired, owners, feature_positions, region_positions)
+    )
+    matches.sort(key=lambda entry: entry[0])
+    _log_region_events(events, owners, acc, lock, counters, run_logger)
+    for _, matched in matches:
         record_matched = True
         before = len(extracted_records)
         _append_ncbi_feature_record(
