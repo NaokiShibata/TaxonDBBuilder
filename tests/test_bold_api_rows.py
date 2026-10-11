@@ -158,3 +158,36 @@ def test_download_reports_http_error_and_leaves_no_part_file(
         bold.download_documents_to_path(
             "qid", bold.get_bold_runtime_config({}), dest, fmt="bogus"
         )
+
+
+def test_fetch_bold_documents_returns_a_real_path_and_reuses_the_cache(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import logging
+    from types import SimpleNamespace
+
+    import taxondb_bold as bold
+    from taxondbbuilder.bold import _fetch_bold_documents
+
+    payload = b"marker_code\nCOI-5P\n"
+    monkeypatch.setattr(bold, "urlopen", lambda *args, **kwargs: _BoldResponse(payload))
+    prepared = SimpleNamespace(
+        query_id="qid",
+        runtime_cfg=bold.get_bold_runtime_config({}),
+        download_format="tsv",
+    )
+    dest = tmp_path / "cache" / "query-abc.tsv"
+    logger = logging.Logger("fetch")
+
+    meta = _fetch_bold_documents(
+        prepared, dest, "tsv", "Taxon", False, logger, None
+    )
+    # The metadata path must be the file that actually exists, and no .part may
+    # survive; the caller used to rename a second time behind download's back.
+    assert Path(meta["path"]) == dest
+    assert dest.read_bytes() == payload
+    assert [path.name for path in dest.parent.iterdir()] == ["query-abc.tsv"]
+
+    cached = _fetch_bold_documents(prepared, dest, "tsv", "Taxon", True, logger, None)
+    assert cached["cached"] is True
+    assert cached["downloaded_bytes"] == len(payload)

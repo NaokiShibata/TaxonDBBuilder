@@ -97,19 +97,15 @@ def _fetch_bold_documents(
             "cached": True,
         }
 
-    partial_path = download_path.with_suffix(download_path.suffix + ".part")
-    try:
-        download_meta = download_documents_to_path(
-            prepared_query.query_id,
-            prepared_query.runtime_cfg,
-            partial_path,
-            fmt=prepared_query.download_format,
-            progress_callback=progress_callback,
-        )
-        partial_path.replace(download_path)
-        return download_meta
-    finally:
-        partial_path.unlink(missing_ok=True)
+    # download_documents_to_path writes to a .part file and renames it itself, so
+    # a failed attempt leaves download_path untouched and the returned path is real.
+    return download_documents_to_path(
+        prepared_query.query_id,
+        prepared_query.runtime_cfg,
+        download_path,
+        fmt=prepared_query.download_format,
+        progress_callback=progress_callback,
+    )
 
 
 def _suppress_ncbi_linked_bold_record(
