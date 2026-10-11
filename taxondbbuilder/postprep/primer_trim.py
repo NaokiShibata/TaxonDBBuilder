@@ -5,6 +5,7 @@ import json
 import shutil
 import subprocess
 import tempfile
+from collections.abc import Iterator
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -80,6 +81,62 @@ def count_mismatches(seq_segment: str, primer_segment: str) -> int:
     )
 
 
+def _endpoint_rank(match: PrimerEndpointMatch) -> tuple[int, int, int, int, int]:
+    """Rank anchors: longest overlap, then score, then fewest mismatches.
+
+    trim_bp - overlap_bp is the offset from the anchored end, so ties prefer the
+    anchor closest to that end.
+    """
+    return (
+        match.overlap_bp,
+        match.score,
+        -match.mismatches,
+        int(match.full_len_match),
+        -(match.trim_bp - match.overlap_bp),
+    )
+
+
+def _endpoint_candidates(
+    seq: str,
+    primer: str,
+    max_mismatch: int,
+    max_error_rate: float,
+    min_overlap_bp: int | None,
+    min_overlap_ratio: float,
+    max_offset: int,
+    from_end: bool,
+) -> Iterator[PrimerEndpointMatch]:
+    """Every acceptable anchor for one primer, longest overlap first."""
+    work_seq = seq[::-1] if from_end else seq
+    work_primer = primer[::-1] if from_end else primer
+    max_overlap = min(len(primer), len(seq))
+    required = required_overlap_bp(len(primer), min_overlap_bp, min_overlap_ratio)
+    if max_overlap < required:
+        return
+    max_shift = min(max_offset, max(0, len(seq) - required))
+    for offset in range(max_shift + 1):
+        available = len(seq) - offset
+        if available < required:
+            continue
+        for overlap in range(min(max_overlap, available), required - 1, -1):
+            mismatches = count_mismatches(
+                work_seq[offset : offset + overlap], work_primer[-overlap:]
+            )
+            if mismatches > max_mismatch:
+                continue
+            error_rate = mismatches / overlap if overlap else 1.0
+            if error_rate > max_error_rate:
+                continue
+            yield PrimerEndpointMatch(
+                primer=primer,
+                overlap_bp=overlap,
+                mismatches=mismatches,
+                score=overlap - mismatches,
+                full_len_match=(overlap == len(primer)),
+                trim_bp=offset + overlap,
+            )
+
+
 def _best_endpoint_match(
     seq: str,
     primers: list[str],
@@ -94,55 +151,20 @@ def _best_endpoint_match(
 
     trim_bp is the number of bases removed from the anchored end either way.
     """
-    work_seq = seq[::-1] if from_end else seq
     best: PrimerEndpointMatch | None = None
     for primer in primers:
-        work_primer = primer[::-1] if from_end else primer
-        max_overlap = min(len(primer), len(seq))
-        required = required_overlap_bp(len(primer), min_overlap_bp, min_overlap_ratio)
-        if max_overlap < required:
-            continue
-        max_shift = min(max_offset, max(0, len(seq) - required))
-        for offset in range(max_shift + 1):
-            available = len(seq) - offset
-            if available < required:
-                continue
-            for overlap in range(min(max_overlap, available), required - 1, -1):
-                mismatches = count_mismatches(
-                    work_seq[offset : offset + overlap], work_primer[-overlap:]
-                )
-                if mismatches > max_mismatch:
-                    continue
-                error_rate = mismatches / overlap if overlap else 1.0
-                if error_rate > max_error_rate:
-                    continue
-                candidate = PrimerEndpointMatch(
-                    primer=primer,
-                    overlap_bp=overlap,
-                    mismatches=mismatches,
-                    score=overlap - mismatches,
-                    full_len_match=(overlap == len(primer)),
-                    trim_bp=offset + overlap,
-                )
-                if best is None:
-                    best = candidate
-                    continue
-                current_key = (
-                    candidate.overlap_bp,
-                    candidate.score,
-                    -candidate.mismatches,
-                    int(candidate.full_len_match),
-                    -offset,
-                )
-                best_key = (
-                    best.overlap_bp,
-                    best.score,
-                    -best.mismatches,
-                    int(best.full_len_match),
-                    -(best.trim_bp - best.overlap_bp),
-                )
-                if current_key > best_key:
-                    best = candidate
+        for candidate in _endpoint_candidates(
+            seq,
+            primer,
+            max_mismatch,
+            max_error_rate,
+            min_overlap_bp,
+            min_overlap_ratio,
+            max_offset,
+            from_end,
+        ):
+            if best is None or _endpoint_rank(candidate) > _endpoint_rank(best):
+                best = candidate
     return best
 
 
