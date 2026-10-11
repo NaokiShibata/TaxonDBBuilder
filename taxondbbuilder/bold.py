@@ -28,6 +28,110 @@ from .models import (
 )
 
 
+def _bold_download_path(
+    prepared_query: Any, cache_dir: Path | None, spool_dir: Path
+) -> tuple[Path, str]:
+    """Where a BOLD download lands, keyed by normalized query plus format."""
+    download_ext = "json" if prepared_query.download_format == "json" else "tsv"
+    query_hash = hashlib.sha256(
+        f"{prepared_query.normalized_query}\0{download_ext}".encode("utf-8")
+    ).hexdigest()[:16]
+    cache_root = cache_dir / ".cache" / "bold" if cache_dir else spool_dir
+    cache_root.mkdir(parents=True, exist_ok=True)
+    return cache_root / f"query-{query_hash}.{download_ext}", download_ext
+
+
+def _bold_download_reporter(
+    scientific_name: str, progress: Progress, task_id: Any, run_logger: logging.Logger
+) -> Any:
+    """Download progress callback that reports at most once per 1MiB."""
+    last_report = {"bytes": 0}
+
+    def report(downloaded_bytes: int, content_length: int | None) -> None:
+        threshold = 1024 * 1024
+        if (
+            downloaded_bytes - last_report["bytes"] < threshold
+            and downloaded_bytes != 0
+        ):
+            return
+        last_report["bytes"] = downloaded_bytes
+        progress.update(
+            task_id,
+            description=build_bold_download_description(
+                scientific_name,
+                downloaded_bytes,
+                content_length,
+            ),
+        )
+        # Log the download progress every 1MiB
+        detail = f"bytes={downloaded_bytes}"
+        if content_length is not None:
+            detail += f" total_bytes={content_length}"
+
+        run_logger.info(
+            f"# bold progress: taxon={scientific_name} phase=download {detail}"
+        )
+
+    return report
+
+
+def _fetch_bold_documents(
+    prepared_query: Any,
+    download_path: Path,
+    download_ext: str,
+    scientific_name: str,
+    resume: bool,
+    run_logger: logging.Logger,
+    progress_callback: Any,
+) -> dict[str, Any]:
+    """Reuse a cached download when resuming, otherwise fetch via a .part file."""
+    if resume and download_path.is_file():
+        run_logger.info(
+            f"# bold cache: taxon={scientific_name} path={download_path}"
+        )
+        return {
+            "path": str(download_path),
+            "format": download_ext,
+            "downloaded_bytes": download_path.stat().st_size,
+            "cached": True,
+        }
+
+    partial_path = download_path.with_suffix(download_path.suffix + ".part")
+    try:
+        download_meta = download_documents_to_path(
+            prepared_query.query_id,
+            prepared_query.runtime_cfg,
+            partial_path,
+            fmt=prepared_query.download_format,
+            progress_callback=progress_callback,
+        )
+        partial_path.replace(download_path)
+        return download_meta
+    finally:
+        partial_path.unlink(missing_ok=True)
+
+
+def _suppress_ncbi_linked_bold_record(
+    record: CanonicalRecord,
+    source: BuildSource,
+    ncbi_accessions: set,
+    source_merge_rows: list[dict[str, str]],
+) -> bool:
+    """True when an INSDC accession already came from NCBI, so the BOLD copy is dropped."""
+    if source != BuildSource.BOTH:
+        return False
+    accession_tokens = parse_accession_tokens(record.accession)
+    if not accession_tokens or not any(
+        token in ncbi_accessions for token in accession_tokens
+    ):
+        return False
+    record.linked_to_ncbi = True
+    record.emitted_to_fasta = False
+    record.skip_reason = "linked_by_insdcacs"
+    source_merge_rows.append(build_source_merge_row(record))
+    return True
+
+
 def process_bold_taxon_to_spool(
     resolved_taxon: ResolvedTaxon,
     prepared_query: Any,
@@ -63,76 +167,31 @@ def process_bold_taxon_to_spool(
     if not prepared_query.query_id:
         raise typer.BadParameter("BOLD query preparation did not return a query_id.")
 
-    download_ext = "json" if prepared_query.download_format == "json" else "tsv"
-    query_hash = hashlib.sha256(
-        f"{prepared_query.normalized_query}\0{download_ext}".encode("utf-8")
-    ).hexdigest()[:16]
-    cache_root = cache_dir / ".cache" / "bold" if cache_dir else spool_dir
-    cache_root.mkdir(parents=True, exist_ok=True)
-    download_path = cache_root / f"query-{query_hash}.{download_ext}"
+    download_path, download_ext = _bold_download_path(
+        prepared_query, cache_dir, spool_dir
+    )
     task_id = progress.add_task(
         f"BOLD {resolved_taxon.scientific_name}: download",
         total=None,
     )
-    last_download_report = {"bytes": 0}
 
     # Notify the GUI that the download has started.
     run_logger.info(
         f"# bold progress: taxon={resolved_taxon.scientific_name} phase=download"
     )
 
-    def on_bold_download_progress(
-        downloaded_bytes: int, content_length: int | None
-    ) -> None:
-        threshold = 1024 * 1024
-        if (
-            downloaded_bytes - last_download_report["bytes"] < threshold
-            and downloaded_bytes != 0
-        ):
-            return
-        last_download_report["bytes"] = downloaded_bytes
-        progress.update(
-            task_id,
-            description=build_bold_download_description(
-                resolved_taxon.scientific_name,
-                downloaded_bytes,
-                content_length,
+    try:
+        download_meta = _fetch_bold_documents(
+            prepared_query,
+            download_path,
+            download_ext,
+            resolved_taxon.scientific_name,
+            resume,
+            run_logger,
+            _bold_download_reporter(
+                resolved_taxon.scientific_name, progress, task_id, run_logger
             ),
         )
-        # Log the download progress every 1MiB
-        detail = f"bytes={downloaded_bytes}"
-        if content_length is not None:
-            detail += f" total_bytes={content_length}"
-
-        run_logger.info(
-            f"# bold progress: taxon={resolved_taxon.scientific_name} "
-            f"phase=download {detail}"
-        )
-
-    try:
-        if resume and download_path.is_file():
-            download_meta = {
-                "path": str(download_path),
-                "format": download_ext,
-                "downloaded_bytes": download_path.stat().st_size,
-                "cached": True,
-            }
-            run_logger.info(
-                f"# bold cache: taxon={resolved_taxon.scientific_name} path={download_path}"
-            )
-        else:
-            partial_path = download_path.with_suffix(download_path.suffix + ".part")
-            try:
-                download_meta = download_documents_to_path(
-                    prepared_query.query_id,
-                    prepared_query.runtime_cfg,
-                    partial_path,
-                    fmt=prepared_query.download_format,
-                    progress_callback=on_bold_download_progress,
-                )
-                partial_path.replace(download_path)
-            finally:
-                partial_path.unlink(missing_ok=True)
 
         downloaded_rows = 0
         matched_rows = 0
@@ -179,16 +238,9 @@ def process_bold_taxon_to_spool(
 
             record = build_bold_canonical_record(normalized, marker_map, output_cfg)
             record.taxid = resolved_taxon.taxid
-            accession_tokens = parse_accession_tokens(record.accession)
-            if (
-                source == BuildSource.BOTH
-                and accession_tokens
-                and any(token in ncbi_accessions for token in accession_tokens)
+            if _suppress_ncbi_linked_bold_record(
+                record, source, ncbi_accessions, source_merge_rows
             ):
-                record.linked_to_ncbi = True
-                record.emitted_to_fasta = False
-                record.skip_reason = "linked_by_insdcacs"
-                source_merge_rows.append(build_source_merge_row(record))
                 continue
 
             buffered_records.append(record)
