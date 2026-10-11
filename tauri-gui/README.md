@@ -101,6 +101,8 @@ npm --prefix tauri-gui install
 npm --prefix tauri-gui run tauri:build
 ```
 
+出荷する成果物はAppImageのみです。`bundle.targets`を`appimage`に固定しているため、debとrpmは生成しません。
+
 `tauri:build`と`tauri:dev`は、Python抽出プログラムの入力に変更があればsidecarを再ビルドします。
 変更がない場合は既存sidecarを再利用し、GUIだけを更新して古い抽出処理が残ることも防ぎます。
 抽出プログラムのビルドに失敗した場合は、古いバイナリで続行せず停止します。
