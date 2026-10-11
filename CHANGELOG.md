@@ -1,6 +1,77 @@
 # Changelog
 
-## 3.2.0 (planned)
+## 3.3.3 (planned)
+
+### Scope
+- `main` (`83a29a8`、タグ `v3.3.2`) から `build/appimage-only` を Pull Request でマージする差分を対象。
+
+### Changed
+- 出荷する成果物を AppImage のみにした。`bundle.targets` を `["appimage"]` に固定し、deb と rpm を生成しない。ビルドは 5m23s から 1m23s に短縮した。deb と rpm が約 4 分を占めていたが、リリース資産は一貫して AppImage 1 本のみだった。
+- sidecar のビルドを Linux 専用にした。`build_sidecar.py` から `detect_os_key` と Windows 用の `.exe` 名前付けを削除した。pixi workspace は `linux-64` のみを対象としており、他の分岐は到達不能だった。
+
+### Removed
+- sidecar の stub 配置経路 (`build_sidecar.py --stub` と `write_stub_binary`)。CI が存在せず、リポジトリ内のどこからも呼ばれていなかった。
+- `build-appimage-fast.sh` の `LDAI_RUNTIME_FILE` フック。設定する場所が存在しない未使用のオプションだった。
+- `tauri-gui/src-tauri/bin/README.md`。「sidecar バイナリは不要で、GUI は統合 Rust ランナーを使う」と記述していたが、`externalBin: ["bin/taxondbbuilder"]` が実際に sidecar バイナリを要求しており、記述が実装と矛盾していた。ディレクトリ自体は `build_sidecar.py` が作成するため、git 上のプレースホルダも不要。
+- `tauri-gui/package.json` の `preview` スクリプト。GUI は `tauri:dev` (devUrl 1420) もしくはバンドルで起動し、standalone の preview サーバは使わない。
+
+### Notes
+- rpm を出荷しなくなったため、rpm ペイロードの zstd 化は取りやめた。計測結果は残している。164 MB の PyInstaller sidecar に対する rpm バンドリングは gzip 既定で 16m25s、zstd level 3 で 3m51s。ペイロードは deflate 済みで圧縮率は 1% 未満のため、圧縮方式は成果物サイズにほぼ影響しない。
+- 新規 clone で sidecar をビルドせずに `cargo test --offline` を実行すると、`externalBin` の不足で失敗する。README の手順 (`pixi install -e dev` からビルド) どおりなら問題ない。CI を導入する場合は sidecar ビルドを前に置く。
+
+## 3.3.2 (2026-09-21)
+
+### Added
+- 完全なミトゲノムレコードを取得するためのマーカーを GUI に追加した。
+
+### Changed
+- マーカー設定ファイルと GUI のマーカー表記を整形した。
+
+### Notes
+- タグ `v3.3.2` は `83a29a8` を指すが、そのコミットのバージョン宣言 (VERSION、`tauri.conf.json`、`package.json`、`Cargo.toml`) は 3.3.1 のままだった。3.3.2 への bump コミット `153bdc5` は `issue-11-complete-mitogenome` にのみ存在し、main に届いていない。
+- 成果物を GitHub リリースに添付する運用ではない (`v3.3.0` と `v3.3.1` の資産はなし)。`v3.3.2` にのみ 233 MiB の `TaxonDBBuilder_3.3.2_amd64.AppImage` が添付されていたが、タグが指すソースから再現できずダウンロードも 0 回だったため削除した。これで全リリースの資産が空になった。タグとバージョン宣言の対応だけが信頼できる記録になるため、3.3.3 では bump を main 側の履歴に載せてからタグを切る。
+
+## 3.3.1 (2026-09-21)
+
+### Added
+- ミトゲノム抽出を全長取得と領域取得に分離した。
+
+### Changed
+- Python 依存を pixi に移行し、`requirements.txt` を削除した。
+- Vite を 8 に更新した。
+- 再ビルド時に sidecar と AppDir を再利用するようにした。Python 側の入力の fingerprint が変わらなければ sidecar を再構築せず、既存 AppDir を使う `tauri:build:appimage:fast` 経路を追加した。
+- GUI の TaxID 入力を数値として検証するようにした。
+- `configs/db.toml` から `api_key` と `email` を削除した。
+- リリースバージョンの宣言を 3.3.1 に統一した。
+
+### Fixed
+- Post Prep の明示的な enable フラグが無視されていた不具合を修正した。
+- 実行時に `gstreamer1.0-plugins-base` が必要であることを README に記載した。
+
+## 3.3.0 (2026-08-12)
+
+### Added
+- Post Prep に MSA ツリー工程 (`msa_tree`) を追加した。当初の MAFFT / IQ-TREE サブプロセス呼び出しは、kalign-python と piqtree のライブラリ呼び出しに置き換えた。
+- TaxID 単位のツリー構築モードと bootstrap 支持率を追加した。
+- GUI に MSA とツリーの同期ビュー (インタラクティブな結果表示) を追加した。
+- 保存度による背景フィルタを追加した。
+- 下流連携向けのデータベース出力形式を追加し、FASTA 出力形式を 1 種に統一した。
+- 再現可能なビルドのための整合性チェックと manifest 出力を追加した。
+
+### Changed
+- セットアップフォームを再構成し、ヘルプ誘導・入力コントロール・長さ指定の対コントロールを整理した。
+- ワーカー数を CPU の利用可能スレッド数で上限設定した。
+- 未使用の BOLD 取得オプションと非対応の primer 定義を削除した。
+- 進捗処理の重複を整理し、設定アセットを統合した。
+
+### Fixed
+- ツリーキャンバスをドラッグ中にページ全体が選択される不具合を修正した。
+- ラップされたストリームディスクリプタがコンソールに転送されない不具合を修正した。
+- GenBank キャッシュが TaxID を跨って混在する不具合を修正した。
+- 結果ペインのスクロールがデスクトップ全体に波及する不具合を修正した。
+- 任意依存の MSA インポートを遅延させるよう修正し、sidecar の起動失敗を回避した。
+
+## 3.2.0
 
 ### Scope
 - `main` から `refactor/modularize` を Pull Request でマージする差分を対象。
@@ -21,7 +92,7 @@
 ### Fixed
 - 実行ログの書き込みをスレッドセーフな共有ストリーム経由に変更し、コンソール出力とログファイルの内容を一致させた。
 
-## 3.0.0 (planned)
+## 3.0.0
 
 ### Scope
 - `main` (`2effd40`) から `feat/tauri-gui-v1` を Pull Request でマージする差分を対象。

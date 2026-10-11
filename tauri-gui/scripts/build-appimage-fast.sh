@@ -38,14 +38,10 @@ if [[ ! -x "$tool_cache/squashfs-root/usr/bin/appimagetool" ]]; then
 fi
 
 appimagetool="$tool_cache/squashfs-root/usr/bin/appimagetool"
-runtime_args=()
-if [[ -n "${LDAI_RUNTIME_FILE:-}" ]]; then
-  runtime_args=(--runtime-file "$LDAI_RUNTIME_FILE")
-fi
 
 trap 'rm -f "$temporary_output"' EXIT
 ARCH=x86_64 "$appimagetool" --no-appstream --comp zstd \
   --mksquashfs-opt -Xcompression-level --mksquashfs-opt 1 \
-  "${runtime_args[@]}" "$appdir" "$temporary_output"
+  "$appdir" "$temporary_output"
 mv -f "$temporary_output" "$output"
 echo "Built AppImage using cached AppDir: $output"

@@ -101,6 +101,8 @@ npm --prefix tauri-gui install
 npm --prefix tauri-gui run tauri:build
 ```
 
+出荷する成果物はAppImageのみです。`bundle.targets`を`appimage`に固定しているため、debとrpmは生成しません。
+
 `tauri:build`と`tauri:dev`は、Python抽出プログラムの入力に変更があればsidecarを再ビルドします。
 変更がない場合は既存sidecarを再利用し、GUIだけを更新して古い抽出処理が残ることも防ぎます。
 抽出プログラムのビルドに失敗した場合は、古いバイナリで続行せず停止します。
@@ -109,21 +111,12 @@ npm --prefix tauri-gui run tauri:build
 この経路はGTK/WebKit依存ライブラリを再収集しないため、アプリのコード変更時に使えます。
 依存関係を変更した場合や初回は `npm run tauri:build` でAppDirを作り直してください。
 
-オフラインでRust側だけを確認する場合は、実バイナリの代わりにstubを配置できます。
-
-```bash
-pixi run -e dev python tauri-gui/scripts/build_sidecar.py \
-  --repo-root . \
-  --tauri-root tauri-gui \
-  --stub
-```
-
 ### 実行
 
 生成物を起動します。Linuxですと`.AppImage`ファイルが対象になります。
 
 ```bash
-${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilder_3.3.1_amd64.AppImage
+${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilder_3.3.3_amd64.AppImage
 ```
 
 アプリが立ち上がれば完了
