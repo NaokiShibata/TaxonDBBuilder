@@ -1035,6 +1035,124 @@ def _resolve_post_prep_primers(
     return forward, reverse, primer_file, set_names
 
 
+def _post_prep_disabled_options() -> dict[str, Any]:
+    """The fixed option set used when --post-prep was not requested."""
+    return {
+        "post_prep": False,
+        "post_prep_steps_run": [],
+        "has_length_filter": False,
+        "has_quality_filter": False,
+        "has_primer_trim": False,
+        "has_msa_tree": False,
+        "post_min": None,
+        "post_max": None,
+        "post_quality_options": {
+            "max_ambiguous_fraction": None,
+            "reject_invalid_iupac": True,
+            "duplicate_policy": "keep",
+        },
+        "post_primer_forward": [],
+        "post_primer_reverse": [],
+        "post_primer_file": None,
+        "post_primer_set_names": [],
+        "post_primer_trim_options": _build_post_prep_trim_options({}, False),
+        "post_msa_tree_options": _build_post_prep_msa_tree_options({}),
+    }
+
+
+def _post_prep_length_filter(
+    post_prep_cfg: dict[str, Any],
+) -> tuple[bool, int | None, int | None]:
+    """Resolve the length filter: (enabled, min, max). A None bound is unset."""
+    configured_min = post_prep_cfg.get("sequence_length_min")
+    configured_max = post_prep_cfg.get("sequence_length_max")
+    return (
+        configured_min is not None or configured_max is not None,
+        int(configured_min) if configured_min is not None else None,
+        int(configured_max) if configured_max is not None else None,
+    )
+
+
+def _post_prep_quality_filter(
+    post_prep_cfg: dict[str, Any],
+) -> tuple[bool, dict[str, Any]]:
+    """Resolve the quality filter: (enabled, options).
+
+    Presence of quality_reject_invalid_iupac counts as an explicit request, so a
+    config that sets it to its default value still enables the filter.
+    """
+    options = {
+        "max_ambiguous_fraction": post_prep_cfg.get(
+            "quality_max_ambiguous_fraction"
+        ),
+        "reject_invalid_iupac": post_prep_cfg.get(
+            "quality_reject_invalid_iupac", True
+        ),
+        "duplicate_policy": post_prep_cfg.get("duplicate_sequence_policy", "keep"),
+    }
+    enabled = (
+        options["max_ambiguous_fraction"] is not None
+        or "quality_reject_invalid_iupac" in post_prep_cfg
+        or options["duplicate_policy"] != "keep"
+    )
+    return enabled, options
+
+
+def _validate_requested_post_prep_steps(
+    requested_steps: list[str],
+    has_primer_trim: bool,
+    has_length_filter: bool,
+    has_quality_filter: bool,
+    has_msa_tree: bool,
+) -> None:
+    """Reject an explicitly requested step that has no configuration to run on."""
+    requirements = {
+        PostPrepStep.PRIMER_TRIM.value: (
+            has_primer_trim,
+            "post-prep step 'primer_trim' requires post_prep.primer_set (post_prep.primer_file is only needed for a custom, non-built-in primer set).",
+        ),
+        PostPrepStep.LENGTH_FILTER.value: (
+            has_length_filter,
+            "post-prep step 'length_filter' requires post_prep.sequence_length_min or sequence_length_max.",
+        ),
+        PostPrepStep.QUALITY_FILTER.value: (
+            has_quality_filter,
+            "post-prep step 'quality_filter' requires a post_prep quality option.",
+        ),
+        PostPrepStep.MSA_TREE.value: (
+            has_msa_tree,
+            "post-prep step 'msa_tree' requires post_prep.msa_tree_enable = true.",
+        ),
+    }
+    for step in POST_PREP_STEP_ORDER:
+        enabled, requirement = requirements.get(step, (True, ""))
+        if step in requested_steps and not enabled:
+            raise typer.BadParameter(requirement)
+
+
+def _auto_post_prep_steps(
+    has_primer_trim: bool,
+    has_length_filter: bool,
+    has_quality_filter: bool,
+    has_msa_tree: bool,
+    source: BuildSource,
+) -> list[str]:
+    """Pick the steps implied by the configuration, in pipeline order."""
+    steps_run = []
+    if has_primer_trim:
+        steps_run.append(PostPrepStep.PRIMER_TRIM.value)
+    if has_length_filter:
+        steps_run.append(PostPrepStep.LENGTH_FILTER.value)
+    if has_quality_filter:
+        steps_run.append(PostPrepStep.QUALITY_FILTER.value)
+    if source != BuildSource.BOTH:
+        # BOTH already reports duplicates through the source merge table.
+        steps_run.append(PostPrepStep.DUPLICATE_REPORT.value)
+    if has_msa_tree:
+        steps_run.append(PostPrepStep.MSA_TREE.value)
+    return steps_run
+
+
 def _resolve_post_prep_options(
     post_prep: bool,
     post_prep_step: list[PostPrepStep] | None,
@@ -1051,80 +1169,32 @@ def _resolve_post_prep_options(
             raise typer.BadParameter(
                 "--post-prep-step/--post-prep-primer-set requires --post-prep."
             )
-        return {
-            "post_prep": False,
-            "post_prep_steps_run": [],
-            "has_length_filter": False,
-            "has_quality_filter": False,
-            "has_primer_trim": False,
-            "has_msa_tree": False,
-            "post_min": None,
-            "post_max": None,
-            "post_quality_options": {
-                "max_ambiguous_fraction": None,
-                "reject_invalid_iupac": True,
-                "duplicate_policy": "keep",
-            },
-            "post_primer_forward": [],
-            "post_primer_reverse": [],
-            "post_primer_file": None,
-            "post_primer_set_names": [],
-            "post_primer_trim_options": _build_post_prep_trim_options({}, False),
-            "post_msa_tree_options": _build_post_prep_msa_tree_options({}),
-        }
+        return _post_prep_disabled_options()
 
-    post_min = post_prep_cfg.get("sequence_length_min")
-    post_max = post_prep_cfg.get("sequence_length_max")
-    has_length_filter = post_min is not None or post_max is not None
-    quality_options = {
-        "max_ambiguous_fraction": post_prep_cfg.get(
-            "quality_max_ambiguous_fraction"
-        ),
-        "reject_invalid_iupac": post_prep_cfg.get(
-            "quality_reject_invalid_iupac", True
-        ),
-        "duplicate_policy": post_prep_cfg.get("duplicate_sequence_policy", "keep"),
-    }
-    has_quality_filter = (
-        quality_options["max_ambiguous_fraction"] is not None
-        or "quality_reject_invalid_iupac" in post_prep_cfg
-        or quality_options["duplicate_policy"] != "keep"
-    )
+    has_length_filter, post_min, post_max = _post_prep_length_filter(post_prep_cfg)
+    has_quality_filter, quality_options = _post_prep_quality_filter(post_prep_cfg)
     forward, reverse, primer_file, set_names = _resolve_post_prep_primers(
         post_prep_cfg, requested_sets, config
     )
     has_primer_trim = bool(forward and reverse)
     has_msa_tree = bool(post_prep_cfg.get("msa_tree_enable"))
-    if PostPrepStep.PRIMER_TRIM.value in requested_steps and not has_primer_trim:
-        raise typer.BadParameter(
-            "post-prep step 'primer_trim' requires post_prep.primer_set (post_prep.primer_file is only needed for a custom, non-built-in primer set)."
-        )
-    if PostPrepStep.LENGTH_FILTER.value in requested_steps and not has_length_filter:
-        raise typer.BadParameter(
-            "post-prep step 'length_filter' requires post_prep.sequence_length_min or sequence_length_max."
-        )
-    if PostPrepStep.QUALITY_FILTER.value in requested_steps and not has_quality_filter:
-        raise typer.BadParameter(
-            "post-prep step 'quality_filter' requires a post_prep quality option."
-        )
-    if PostPrepStep.MSA_TREE.value in requested_steps and not has_msa_tree:
-        raise typer.BadParameter(
-            "post-prep step 'msa_tree' requires post_prep.msa_tree_enable = true."
-        )
+    _validate_requested_post_prep_steps(
+        requested_steps,
+        has_primer_trim,
+        has_length_filter,
+        has_quality_filter,
+        has_msa_tree,
+    )
     if requested_steps:
         steps_run = [step for step in POST_PREP_STEP_ORDER if step in requested_steps]
     else:
-        steps_run = []
-        if has_primer_trim:
-            steps_run.append(PostPrepStep.PRIMER_TRIM.value)
-        if has_length_filter:
-            steps_run.append(PostPrepStep.LENGTH_FILTER.value)
-        if has_quality_filter:
-            steps_run.append(PostPrepStep.QUALITY_FILTER.value)
-        if source != BuildSource.BOTH:
-            steps_run.append(PostPrepStep.DUPLICATE_REPORT.value)
-        if has_msa_tree:
-            steps_run.append(PostPrepStep.MSA_TREE.value)
+        steps_run = _auto_post_prep_steps(
+            has_primer_trim,
+            has_length_filter,
+            has_quality_filter,
+            has_msa_tree,
+            source,
+        )
     return {
         "post_prep": True,
         "post_prep_steps_run": steps_run,
@@ -1132,8 +1202,8 @@ def _resolve_post_prep_options(
         "has_quality_filter": has_quality_filter,
         "has_primer_trim": has_primer_trim,
         "has_msa_tree": has_msa_tree,
-        "post_min": int(post_min) if post_min is not None else None,
-        "post_max": int(post_max) if post_max is not None else None,
+        "post_min": post_min,
+        "post_max": post_max,
         "post_quality_options": quality_options,
         "post_primer_forward": forward,
         "post_primer_reverse": reverse,
