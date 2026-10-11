@@ -302,7 +302,7 @@ def _summarize_trim_row(
 
 def summarize_rows_to_records(
     rows: list[dict[str, Any]],
-    seq_by_header: dict[str, str],
+    seqs: list[str],
     trim_mode: str,
 ) -> tuple[list[tuple[str, str]], dict[str, Any]]:
     trimmed_records: list[tuple[str, str]] = []
@@ -321,8 +321,8 @@ def summarize_rows_to_records(
             "confidence_low",
         )
     }
-    for row in rows:
-        seq = seq_by_header.get(str(row.get("record_id", "")), "")
+    # sidecar rows are positional: rows[i] was produced by the record seqs[i].
+    for row, seq in zip(rows, seqs):
         if not seq:
             continue
         trimmed_record, row_counts = _summarize_trim_row(row, seq, trim_mode)
@@ -342,7 +342,7 @@ def summarize_rows_to_records(
 
 
 def _collect_vsearch_candidates(
-    rows: list[dict[str, Any]], seq_by_header: dict[str, str]
+    rows: list[dict[str, Any]], seqs: list[str]
 ) -> list[dict[str, Any]]:
     candidates: list[dict[str, Any]] = []
     for idx, row in enumerate(rows):
@@ -353,7 +353,7 @@ def _collect_vsearch_candidates(
             row["recheck_status"] = "already_both_ends"
             continue
         header = str(row.get("record_id", ""))
-        seq = seq_by_header.get(header, "")
+        seq = seqs[idx]
         if not seq:
             row["recheck_status"] = "sequence_not_found"
             continue
@@ -538,7 +538,7 @@ def _merge_vsearch_hits(
 
 def run_vsearch_endpoint_recheck(
     rows: list[dict[str, Any]],
-    seq_by_header: dict[str, str],
+    seqs: list[str],
     forward_primers: list[str],
     reverse_primers: list[str],
     forward_rc: list[str],
@@ -549,7 +549,7 @@ def run_vsearch_endpoint_recheck(
     vsearch_bin = shutil.which("vsearch")
     if not vsearch_bin:
         return 0, 0, "vsearch_not_found"
-    candidates = _collect_vsearch_candidates(rows, seq_by_header)
+    candidates = _collect_vsearch_candidates(rows, seqs)
     if not candidates:
         return 0, 0, None
     primer_db_entries = _build_vsearch_primer_db(
@@ -1009,10 +1009,12 @@ def _apply_primer_recheck(
             if ctx.recheck_tool != "off"
             else None,
         )
-    seq_by_header = {header: seq for header, seq in records}
+    # _run_primer_trim_round appends exactly one row per record, in record order,
+    # so sidecar_rows[i] and records[i] describe the same input record.
+    seqs = [seq for _, seq in records]
     attempted, rescued, error = run_vsearch_endpoint_recheck(
         sidecar_rows,
-        seq_by_header,
+        seqs,
         ctx.forward_primers,
         ctx.reverse_primers,
         ctx.forward_rc,
@@ -1021,7 +1023,7 @@ def _apply_primer_recheck(
         min_query_cov=ctx.recheck_min_query_cov,
     )
     rebuilt_records, rebuilt_summary = summarize_rows_to_records(
-        sidecar_rows, seq_by_header, ctx.trim_mode
+        sidecar_rows, seqs, ctx.trim_mode
     )
     best_summary.update(rebuilt_summary)
     best_summary["records"] = rebuilt_records

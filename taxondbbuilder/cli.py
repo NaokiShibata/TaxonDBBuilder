@@ -81,6 +81,7 @@ from .postprep.duplicates import (
 from .postprep.length_filter import apply_post_prep_length_filter
 from .postprep.quality import apply_post_prep_quality_filter
 from .postprep.primer_trim import apply_post_prep_primer_trim
+from .record_index import HeaderCollisionError
 
 app = typer.Typer(
     add_completion=False,
@@ -660,11 +661,19 @@ def _run_msa_tree_post_prep(ctx: _BuildContext) -> None:
         return
     from .postprep.phylo import apply_post_prep_msa_tree
 
-    taxid_by_header = {
-        row["header"]: row["taxid"]
-        for row in ctx.source_merge_rows
-        if row.get("header") and row.get("taxid")
-    }
+    taxid_by_header: dict[str, str] = {}
+    for row in ctx.source_merge_rows:
+        header = row.get("header")
+        taxid = row.get("taxid")
+        if not header or not taxid:
+            continue
+        known = taxid_by_header.get(header)
+        if known is not None and known != taxid:
+            raise HeaderCollisionError(
+                f"FASTA header {header!r} maps to taxids {known!r} and {taxid!r};"
+                " cannot assign sequences to one taxon"
+            )
+        taxid_by_header[header] = taxid
     stats = apply_post_prep_msa_tree(
         ctx.out_path,
         ctx.post_msa_tree_options,
@@ -838,7 +847,13 @@ def _run_build_pipeline(**context_fields: Any) -> None:
 
                 ctx.run_logger.info(f"# source_merge_csv: {source_merge_path}")
 
-                _run_post_prep(ctx)
+                try:
+                    _run_post_prep(ctx)
+                except HeaderCollisionError:
+                    ctx.run_logger.exception(
+                        "post_prep aborted: a FASTA header is not unique"
+                    )
+                    raise
                 _show_build_result(ctx, source_merge_path)
         finally:
             close_run_logger(run_logger)

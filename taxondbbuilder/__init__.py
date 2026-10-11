@@ -9,6 +9,7 @@ from .markers import *
 from .config import *
 from .fasta import *
 from .exports import *
+from .record_index import *
 from .postprep.length_filter import *
 from .postprep.quality import *
 from .postprep.primer_trim import *

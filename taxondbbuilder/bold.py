@@ -285,7 +285,16 @@ def build_bold_canonical_record(
     accession = normalized_row.get("accession")
     taxon_name = normalized_row.get("taxon_name") or "unknown"
     source_record_id = str(normalized_row["source_record_id"])
-    acc_id = f"BOLD_{sanitize_header(processid or source_record_id)}"
+    if processid:
+        acc_id = f"BOLD_{sanitize_header(processid)}"
+    else:
+        # No processid: sampleid alone is not unique, so the acc_id carries a
+        # deterministic discriminator (same shape as bold_api's source_record_id).
+        seed = f"{source_record_id}|{accession or ''}|{normalized_row['sequence']}"
+        acc_id = (
+            f"BOLD_{sanitize_header(source_record_id)}_"
+            f"{hashlib.sha1(seed.encode('utf-8')).hexdigest()[:8]}"
+        )
     marker_label = str(normalized_row.get("marker_label") or "")
     marker_safe = sanitize_header(marker_key)
     marker_label_safe = sanitize_header(marker_label or marker_key)

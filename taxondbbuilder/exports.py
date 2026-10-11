@@ -7,10 +7,9 @@ from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
-from Bio import SeqIO
-
 from .headers import sanitize_header
 from .models import ExportFormat
+from .record_index import pair_fasta_with_rows
 
 
 def _clean_taxon_name(value: str) -> str:
@@ -41,36 +40,23 @@ def _unique_feature_id(raw: str, seen: dict[str, int], fallback_index: int) -> s
 def _collect_final_records(
     fasta_path: Path, emitted_records: list[dict[str, str]]
 ) -> tuple[list[dict[str, str]], int]:
-    records_by_header: dict[str, list[dict[str, str]]] = defaultdict(list)
-    for row in emitted_records:
-        records_by_header[row.get("header", "")].append(row)
-
-    offsets: dict[str, int] = defaultdict(int)
+    paired = pair_fasta_with_rows(fasta_path, emitted_records)
     seen_ids: dict[str, int] = defaultdict(int)
     mapped: list[dict[str, str]] = []
-    unmapped = 0
-    with fasta_path.open("r", encoding="utf-8") as fasta_f:
-        for index, record in enumerate(SeqIO.parse(fasta_f, "fasta"), start=1):
-            header = str(record.description).strip()
-            rows = records_by_header.get(header, [])
-            offset = offsets[header]
-            if offset >= len(rows):
-                unmapped += 1
-                continue
-            source = rows[offset]
-            offsets[header] += 1
-            mapped.append(
-                {
-                    "feature_id": _unique_feature_id(
-                        source.get("acc_id", "") or str(record.id), seen_ids, index
-                    ),
-                    "organism_name": _clean_taxon_name(
-                        source.get("organism_name", "")
-                    ),
-                    "taxonomy_lineage": source.get("taxonomy_lineage", ""),
-                    "sequence": str(record.seq).upper(),
-                }
-            )
+    for index, (record, source) in enumerate(paired, start=1):
+        if source is None:
+            continue
+        mapped.append(
+            {
+                "feature_id": _unique_feature_id(
+                    source.get("acc_id", "") or str(record.id), seen_ids, index
+                ),
+                "organism_name": _clean_taxon_name(source.get("organism_name", "")),
+                "taxonomy_lineage": source.get("taxonomy_lineage", ""),
+                "sequence": str(record.seq).upper(),
+            }
+        )
+    unmapped = sum(1 for _, row in paired if row is None)
     return mapped, unmapped
 
 

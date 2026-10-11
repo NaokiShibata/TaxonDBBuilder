@@ -1,8 +1,9 @@
 """Header-collision regression tests.
 
-Same-shape positional joins exist in exports._collect_final_records,
+The same-shape positional joins in exports._collect_final_records,
 postprep.duplicates._collect_acc_organism_mapping and
-postprep.quality._annotated_rows; only the exports join is exercised here.
+postprep.quality._annotated_rows now share record_index.pair_fasta_with_rows,
+which raises HeaderCollisionError instead of guessing.
 """
 from __future__ import annotations
 
@@ -114,13 +115,13 @@ SEQ_P_A = "AAAAAAAACCCCCCCC"   # 16 bp
 SEQ_P_B = "GGGGGGGGTTTTTTTT"   # 16 bp
 
 
-def test_bold_rows_without_processid_share_one_header() -> None:
-    """Characterizes the cause: two different BOLD records collide in one header."""
+def test_bold_rows_without_processid_get_distinct_headers() -> None:
+    """No processid: the acc_id discriminator keeps two records apart."""
     fasta_text, emitted = _emit_bold_records([ROW_ALPHA_SHORT, ROW_BETA_LONG])
-    assert fasta_text == (
-        f">{COLLIDING_HEADER}\n{SEQ_SHORT}\n>{COLLIDING_HEADER}\n{SEQ_LONG}\n"
-    )
-    assert [row["header"] for row in emitted] == [COLLIDING_HEADER, COLLIDING_HEADER]
+    headers = [row["header"] for row in emitted]
+    assert all(header.startswith("bold|BOLD_SAM001_") for header in headers)
+    assert len(set(headers)) == 2
+    assert fasta_text == f">{headers[0]}\n{SEQ_SHORT}\n>{headers[1]}\n{SEQ_LONG}\n"
     assert [row["processid"] for row in emitted] == ["", ""]
     assert [row["source_record_id"] for row in emitted] == ["SAM001", "SAM001"]
     assert [row["accession"] for row in emitted] == ["AB111", "AB222"]
@@ -131,34 +132,54 @@ def test_bold_rows_without_processid_share_one_header() -> None:
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="positional header join pairs the surviving record with the removed record's source row",
-)
+def test_bold_header_discriminator_is_deterministic_and_order_free() -> None:
+    """Same rows in reverse emit order yield the same two headers."""
+    _, emitted = _emit_bold_records([ROW_ALPHA_SHORT, ROW_BETA_LONG])
+    _, reversed_emitted = _emit_bold_records([ROW_BETA_LONG, ROW_ALPHA_SHORT])
+    assert [row["header"] for row in reversed_emitted] == list(
+        reversed([row["header"] for row in emitted])
+    )
+    assert [row["acc_id"] for row in reversed_emitted] == list(
+        reversed([row["acc_id"] for row in emitted])
+    )
+
+
+def test_bold_records_identical_in_every_field_still_collide(
+    tmp_path: Path,
+) -> None:
+    """Identical source_record_id + accession + sequence -> one header -> raise."""
+    import taxondbbuilder as builder
+
+    fasta_text, emitted = _emit_bold_records([ROW_ALPHA_A, dict(ROW_ALPHA_A)])
+    assert emitted[0]["header"] == emitted[1]["header"]
+    fasta_path = tmp_path / "identical.fasta"
+    fasta_path.write_text(fasta_text, encoding="utf-8")
+    with pytest.raises(builder.HeaderCollisionError) as excinfo:
+        builder.write_interoperability_exports(
+            fasta_path, emitted, [builder.ExportFormat.QIIME2]
+        )
+    assert emitted[0]["header"] in str(excinfo.value)
+
+
 def test_length_filter_keeps_the_surviving_records_taxonomy(tmp_path: Path) -> None:
     import taxondbbuilder as builder
 
     fasta_path = tmp_path / "collision.fasta"
     fasta_text, emitted = _emit_bold_records([ROW_ALPHA_SHORT, ROW_BETA_LONG])
+    headers = [row["header"] for row in emitted]
     fasta_path.write_text(fasta_text, encoding="utf-8")
 
     stats = builder.apply_post_prep_length_filter(fasta_path, 20, None)
     assert stats == {"before": 2, "after": 1, "removed": 1}
-    assert fasta_path.read_text(encoding="utf-8") == f">{COLLIDING_HEADER}\n{SEQ_LONG}\n"
+    assert fasta_path.read_text(encoding="utf-8") == f">{headers[1]}\n{SEQ_LONG}\n"
 
     taxa, result = _qiime2_join(fasta_path, emitted)
-    if result is None:
-        return                                        # explicit error: acceptable
     # The counts look clean, so nothing warns about the mismatched taxonomy.
     assert (result["exported_records"], result["skipped_records"]) == (1, 0)
     assert len(taxa) == 1
-    assert taxa[0] == "BOLD_SAM001\tBetidae; Beta; Beta fish"
+    assert taxa[0] == f"{emitted[1]['acc_id']}\tBetidae; Beta; Beta fish"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="seq_by_header is last-wins, so one sequence is emitted twice",
-)
 def test_vsearch_recheck_keeps_both_sequences_for_one_header(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
@@ -187,27 +208,22 @@ def test_vsearch_recheck_keeps_both_sequences_for_one_header(
     )
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="positional header join is order-dependent",
-)
 def test_exports_pair_each_occurrence_with_its_own_source_row(tmp_path: Path) -> None:
     _, emitted = _emit_bold_records([ROW_ALPHA_A, ROW_BETA_B])  # rows in emit order
+    headers = [row["header"] for row in emitted]
     fasta_path = tmp_path / "order.fasta"
     # A FASTA rewrite that reorders records models what any post-prep step can do.
     fasta_path.write_text(
-        f">{COLLIDING_HEADER}\n{SEQ_B}\n>{COLLIDING_HEADER}\n{SEQ_A}\n", encoding="utf-8"
+        f">{headers[1]}\n{SEQ_B}\n>{headers[0]}\n{SEQ_A}\n", encoding="utf-8"
     )
     taxa, _ = _qiime2_join(fasta_path, emitted)
-    if not taxa:
-        return
     sequences = (tmp_path / "order.fasta.qiime2.sequences.fasta").read_text(
         encoding="utf-8"
     ).splitlines()
     assert [sequences[1], sequences[3]] == [SEQ_B, SEQ_A]
     assert taxa == [
-        "BOLD_SAM001\tBetidae; Beta; Beta fish",
-        "BOLD_SAM001__2\tAlphidae; Alpha; Alpha fish",
+        f"{emitted[1]['acc_id']}\tBetidae; Beta; Beta fish",
+        f"{emitted[0]['acc_id']}\tAlphidae; Alpha; Alpha fish",
     ]
 
 
@@ -215,7 +231,9 @@ def test_control_distinct_headers_survive_filter_and_export(tmp_path: Path) -> N
     import taxondbbuilder as builder
 
     fasta_text, emitted = _emit_bold_records([ROW_ALPHA_SHORT_OTHER, ROW_BETA_LONG])
-    assert [row["header"] for row in emitted] == ["bold|BOLD_SAM002", COLLIDING_HEADER]
+    headers = [row["header"] for row in emitted]
+    assert headers[0].startswith("bold|BOLD_SAM002_")
+    assert headers[1].startswith("bold|BOLD_SAM001_")
     fasta_path = tmp_path / "control.fasta"
     fasta_path.write_text(fasta_text, encoding="utf-8")
     assert builder.apply_post_prep_length_filter(fasta_path, 20, None) == {
@@ -226,6 +244,184 @@ def test_control_distinct_headers_survive_filter_and_export(tmp_path: Path) -> N
     )[0]
     assert (result["exported_records"], result["skipped_records"]) == (1, 0)
     assert result["paths"][1].read_text(encoding="utf-8") == (
-        "Feature ID\tTaxon\nBOLD_SAM001\tBetidae; Beta; Beta fish\n"
+        "Feature ID\tTaxon\n"
+        f"{emitted[1]['acc_id']}\tBetidae; Beta; Beta fish\n"
     )
-    assert fasta_path.read_text(encoding="utf-8") == f">{COLLIDING_HEADER}\n{SEQ_LONG}\n"
+    assert fasta_path.read_text(encoding="utf-8") == f">{headers[1]}\n{SEQ_LONG}\n"
+
+
+def _colliding_rows() -> list[dict[str, str]]:
+    """Two emitted rows sharing one header, without going through BOLD fixtures."""
+    return [
+        {
+            "header": COLLIDING_HEADER,
+            "acc_id": "BOLD_SAM001",
+            "accession": "AB111",
+            "organism_name": "Alpha fish",
+        },
+        {
+            "header": COLLIDING_HEADER,
+            "acc_id": "BOLD_SAM001",
+            "accession": "AB222",
+            "organism_name": "Beta fish",
+        },
+    ]
+
+
+def test_exports_reject_a_duplicated_non_bold_header(tmp_path: Path) -> None:
+    import taxondbbuilder as builder
+
+    fasta_path = tmp_path / "duplicated.fasta"
+    fasta_path.write_text(f">{COLLIDING_HEADER}\n{SEQ_A}\n", encoding="utf-8")
+    with pytest.raises(builder.HeaderCollisionError) as excinfo:
+        builder.write_interoperability_exports(
+            fasta_path, _colliding_rows(), [builder.ExportFormat.QIIME2]
+        )
+    assert COLLIDING_HEADER in str(excinfo.value)
+
+
+@pytest.mark.parametrize("step", ["acc_organism", "quality_filter"])
+def test_post_prep_joins_reject_colliding_headers(
+    tmp_path: Path, step: str
+) -> None:
+    import taxondbbuilder as builder
+
+    fasta_path = tmp_path / "postprep.fasta"
+    fasta_path.write_text(
+        f">{COLLIDING_HEADER}\n{SEQ_A}\n", encoding="utf-8"
+    )
+    emitted = _colliding_rows()
+    with pytest.raises(builder.HeaderCollisionError) as excinfo:
+        if step == "acc_organism":
+            builder.write_acc_organism_mapping_csv(fasta_path, emitted)
+        else:
+            builder.apply_post_prep_quality_filter(
+                fasta_path,
+                emitted,
+                max_ambiguous_fraction=None,
+                reject_invalid_iupac=False,
+                duplicate_policy="representative",
+            )
+    assert COLLIDING_HEADER in str(excinfo.value)
+
+
+def test_post_prep_joins_keep_working_for_distinct_headers(tmp_path: Path) -> None:
+    """Control: the non-colliding output of both joins is unchanged."""
+    import taxondbbuilder as builder
+
+    rows = [
+        dict(row, header=f"bold|BOLD_SAM00{i}")
+        for i, row in enumerate(_colliding_rows(), start=1)
+    ]
+    fasta_path = tmp_path / "control_postprep.fasta"
+    fasta_path.write_text(
+        f">bold|BOLD_SAM001\n{SEQ_A}\n>bold|BOLD_SAM002\n{SEQ_B}\n", encoding="utf-8"
+    )
+    mapping_path, stats = builder.write_acc_organism_mapping_csv(fasta_path, rows)
+    assert stats == {
+        "total_records": 2,
+        "mapped_records": 2,
+        "unmapped_records": 0,
+        "unused_records": 0,
+        "unique_accessions": 2,
+        "unique_organisms": 2,
+    }
+    assert mapping_path.read_text(encoding="utf-8").splitlines() == [
+        "acc_id,accession,organism_name,organism_taxid,taxonomy_lineage,header,"
+        "source,source_record_id,processid,sampleid,marker_key,linked_to_ncbi,"
+        "emitted_to_fasta,skip_reason",
+        "BOLD_SAM001,AB111,Alpha fish,,,bold|BOLD_SAM001,,,,,,,,",
+        "BOLD_SAM001,AB222,Beta fish,,,bold|BOLD_SAM002,,,,,,,,",
+    ]
+    stats = builder.apply_post_prep_quality_filter(
+        fasta_path,
+        rows,
+        max_ambiguous_fraction=None,
+        reject_invalid_iupac=False,
+        duplicate_policy="representative",
+    )
+    assert (stats["before"], stats["after"], stats["rejected"]) == (2, 2, 0)
+    assert fasta_path.read_text(encoding="utf-8") == (
+        f">bold|BOLD_SAM001\n{SEQ_A}\n>bold|BOLD_SAM002\n{SEQ_B}\n"
+    )
+
+
+def test_msa_tree_taxid_map_rejects_conflicting_taxids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """One header mapping to two taxids must fail instead of picking one."""
+    import logging
+    from types import SimpleNamespace
+
+    import taxondbbuilder as builder
+    from taxondbbuilder.cli import _run_msa_tree_post_prep
+    from taxondbbuilder.postprep import phylo
+
+    def unexpected_call(*_args: object, **_kwargs: object) -> None:
+        raise AssertionError("the taxid map must fail before the MSA runs")
+
+    monkeypatch.setattr(phylo, "apply_post_prep_msa_tree", unexpected_call)
+    ctx = SimpleNamespace(
+        post_prep_steps_run={"msa_tree"},
+        source_merge_rows=[
+            {"header": "ncbi|NCBI_X", "taxid": "123"},
+            {"header": "ncbi|NCBI_X", "taxid": "456"},
+        ],
+        out_path=tmp_path / "msa.fasta",
+        post_msa_tree_options={
+            "mode": "auto",
+            "min_taxa": 3,
+            "max_samples": 500,
+            "model": "GTR+G",
+            "bootstrap_replicates": 1000,
+        },
+        msa_tree_stats=None,
+        run_logger=logging.getLogger("taxondbbuilder.test"),
+    )
+    with pytest.raises(builder.HeaderCollisionError) as excinfo:
+        _run_msa_tree_post_prep(ctx)
+    assert "ncbi|NCBI_X" in str(excinfo.value)
+
+
+def test_msa_tree_taxid_map_collapses_identical_taxids(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Identical taxids for one header are not a collision."""
+    import logging
+    from types import SimpleNamespace
+
+    from taxondbbuilder.cli import _run_msa_tree_post_prep
+    from taxondbbuilder.postprep import phylo
+
+    seen: dict[str, object] = {}
+
+    def fake_msa_tree(fasta_path, options, *, taxid_by_header):  # type: ignore[no-untyped-def]
+        seen["taxid_by_header"] = taxid_by_header
+        return {
+            "status": "skipped_too_few_taxa",
+            "taxa_count": 1,
+            "msa_path": None,
+            "tree_path": None,
+            "tree_outputs": [],
+        }
+
+    monkeypatch.setattr(phylo, "apply_post_prep_msa_tree", fake_msa_tree)
+    ctx = SimpleNamespace(
+        post_prep_steps_run={"msa_tree"},
+        source_merge_rows=[
+            {"header": "ncbi|NCBI_X", "taxid": "123"},
+            {"header": "ncbi|NCBI_X", "taxid": "123"},
+        ],
+        out_path=tmp_path / "msa.fasta",
+        post_msa_tree_options={
+            "mode": "auto",
+            "min_taxa": 3,
+            "max_samples": 500,
+            "model": "GTR+G",
+            "bootstrap_replicates": 1000,
+        },
+        msa_tree_stats=None,
+        run_logger=logging.getLogger("taxondbbuilder.test"),
+    )
+    _run_msa_tree_post_prep(ctx)
+    assert seen["taxid_by_header"] == {"ncbi|NCBI_X": "123"}

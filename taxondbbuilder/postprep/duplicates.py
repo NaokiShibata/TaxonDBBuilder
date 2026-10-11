@@ -10,6 +10,7 @@ from typing import Any
 from Bio import SeqIO
 
 from ..headers import compile_header_extractors, extract_header_fields_from_header
+from ..record_index import pair_fasta_with_rows
 
 
 def write_duplicate_acc_reports_csv(
@@ -206,50 +207,37 @@ def _collect_acc_organism_mapping(
     fasta_path: Path,
     emitted_records: list[dict[str, str]],
 ) -> tuple[list[dict[str, str]], dict[str, int]]:
-    records_by_header: dict[str, list[dict[str, str]]] = {}
-    for row in emitted_records:
-        header = row.get("header", "")
-        records_by_header.setdefault(header, []).append(row)
-
-    offsets: dict[str, int] = {}
-    total_records = 0
+    paired = pair_fasta_with_rows(fasta_path, emitted_records)
+    total_records = len(paired)
     mapped_records = 0
-    unmapped_records = 0
     unique_accessions = set()
     unique_organisms = set()
     mapped_rows: list[dict[str, str]] = []
-    with fasta_path.open("r", encoding="utf-8") as fasta_f:
-        for record in SeqIO.parse(fasta_f, "fasta"):
-            total_records += 1
-            header = str(record.description).strip()
-            rows = records_by_header.get(header)
-            idx = offsets.get(header, 0)
-            if not rows or idx >= len(rows):
-                unmapped_records += 1
-                continue
-            row = rows[idx]
-            offsets[header] = idx + 1
-            mapped_records += 1
-            unique_accessions.add(row["accession"])
-            unique_organisms.add(row["organism_name"])
-            mapped_rows.append(
-                {
-                    "acc_id": row["acc_id"],
-                    "accession": row["accession"],
-                    "organism_name": row["organism_name"],
-                    "organism_taxid": row.get("organism_taxid", ""),
-                    "taxonomy_lineage": row.get("taxonomy_lineage", ""),
-                    "header": header,
-                    "source": row.get("source", ""),
-                    "source_record_id": row.get("source_record_id", ""),
-                    "processid": row.get("processid", ""),
-                    "sampleid": row.get("sampleid", ""),
-                    "marker_key": row.get("marker_key", ""),
-                    "linked_to_ncbi": row.get("linked_to_ncbi", ""),
-                    "emitted_to_fasta": row.get("emitted_to_fasta", ""),
-                    "skip_reason": row.get("skip_reason", ""),
-                }
-            )
+    for record, row in paired:
+        if row is None:
+            continue
+        header = str(record.description).strip()
+        mapped_records += 1
+        unique_accessions.add(row["accession"])
+        unique_organisms.add(row["organism_name"])
+        mapped_rows.append(
+            {
+                "acc_id": row["acc_id"],
+                "accession": row["accession"],
+                "organism_name": row["organism_name"],
+                "organism_taxid": row.get("organism_taxid", ""),
+                "taxonomy_lineage": row.get("taxonomy_lineage", ""),
+                "header": header,
+                "source": row.get("source", ""),
+                "source_record_id": row.get("source_record_id", ""),
+                "processid": row.get("processid", ""),
+                "sampleid": row.get("sampleid", ""),
+                "marker_key": row.get("marker_key", ""),
+                "linked_to_ncbi": row.get("linked_to_ncbi", ""),
+                "emitted_to_fasta": row.get("emitted_to_fasta", ""),
+                "skip_reason": row.get("skip_reason", ""),
+            }
+        )
 
     mapped_rows.sort(
         key=lambda row: (
@@ -260,15 +248,11 @@ def _collect_acc_organism_mapping(
         )
     )
 
-    unused_records = 0
-    for header, rows in records_by_header.items():
-        unused_records += max(0, len(rows) - offsets.get(header, 0))
-
     stats = {
         "total_records": total_records,
         "mapped_records": mapped_records,
-        "unmapped_records": unmapped_records,
-        "unused_records": unused_records,
+        "unmapped_records": sum(1 for _, row in paired if row is None),
+        "unused_records": len(emitted_records) - mapped_records,
         "unique_accessions": len(unique_accessions),
         "unique_organisms": len(unique_organisms),
     }

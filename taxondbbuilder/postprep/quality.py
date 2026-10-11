@@ -9,6 +9,8 @@ from typing import Any
 
 from Bio import SeqIO
 
+from ..record_index import pair_fasta_with_rows
+
 IUPAC_DNA_ALPHABET = set("ACGTRYSWKMBDHVN")
 
 
@@ -16,22 +18,15 @@ def _annotated_rows(
     fasta_path: Path, emitted_records: list[dict[str, str]]
 ) -> list[dict[str, Any]]:
     """Pair each FASTA record with the emitted row that produced its header."""
-    organisms: dict[str, list[str]] = defaultdict(list)
-    for row in emitted_records:
-        organisms[row.get("header", "")].append(row.get("organism_name", ""))
-    offsets: dict[str, int] = defaultdict(int)
     rows: list[dict[str, Any]] = []
-    for record in SeqIO.parse(fasta_path, "fasta"):
+    for record, row in pair_fasta_with_rows(fasta_path, emitted_records):
         header = str(record.description).strip()
-        index = offsets[header]
-        offsets[header] += 1
-        names = organisms.get(header, [])
         sequence = str(record.seq).upper()
         rows.append(
             {
                 "record": record,
                 "header": header,
-                "organism_name": names[index] if index < len(names) else "",
+                "organism_name": row.get("organism_name", "") if row else "",
                 "sequence": sequence,
                 "ambiguous_fraction": (
                     sum(base not in "ACGT" for base in sequence) / len(sequence)
