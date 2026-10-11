@@ -192,51 +192,60 @@ def _find_values_by_key(payload: Any, normalized_targets: Iterable[str]) -> list
     return found
 
 
+def _as_scalar_text(value: Any) -> str | None:
+    if isinstance(value, str) and value.strip():
+        return value.strip()
+    if isinstance(value, (int, float)):
+        return str(value)
+    return None
+
+
 def _first_scalar(payload: Any, keys: Iterable[str]) -> str | None:
     normalized_targets = [_normalized_key(key) for key in keys]
     for value in _find_values_by_key(payload, normalized_targets):
-        if isinstance(value, str) and value.strip():
-            return value.strip()
-        if isinstance(value, (int, float)):
-            return str(value)
+        text = _as_scalar_text(value)
+        if text:
+            return text
         if isinstance(value, list):
             for item in value:
-                if isinstance(item, str) and item.strip():
-                    return item.strip()
-                if isinstance(item, (int, float)):
-                    return str(item)
+                text = _as_scalar_text(item)
+                if text:
+                    return text
+    return None
+
+
+def _successful_term_text(term: Any) -> str | None:
+    """One preprocessor term as query text.
+
+    A term with only scope and value has no field part, and an empty pair still
+    renders as ":"; callers filter the empties out.
+    """
+    if isinstance(term, str):
+        return term.strip()
+    if not isinstance(term, dict):
+        return None
+    matched = term.get("matched")
+    if isinstance(matched, str) and matched.strip():
+        return matched.strip()
+    scope = term.get("scope")
+    field = term.get("field")
+    value = term.get("value")
+    if isinstance(scope, str) and isinstance(value, str):
+        if isinstance(field, str) and field.strip():
+            return f"{scope}:{field}:{value}"
+        return f"{scope}:{value}"
     return None
 
 
 def _extract_successful_terms(preprocess_payload: Any) -> list[str]:
-    if isinstance(preprocess_payload, dict):
-        successful_terms = preprocess_payload.get("successful_terms")
-    else:
-        successful_terms = None
-
+    successful_terms = (
+        preprocess_payload.get("successful_terms")
+        if isinstance(preprocess_payload, dict)
+        else None
+    )
     if not isinstance(successful_terms, list):
         return []
-
-    terms: list[str] = []
-    for term in successful_terms:
-        if isinstance(term, str) and term.strip():
-            terms.append(term.strip())
-            continue
-        if not isinstance(term, dict):
-            continue
-        matched = term.get("matched")
-        if isinstance(matched, str) and matched.strip():
-            terms.append(matched.strip())
-            continue
-        scope = term.get("scope")
-        field = term.get("field")
-        value = term.get("value")
-        if isinstance(scope, str) and isinstance(value, str):
-            if isinstance(field, str) and field.strip():
-                terms.append(f"{scope}:{field}:{value}")
-            else:
-                terms.append(f"{scope}:{value}")
-    return [term for term in terms if term]
+    return [term for term in map(_successful_term_text, successful_terms) if term]
 
 
 def preprocess_query(query: str, runtime_cfg: dict[str, Any]) -> tuple[str, Any]:
@@ -327,14 +336,7 @@ def prepare_bold_query(
     )
 
 
-def download_documents_to_path(
-    query_id: str,
-    runtime_cfg: dict[str, Any],
-    dest_path: Path,
-    fmt: str | None = None,
-    progress_callback: Any | None = None,
-) -> dict[str, Any]:
-    encoded_query_id = quote(query_id, safe="")
+def _download_format_name(fmt: str | None, runtime_cfg: dict[str, Any]) -> str:
     format_name = (
         str(fmt or runtime_cfg.get("download_format") or DEFAULT_DOWNLOAD_FORMAT)
         .strip()
@@ -342,23 +344,78 @@ def download_documents_to_path(
     )
     if format_name not in {"json", "tsv"}:
         raise BoldApiError(f"Unsupported BOLD download format: {format_name}")
-    url = _build_url(
-        runtime_cfg["base_url"],
-        f"/documents/{encoded_query_id}/download",
-        {"format": format_name},
-    )
+    return format_name
 
-    retries = int(runtime_cfg["retries"])
-    timeout_sec = float(runtime_cfg["timeout_sec"])
-    backoff_sec = float(runtime_cfg["backoff_sec"])
-    chunk_size = int(runtime_cfg["download_chunk_size"])
-    headers = {
+
+def _download_headers(format_name: str, runtime_cfg: dict[str, Any]) -> dict[str, str]:
+    return {
         "Accept": "application/json"
         if format_name == "json"
         else "text/tab-separated-values",
         "Accept-Encoding": "gzip",
         "User-Agent": str(runtime_cfg["user_agent"]),
     }
+
+
+def _stream_download_to_file(
+    response: Any, part_path: Path, runtime_cfg: dict[str, Any], progress_callback: Any | None
+) -> tuple[int, int | None]:
+    """Write one response body to part_path, inflating a gzip transfer.
+
+    content_length is the transferred (possibly compressed) size, so progress
+    can exceed 100% once the body is inflated.
+    """
+    header = response.headers.get("Content-Length")
+    try:
+        content_length = int(header) if header else None
+    except ValueError:
+        content_length = None
+
+    raw_stream = response
+    if "gzip" in response.headers.get("Content-Encoding", "").lower():
+        raw_stream = gzip.GzipFile(fileobj=response)
+
+    chunk_size = int(runtime_cfg["download_chunk_size"])
+    downloaded_bytes = 0
+    with part_path.open("wb") as out_f:
+        while True:
+            chunk = raw_stream.read(chunk_size)
+            if not chunk:
+                break
+            out_f.write(chunk)
+            downloaded_bytes += len(chunk)
+            if progress_callback:
+                progress_callback(downloaded_bytes, content_length)
+    return downloaded_bytes, content_length
+
+
+def _download_failure(exc: Exception) -> BoldApiError:
+    # HTTPError subclasses URLError, so it has to be tested first.
+    if isinstance(exc, HTTPError):
+        return BoldApiError(f"BOLD HTTP error {exc.code}: {exc.reason}")
+    if isinstance(exc, URLError):
+        return BoldApiError(f"BOLD network error: {exc.reason}")
+    return BoldApiError(f"BOLD download error: {exc}")
+
+
+def download_documents_to_path(
+    query_id: str,
+    runtime_cfg: dict[str, Any],
+    dest_path: Path,
+    fmt: str | None = None,
+    progress_callback: Any | None = None,
+) -> dict[str, Any]:
+    format_name = _download_format_name(fmt, runtime_cfg)
+    url = _build_url(
+        runtime_cfg["base_url"],
+        f"/documents/{quote(query_id, safe='')}/download",
+        {"format": format_name},
+    )
+
+    retries = int(runtime_cfg["retries"])
+    timeout_sec = float(runtime_cfg["timeout_sec"])
+    backoff_sec = float(runtime_cfg["backoff_sec"])
+    headers = _download_headers(format_name, runtime_cfg)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     for attempt in range(retries + 1):
@@ -366,44 +423,19 @@ def download_documents_to_path(
         request = Request(url, headers=headers, method="GET")
         try:
             with urlopen(request, timeout=timeout_sec) as response:
-                content_length_header = response.headers.get("Content-Length")
-                try:
-                    content_length = (
-                        int(content_length_header) if content_length_header else None
-                    )
-                except ValueError:
-                    content_length = None
-                encoding = response.headers.get("Content-Encoding", "")
-                raw_stream = response
-                if "gzip" in encoding.lower():
-                    raw_stream = gzip.GzipFile(fileobj=response)
-
-                downloaded_bytes = 0
-                with part_path.open("wb") as out_f:
-                    while True:
-                        chunk = raw_stream.read(chunk_size)
-                        if not chunk:
-                            break
-                        out_f.write(chunk)
-                        downloaded_bytes += len(chunk)
-                        if progress_callback:
-                            progress_callback(downloaded_bytes, content_length)
-                part_path.replace(dest_path)
-                return {
-                    "path": str(dest_path),
-                    "format": format_name,
-                    "downloaded_bytes": downloaded_bytes,
-                    "content_length": content_length,
-                }
-        except HTTPError as exc:
+                downloaded_bytes, content_length = _stream_download_to_file(
+                    response, part_path, runtime_cfg, progress_callback
+                )
+            part_path.replace(dest_path)
+            return {
+                "path": str(dest_path),
+                "format": format_name,
+                "downloaded_bytes": downloaded_bytes,
+                "content_length": content_length,
+            }
+        except (HTTPError, URLError, OSError) as exc:
             if attempt >= retries:
-                raise BoldApiError(f"BOLD HTTP error {exc.code}: {exc.reason}") from exc
-        except URLError as exc:
-            if attempt >= retries:
-                raise BoldApiError(f"BOLD network error: {exc.reason}") from exc
-        except OSError as exc:
-            if attempt >= retries:
-                raise BoldApiError(f"BOLD download error: {exc}") from exc
+                raise _download_failure(exc) from exc
         finally:
             if part_path.exists():
                 part_path.unlink(missing_ok=True)
@@ -414,32 +446,39 @@ def download_documents_to_path(
     raise BoldApiError("BOLD document download failed after retries.")
 
 
+def _normalized_tsv_fieldnames(reader: csv.DictReader) -> None:
+    if reader.fieldnames:
+        reader.fieldnames = [
+            name.lstrip("\ufeff").strip() if isinstance(name, str) else name
+            for name in reader.fieldnames
+        ]
+
+
+def _cleaned_tsv_row(row: dict) -> dict[str, Any] | None:
+    """One TSV row without unnamed columns; None when every cell is blank."""
+    cleaned: dict[str, Any] = {}
+    has_value = False
+    for key, value in row.items():
+        key_text = str(key).strip() if key is not None else ""
+        if not key_text:
+            continue
+        cleaned[key_text] = value
+        if isinstance(value, str):
+            has_value = has_value or bool(value.strip())
+        elif value is not None:
+            has_value = True
+    return cleaned if has_value else None
+
+
 def iter_tsv_document_rows(path: Path) -> Iterable[dict[str, Any]]:
     with path.open("r", encoding="utf-8", errors="replace", newline="") as in_f:
         reader = csv.DictReader(in_f, delimiter="\t")
-        if reader.fieldnames:
-            reader.fieldnames = [
-                name.lstrip("\ufeff").strip() if isinstance(name, str) else name
-                for name in reader.fieldnames
-            ]
+        _normalized_tsv_fieldnames(reader)
         for row in reader:
             if not row:
                 continue
-            cleaned: dict[str, Any] = {}
-            has_value = False
-            for key, value in row.items():
-                key_text = str(key).strip() if key is not None else ""
-                if not key_text:
-                    continue
-                if isinstance(value, str):
-                    cleaned[key_text] = value
-                    if value.strip():
-                        has_value = True
-                else:
-                    cleaned[key_text] = value
-                    if value is not None:
-                        has_value = True
-            if has_value:
+            cleaned = _cleaned_tsv_row(row)
+            if cleaned is not None:
                 yield cleaned
 
 
@@ -461,18 +500,27 @@ def iter_document_rows_from_path(path: Path, fmt: str) -> Iterable[dict[str, Any
     raise BoldApiError(f"Unsupported BOLD row iteration format: {fmt}")
 
 
+DOCUMENT_LIST_KEYS = ("documents", "records", "items", "data", "results")
+SINGLE_DOCUMENT_KEYS = ("processid", "sampleid", "marker_code", "nucleotides")
+
+
+def _only_dicts(values: Iterable[Any]) -> list[dict[str, Any]]:
+    return [row for row in values if isinstance(row, dict)]
+
+
+def _is_single_document(payload: dict[str, Any]) -> bool:
+    return any(_first_scalar(payload, [key]) for key in SINGLE_DOCUMENT_KEYS)
+
+
 def extract_document_rows(documents_payload: Any) -> list[dict[str, Any]]:
     if isinstance(documents_payload, list):
-        return [row for row in documents_payload if isinstance(row, dict)]
+        return _only_dicts(documents_payload)
     if isinstance(documents_payload, dict):
-        for key in ("documents", "records", "items", "data", "results"):
+        for key in DOCUMENT_LIST_KEYS:
             value = documents_payload.get(key)
             if isinstance(value, list):
-                return [row for row in value if isinstance(row, dict)]
-        if any(
-            _first_scalar(documents_payload, [key])
-            for key in ("processid", "sampleid", "marker_code", "nucleotides")
-        ):
+                return _only_dicts(value)
+        if _is_single_document(documents_payload):
             return [documents_payload]
     return []
 
@@ -510,6 +558,19 @@ def _marker_matches(marker_text: str, candidate: str, exact_only: bool) -> bool:
     )
 
 
+def _marker_candidates(
+    marker_key: str, marker_cfg: dict[str, Any], strategy: str
+) -> tuple[list[Any], bool]:
+    """The names one strategy offers for one marker, and whether they are exact."""
+    if strategy == "marker_codes":
+        return list((marker_cfg.get("bold") or {}).get("marker_codes") or []), True
+    if strategy == "aliases":
+        return list(marker_cfg.get("aliases") or []), False
+    if strategy == "phrases":
+        return list(marker_cfg.get("phrases") or []), False
+    return [marker_key], False
+
+
 def resolve_marker_from_record(
     marker_text: str | None,
     marker_keys: list[str],
@@ -518,24 +579,11 @@ def resolve_marker_from_record(
     if not marker_text:
         return None
 
-    strategies = ("marker_codes", "aliases", "phrases", "key")
-    for strategy in strategies:
+    for strategy in ("marker_codes", "aliases", "phrases", "key"):
         for marker_key in marker_keys:
-            marker_cfg = marker_map.get(marker_key, {})
-            if strategy == "marker_codes":
-                candidates = list(
-                    (marker_cfg.get("bold") or {}).get("marker_codes") or []
-                )
-                exact_only = True
-            elif strategy == "aliases":
-                candidates = list(marker_cfg.get("aliases") or [])
-                exact_only = False
-            elif strategy == "phrases":
-                candidates = list(marker_cfg.get("phrases") or [])
-                exact_only = False
-            else:
-                candidates = [marker_key]
-                exact_only = False
+            candidates, exact_only = _marker_candidates(
+                marker_key, marker_map.get(marker_key, {}), strategy
+            )
             for candidate in candidates:
                 if not isinstance(candidate, str) or not candidate.strip():
                     continue
