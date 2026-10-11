@@ -2,6 +2,7 @@
 
 import csv
 import json
+from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
 from enum import Enum
 from pathlib import Path
@@ -185,3 +186,60 @@ def write_source_merge_csv(fasta_path: Path, rows: list[dict[str, str]]) -> Path
         writer.writeheader()
         writer.writerows(sorted_rows)
     return merge_path
+
+
+@dataclass
+class ExtractionSink:
+    """Shared, lock-guarded accumulation of extraction results.
+
+    NCBI extraction runs on worker threads while BOLD spooling runs on the main
+    thread, and both update the same counters and accession index. Every
+    mutation goes through this object so neither side has to carry the four
+    mutable containers and the lock down its own call chain.
+    """
+
+    counters: dict[str, int] = field(
+        default_factory=lambda: {
+            "total_records": 0,
+            "matched_records": 0,
+            "matched_features": 0,
+            "kept_records": 0,
+            "skipped_same": 0,
+            "duplicated_diff": 0,
+        }
+    )
+    acc_to_seqs: dict[str, set[str]] = field(default_factory=dict)
+    dup_accessions: dict[str, int] = field(default_factory=dict)
+    lock: Lock = field(default_factory=Lock)
+
+    def bump(self, *keys: str) -> None:
+        with self.lock:
+            for key in keys:
+                self.counters[key] += 1
+
+    def bump_optional(self, key: str) -> None:
+        """Count a key that may not exist yet, such as a region fallback status."""
+        with self.lock:
+            self.counters[key] = self.counters.get(key, 0) + 1
+
+    def add_feature(
+        self, acc: str, sequence: str, build: Callable[[int | None], Any]
+    ) -> Any:
+        """Register one matched feature and return its record, or None if deduplicated.
+
+        The record is built inside the lock because its duplicate index comes
+        from the accession index being updated.
+        """
+        with self.lock:
+            self.counters["matched_features"] += 1
+            seqs = self.acc_to_seqs.setdefault(acc, set())
+            if sequence in seqs:
+                self.counters["skipped_same"] += 1
+                return None
+            dup_index = None
+            if seqs:
+                dup_index = len(seqs) + 1
+                self.counters["duplicated_diff"] += 1
+                self.dup_accessions[acc] = self.dup_accessions.get(acc, 1) + 1
+            seqs.add(sequence)
+            return build(dup_index)

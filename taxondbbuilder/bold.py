@@ -22,6 +22,7 @@ from .models import (
     DEFAULT_BOLD_HEADER_FORMAT,
     BuildSource,
     CanonicalRecord,
+    ExtractionSink,
     ResolvedTaxon,
     append_records_to_spool,
     build_source_merge_row,
@@ -142,7 +143,7 @@ def process_bold_taxon_to_spool(
     progress: Progress,
     bold_spool_f,
     lock: Lock,
-    counters: dict[str, int],
+    sink: ExtractionSink,
     source_merge_rows: list[dict[str, str]],
     ncbi_accessions: set,
     spool_dir: Path,
@@ -214,7 +215,7 @@ def process_bold_taxon_to_spool(
             download_path, prepared_query.download_format
         ):
             downloaded_rows += 1
-            counters["total_records"] += 1
+            sink.bump("total_records")
             if specimen_count is not None and downloaded_rows > specimen_count:
                 progress.update(task_id, total=downloaded_rows)
             progress.update(task_id, advance=1)
@@ -223,8 +224,7 @@ def process_bold_taxon_to_spool(
 
             if normalized:
                 matched_rows += 1
-                counters["matched_records"] += 1
-                counters["matched_features"] += 1
+                sink.bump("matched_records", "matched_features")
 
             if downloaded_rows % filter_report_interval == 0:
                 run_logger.info(

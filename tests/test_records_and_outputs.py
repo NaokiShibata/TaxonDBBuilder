@@ -117,25 +117,21 @@ def test_extract_ncbi_records_from_minimal_genbank_fixture(
             "matched_records",
         )
     }
-    acc_to_seqs = {}
-    dup_accessions = {}
+    sink = builder.ExtractionSink(counters=counters)
     progress = Progress()
     task_id = progress.add_task("fixture", total=2)
     records = builder.extract_ncbi_records_from_genbank_chunk(
         (fixture_dir / "sample.gb").read_text(encoding="utf-8"),
         rules,
-        acc_to_seqs,
-        counters,
-        dup_accessions,
-        Lock(),
+        sink,
         progress,
         task_id,
         "999",
         None,
     )
     actual = {
-        "counters": counters,
-        "duplicates": dup_accessions,
+        "counters": sink.counters,
+        "duplicates": sink.dup_accessions,
         "records": [builder.canonical_record_to_dict(r) for r in records],
     }
     assert json_text(actual) == read_golden(golden_dir, "genbank-records.json")
@@ -384,3 +380,26 @@ def test_run_manifest_records_queries_and_output_hashes(tmp_path: Path) -> None:
     assert payload["outputs"][0]["sha256"] == (
         "2b0cb032faef8581ff7c3bc62ead49b29ca475bff579322d17c23088f1369c7d"
     )
+
+
+def test_extraction_sink_dedups_and_indexes_per_accession():
+    import taxondbbuilder as builder
+
+    sink = builder.ExtractionSink()
+    first = sink.add_feature("A1", "ACGT", lambda idx: f"rec-{idx}")
+    duplicate = sink.add_feature("A1", "ACGT", lambda idx: f"rec-{idx}")
+    differing = sink.add_feature("A1", "ACGA", lambda idx: f"rec-{idx}")
+
+    assert first == "rec-None"
+    assert duplicate is None
+    assert differing == "rec-2"
+    assert sink.counters["matched_features"] == 3
+    assert sink.counters["skipped_same"] == 1
+    assert sink.counters["duplicated_diff"] == 1
+    assert sink.dup_accessions == {"A1": 2}
+
+    sink.bump("total_records", "matched_records")
+    sink.bump_optional("fallback_inferred")
+    assert sink.counters["total_records"] == 1
+    assert sink.counters["matched_records"] == 1
+    assert sink.counters["fallback_inferred"] == 1

@@ -53,6 +53,7 @@ from .models import (
     PRIMER_TRIM_MODE_ONE_OR_BOTH,
     BuildSource,
     ExportFormat,
+    ExtractionSink,
     PostPrepStep,
     ResolvedTaxon,
     append_records_to_spool,
@@ -144,6 +145,14 @@ class _BuildContext:
     )
     acc_to_seqs: dict[str, set] = field(default_factory=dict)
     dup_accessions: dict[str, int] = field(default_factory=dict)
+    sink: ExtractionSink | None = None
+
+    def __post_init__(self) -> None:
+        # One sink over the shared counters and accession index, so NCBI workers
+        # and the BOLD loop mutate them the same way.
+        self.sink = ExtractionSink(
+            self.counters, self.acc_to_seqs, self.dup_accessions, self.lock
+        )
     emitted_records: list[dict[str, str]] = field(default_factory=list)
     source_merge_rows: list[dict[str, str]] = field(default_factory=list)
     progress: Progress | None = None
@@ -379,10 +388,7 @@ def _process_ncbi_chunks(
                 records = extract_ncbi_records_from_genbank_chunk(
                     chunk,
                     ctx.marker_rules,
-                    ctx.acc_to_seqs,
-                    ctx.counters,
-                    ctx.dup_accessions,
-                    ctx.lock,
+                    ctx.sink,
                     ctx.progress,
                     task_id,
                     taxid,
@@ -500,7 +506,7 @@ def _run_bold_stage(
                 ctx.progress,
                 spool_f,
                 ctx.lock,
-                ctx.counters,
+                ctx.sink,
                 ctx.source_merge_rows,
                 ncbi_accessions,
                 spool_dir,

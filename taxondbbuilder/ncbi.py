@@ -23,7 +23,13 @@ from rich.progress import Progress
 from .console import console
 from .headers import sanitize_header
 from .mitogenome import identify_region, resolve_regions
-from .models import DEFAULT_HEADER_FORMAT, BuildSource, CanonicalRecord, ResolvedTaxon
+from .models import (
+    DEFAULT_HEADER_FORMAT,
+    BuildSource,
+    CanonicalRecord,
+    ExtractionSink,
+    ResolvedTaxon,
+)
 
 
 @dataclass
@@ -190,40 +196,27 @@ def _append_ncbi_feature_record(
     organism_safe: str,
     matched: _MatchedNCBIFeature,
     source: BuildSource,
-    acc_to_seqs: dict[str, set],
-    counters: dict[str, int],
-    dup_accessions: dict[str, int],
-    lock: Lock,
-    extracted_records: list[CanonicalRecord],
+    sink: ExtractionSink,
     taxid: str,
     organism_taxid: str | None,
     taxonomy_lineage: list[str],
-) -> None:
-    with lock:
-        counters["matched_features"] += 1
-        seqs = acc_to_seqs.setdefault(acc, set())
-        if matched.sequence in seqs:
-            counters["skipped_same"] += 1
-            return
-        dup_index = None
-        if seqs:
-            dup_index = len(seqs) + 1
-            counters["duplicated_diff"] += 1
-            dup_accessions[acc] = dup_accessions.get(acc, 1) + 1
-        seqs.add(matched.sequence)
-        extracted_records.append(
-            _build_ncbi_canonical_record(
-                acc,
-                organism,
-                organism_safe,
-                matched,
-                dup_index,
-                source,
-                taxid,
-                organism_taxid,
-                taxonomy_lineage,
-            )
-        )
+) -> CanonicalRecord | None:
+    """Register one matched feature; None means the sequence was an exact duplicate."""
+    return sink.add_feature(
+        acc,
+        matched.sequence,
+        lambda dup_index: _build_ncbi_canonical_record(
+            acc,
+            organism,
+            organism_safe,
+            matched,
+            dup_index,
+            source,
+            taxid,
+            organism_taxid,
+            taxonomy_lineage,
+        ),
+    )
 
 
 def _mitogenome_owners(marker_rules: list[dict]) -> dict[str, dict]:
@@ -379,14 +372,11 @@ def _log_region_events(
     events: list[dict[str, str]],
     owners: dict[str, dict],
     acc: str,
-    lock: Lock,
-    counters: dict[str, int],
+    sink: ExtractionSink,
     run_logger,
 ) -> None:
     for event in events:
-        with lock:
-            key = "fallback_" + event["status"]
-            counters[key] = counters.get(key, 0) + 1
+        sink.bump_optional("fallback_" + event["status"])
         if run_logger:
             run_logger.info("# region_fallback accession=%s marker=%s %s", acc,
                             owners[event["region_id"]]["key"],
@@ -396,10 +386,7 @@ def _log_region_events(
 def _extract_ncbi_record(
     record: Any,
     marker_rules: list[dict],
-    acc_to_seqs: dict[str, set],
-    counters: dict[str, int],
-    dup_accessions: dict[str, int],
-    lock: Lock,
+    sink: ExtractionSink,
     taxid: str,
     dump_gb_dir: Path | None,
     source: BuildSource,
@@ -411,7 +398,7 @@ def _extract_ncbi_record(
     organism = str(record.annotations.get("organism", "unknown"))
     organism_safe = sanitize_header(organism)
     organism_taxid, taxonomy_lineage = _record_taxonomy(record)
-    _dump_genbank_record(record, acc, taxid, dump_gb_dir, lock)
+    _dump_genbank_record(record, acc, taxid, dump_gb_dir, sink.lock)
     extracted_records: list[CanonicalRecord] = []
     record_matched = False
     # Assign features in rule order. Enabled rules use exact biological identities.
@@ -428,41 +415,34 @@ def _extract_ncbi_record(
         _repaired_feature_matches(record, repaired, owners, feature_positions, region_positions)
     )
     matches.sort(key=lambda entry: entry[0])
-    _log_region_events(events, owners, acc, lock, counters, run_logger)
+    _log_region_events(events, owners, acc, sink, run_logger)
     for _, matched in matches:
         record_matched = True
-        before = len(extracted_records)
-        _append_ncbi_feature_record(
+        extracted = _append_ncbi_feature_record(
             acc,
             organism,
             organism_safe,
             matched,
             source,
-            acc_to_seqs,
-            counters,
-            dup_accessions,
-            lock,
-            extracted_records,
+            sink,
             taxid,
             organism_taxid,
             taxonomy_lineage,
         )
-        if matched.provenance and len(extracted_records) == before and run_logger:
+        if extracted is not None:
+            extracted_records.append(extracted)
+        elif matched.provenance and run_logger:
             run_logger.info("# region_fallback accession=%s region_id=%s status=deduplicated",
                             acc, matched.provenance["region_id"])
     if record_matched:
-        with lock:
-            counters["matched_records"] += 1
+        sink.bump("matched_records")
     return extracted_records
 
 
 def extract_ncbi_records_from_genbank_chunk(
     chunk: str,
     marker_rules: list[dict],
-    acc_to_seqs: dict[str, set],
-    counters: dict[str, int],
-    dup_accessions: dict[str, int],
-    lock: Lock,
+    sink: ExtractionSink,
     progress: Progress,
     task_id: int,
     taxid: str,
@@ -473,17 +453,13 @@ def extract_ncbi_records_from_genbank_chunk(
     extracted_records: list[CanonicalRecord] = []
     handle = io.StringIO(chunk)
     for record in SeqIO.parse(handle, "genbank"):
-        with lock:
-            counters["total_records"] += 1
+        sink.bump("total_records")
         progress.update(task_id, advance=1)
         extracted_records.extend(
             _extract_ncbi_record(
                 record,
                 marker_rules,
-                acc_to_seqs,
-                counters,
-                dup_accessions,
-                lock,
+                sink,
                 taxid,
                 dump_gb_dir,
                 source,

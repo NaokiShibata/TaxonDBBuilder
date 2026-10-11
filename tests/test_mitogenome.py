@@ -22,6 +22,7 @@ from taxondbbuilder.mitogenome import (
 )
 from taxondbbuilder.models import canonical_record_from_dict, canonical_record_to_dict
 from taxondbbuilder.ncbi import extract_ncbi_records_from_genbank_chunk
+from taxondbbuilder.models import ExtractionSink
 
 
 def feature(region, start, end, strand=None, **qualifiers):
@@ -62,9 +63,10 @@ def extract(rec, rules):
     logger = logging.Logger("test-fallback")
     logger.addHandler(logging.StreamHandler(log))
     progress = Progress(disable=True)
-    records = extract_ncbi_records_from_genbank_chunk(body.getvalue(), rules, {}, counters, {}, Lock(),
+    sink = ExtractionSink(counters=counters)
+    records = extract_ncbi_records_from_genbank_chunk(body.getvalue(), rules, sink,
                                                      progress, progress.add_task("test"), "1", None, run_logger=logger)
-    return records, log.getvalue(), counters
+    return records, log.getvalue(), sink.counters
 
 
 def test_inferred_dloop_region_and_outputs(tmp_path):
