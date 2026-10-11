@@ -21,7 +21,7 @@ from Bio import Entrez, SeqIO
 from rich.progress import Progress
 
 from .console import console
-from .headers import sanitize_header
+from .headers import header_values, sanitize_header
 from .mitogenome import identify_region, resolve_regions
 from .models import (
     DEFAULT_HEADER_FORMAT,
@@ -147,26 +147,26 @@ def _build_ncbi_canonical_record(
     marker_safe = sanitize_header(matched.marker or "marker")
     type_safe = sanitize_header(matched.feature_type)
     loc = matched.provenance.get("inferred_location") or f"{matched.start}-{matched.end}"
-    header_values = {
-        "acc": acc,
-        "acc_id": acc_id,
-        "db": "gb",
-        "organism": organism_safe,
-        "organism_raw": organism,
-        "marker": marker_safe,
-        "marker_raw": matched.marker,
-        "label": label_safe,
-        "label_raw": matched.label,
-        "type": type_safe,
-        "type_raw": matched.feature_type,
-        "start": str(matched.start),
-        "end": str(matched.end),
-        "loc": loc,
-        "strand": str(matched.strand),
-        "dup": dup_tag,
-        "source": source.value,
-        "source_id": acc,
-    }
+    values = header_values(
+        acc=acc,
+        acc_id=acc_id,
+        db="gb",
+        organism=organism_safe,
+        organism_raw=organism,
+        marker=marker_safe,
+        marker_raw=matched.marker,
+        label=label_safe,
+        label_raw=matched.label,
+        type=type_safe,
+        type_raw=matched.feature_type,
+        start=str(matched.start),
+        end=str(matched.end),
+        loc=loc,
+        strand=str(matched.strand),
+        dup=dup_tag,
+        source=source.value,
+        source_id=acc,
+    )
     return CanonicalRecord(
         source=source.value,
         source_record_id=acc,
@@ -177,7 +177,7 @@ def _build_ncbi_canonical_record(
         marker_key=matched.marker,
         marker_label=matched.label,
         sequence=matched.sequence,
-        header_values=header_values,
+        header_values=values,
         metadata={
             **matched.provenance,
             "organism_name": organism,

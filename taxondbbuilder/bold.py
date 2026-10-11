@@ -17,7 +17,7 @@ from .bold_api import (
     parse_accession_tokens,
 )
 from .console import build_bold_download_description, console
-from .headers import resolve_header_format, sanitize_header
+from .headers import header_values, resolve_header_format, sanitize_header
 from .models import (
     DEFAULT_BOLD_HEADER_FORMAT,
     BuildSource,
@@ -295,26 +295,26 @@ def build_bold_canonical_record(
     marker_label_safe = sanitize_header(marker_label or marker_key)
     organism_safe = sanitize_header(str(taxon_name))
 
-    header_values = {
-        "acc": str(accession or ""),
-        "acc_id": acc_id,
-        "db": "bold",
-        "organism": organism_safe,
-        "organism_raw": str(taxon_name),
-        "marker": marker_safe,
-        "marker_raw": marker_key,
-        "label": marker_label_safe,
-        "label_raw": marker_label,
-        "type": "barcode",
-        "type_raw": "barcode",
-        "start": "",
-        "end": "",
-        "loc": "",
-        "strand": "",
-        "dup": "",
-        "source": BuildSource.BOLD.value,
-        "source_id": source_record_id,
-    }
+    values = header_values(
+        acc=str(accession or ""),
+        acc_id=acc_id,
+        db="bold",
+        organism=organism_safe,
+        organism_raw=str(taxon_name),
+        marker=marker_safe,
+        marker_raw=marker_key,
+        label=marker_label_safe,
+        label_raw=marker_label,
+        type="barcode",
+        type_raw="barcode",
+        start="",
+        end="",
+        loc="",
+        strand="",
+        dup="",
+        source=BuildSource.BOLD.value,
+        source_id=source_record_id,
+    )
     return CanonicalRecord(
         source=BuildSource.BOLD.value,
         source_record_id=source_record_id,
@@ -325,7 +325,7 @@ def build_bold_canonical_record(
         marker_key=marker_key,
         marker_label=marker_label,
         sequence=str(normalized_row["sequence"]),
-        header_values=header_values,
+        header_values=values,
         metadata={
             "header_format": header_format,
             "raw_row_json": json.dumps(

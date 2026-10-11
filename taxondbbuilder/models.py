@@ -85,6 +85,26 @@ PRIMER_TRIM_MODES = {
 }
 
 
+SOURCE_MERGE_COLUMNS = (
+    "source",
+    "source_record_id",
+    "taxid",
+    "organism_taxid",
+    "taxonomy_lineage",
+    "acc_id",
+    "accession",
+    "processid",
+    "sampleid",
+    "organism_name",
+    "marker_key",
+    "marker_label",
+    "linked_to_ncbi",
+    "emitted_to_fasta",
+    "skip_reason",
+    "header",
+)
+
+
 def build_source_merge_row(record: CanonicalRecord, header: str = "") -> dict[str, str]:
     return {
         "source": record.source,
@@ -162,27 +182,7 @@ def write_source_merge_csv(fasta_path: Path, rows: list[dict[str, str]]) -> Path
         ),
     )
     with merge_path.open("w", newline="", encoding="utf-8") as out_f:
-        writer = csv.DictWriter(
-            out_f,
-            fieldnames=[
-                "source",
-                "source_record_id",
-                "taxid",
-                "organism_taxid",
-                "taxonomy_lineage",
-                "acc_id",
-                "accession",
-                "processid",
-                "sampleid",
-                "organism_name",
-                "marker_key",
-                "marker_label",
-                "linked_to_ncbi",
-                "emitted_to_fasta",
-                "skip_reason",
-                "header",
-            ],
-        )
+        writer = csv.DictWriter(out_f, fieldnames=list(SOURCE_MERGE_COLUMNS))
         writer.writeheader()
         writer.writerows(sorted_rows)
     return merge_path

@@ -43,6 +43,45 @@ def build_header(template: str, values: dict[str, str]) -> str:
     return template.format_map(defaultdict(str, values))
 
 
+# The placeholders every header template may use. Both record builders fill all
+# of them, so a template can never read a column one source forgot to set.
+HEADER_VALUE_KEYS = (
+    "acc",
+    "acc_id",
+    "db",
+    "organism",
+    "organism_raw",
+    "marker",
+    "marker_raw",
+    "label",
+    "label_raw",
+    "type",
+    "type_raw",
+    "start",
+    "end",
+    "loc",
+    "strand",
+    "dup",
+    "source",
+    "source_id",
+)
+
+
+def header_values(**values: str) -> dict[str, str]:
+    """Build one record's header value set, ordered and complete.
+
+    build_header maps a missing key to an empty string, so a builder that drops a
+    key would silently emit blank FASTA columns; this raises instead.
+    """
+    missing = [key for key in HEADER_VALUE_KEYS if key not in values]
+    unexpected = [key for key in values if key not in HEADER_VALUE_KEYS]
+    if missing or unexpected:
+        raise KeyError(
+            f"header values mismatch: missing={missing} unexpected={unexpected}"
+        )
+    return {key: values[key] for key in HEADER_VALUE_KEYS}
+
+
 def template_has_field(template: str, field_name: str) -> bool:
     for _, parsed_field, _, _ in FORMATTER.parse(template):
         if parsed_field == field_name:

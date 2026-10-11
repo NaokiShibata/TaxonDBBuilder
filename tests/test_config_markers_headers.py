@@ -187,3 +187,31 @@ def test_disabled_post_prep_skips_invalid_child_settings(tmp_path: Path, enabled
             load_config(path, **kwargs)
     else:
         assert "_primer_forward" not in load_config(path, **kwargs)["post_prep"]
+
+
+def test_header_value_vocabulary_is_shared_and_complete():
+    import taxondbbuilder as builder
+    from taxondbbuilder.headers import HEADER_VALUE_KEYS
+
+    record = builder.build_bold_canonical_record(
+        {
+            "marker_key": "coi",
+            "source_record_id": "PRC1",
+            "accession": "AB1",
+            "processid": "PRC1",
+            "sampleid": "S1",
+            "taxon_name": "Fish species",
+            "marker_label": "COI-5P",
+            "sequence": "ACGT",
+        },
+        {"coi": {}},
+        {},
+    )
+    assert tuple(record.header_values) == HEADER_VALUE_KEYS
+    assert set(builder.build_source_merge_row(record)) == set(
+        builder.SOURCE_MERGE_COLUMNS
+    )
+
+    # A builder that forgets a key fails here instead of emitting a blank column.
+    with pytest.raises(KeyError, match="missing=\\['acc_id'"):
+        builder.header_values(**{key: "" for key in HEADER_VALUE_KEYS if key != "acc_id"})
