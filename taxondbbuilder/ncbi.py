@@ -480,91 +480,78 @@ def match_feature(
     return None
 
 
+def _filter_str_list(filters: dict, name: str) -> list[str]:
+    value = filters.get(name)
+    if value is None:
+        return []
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list) and all(isinstance(v, str) for v in value):
+        return value
+    raise typer.BadParameter(f"filters.{name} must be a string or list of strings.")
+
+
+def _filter_date(filters: dict, name: str) -> str | None:
+    value = filters.get(name)
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (date, datetime)):
+        return value.strftime("%Y/%m/%d")
+    raise typer.BadParameter(f"filters.{name} must be a string or date.")
+
+
+def _length_range_term(filters: dict) -> str | None:
+    length_min = filters.get("sequence_length_min")
+    length_max = filters.get("sequence_length_max")
+    if length_min is None and length_max is None:
+        return None
+    try:
+        lmin = int(length_min) if length_min is not None else 0
+        lmax = int(length_max) if length_max is not None else 1000000000
+    except (TypeError, ValueError) as exc:
+        raise typer.BadParameter(
+            "filters.sequence_length_min/max must be integers."
+        ) from exc
+    return f"{lmin}[SLEN] : {lmax}[SLEN]"
+
+
+def _date_range_term(filters: dict, key: str, tag: str) -> str | None:
+    """One date facet; an open bound keeps the widest searchable range."""
+    date_from = _filter_date(filters, f"{key}_from")
+    date_to = _filter_date(filters, f"{key}_to")
+    if not date_from and not date_to:
+        return None
+    return f"{date_from or '1800/01/01'}[{tag}] : {date_to or '3000/12/31'}[{tag}]"
+
+
+def _keyword_term(filters: dict, name: str, negate: bool) -> str | None:
+    keywords = _filter_str_list(filters, name)
+    if not keywords:
+        return None
+    joined = " OR ".join(f'"{keyword}"[All Fields]' for keyword in keywords)
+    return f"NOT ({joined})" if negate else f"({joined})"
+
+
 def build_filter_terms(filters: dict) -> list[str]:
-    def as_str_list(value: object, name: str) -> list[str]:
-        if value is None:
-            return []
-        if isinstance(value, str):
-            return [value]
-        if isinstance(value, list) and all(isinstance(v, str) for v in value):
-            return value
-        raise typer.BadParameter(f"filters.{name} must be a string or list of strings.")
-
-    def as_date_str(value: object, name: str) -> str | None:
-        if value is None:
-            return None
-        if isinstance(value, str):
-            return value
-        if isinstance(value, (date, datetime)):
-            return value.strftime("%Y/%m/%d")
-        raise typer.BadParameter(f"filters.{name} must be a string or date.")
-
     terms: list[str] = []
     if filters is None:
         return terms
     if not isinstance(filters, dict):
         raise typer.BadParameter("[filters] must be a table (dict).")
-    if not filters:
-        return terms
-
-    filters_list = as_str_list(filters.get("filter"), "filter")
-    for value in filters_list:
-        terms.append(f"{value}[filter]")
-
-    properties_list = as_str_list(filters.get("properties"), "properties")
-    for value in properties_list:
-        terms.append(f"{value}[prop]")
-
-    length_min = filters.get("sequence_length_min")
-    length_max = filters.get("sequence_length_max")
-    if length_min is not None or length_max is not None:
-        try:
-            lmin = int(length_min) if length_min is not None else 0
-            lmax = int(length_max) if length_max is not None else 1000000000
-        except (TypeError, ValueError) as exc:
-            raise typer.BadParameter(
-                "filters.sequence_length_min/max must be integers."
-            ) from exc
-        terms.append(f"{lmin}[SLEN] : {lmax}[SLEN]")
-
-    date_from = as_date_str(
-        filters.get("publication_date_from"), "publication_date_from"
-    )
-    date_to = as_date_str(filters.get("publication_date_to"), "publication_date_to")
-    if date_from or date_to:
-        dfrom = date_from or "1800/01/01"
-        dto = date_to or "3000/12/31"
-        terms.append(f"{dfrom}[PDAT] : {dto}[PDAT]")
-
-    date_from = as_date_str(
-        filters.get("modification_date_from"), "modification_date_from"
-    )
-    date_to = as_date_str(filters.get("modification_date_to"), "modification_date_to")
-    if date_from or date_to:
-        dfrom = date_from or "1800/01/01"
-        dto = date_to or "3000/12/31"
-        terms.append(f"{dfrom}[MDAT] : {dto}[MDAT]")
-
-    include_keywords = as_str_list(
-        filters.get("all_fields_include"), "all_fields_include"
-    )
-    if include_keywords:
-        inc = [f'"{k}"[All Fields]' for k in include_keywords]
-        terms.append("(" + " OR ".join(inc) + ")")
-
-    exclude_keywords = as_str_list(
-        filters.get("all_fields_exclude"), "all_fields_exclude"
-    )
-    if exclude_keywords:
-        exc = [f'"{k}"[All Fields]' for k in exclude_keywords]
-        terms.append("NOT (" + " OR ".join(exc) + ")")
-
-    raw = filters.get("raw")
-    if raw is not None:
-        raw_terms = as_str_list(raw, "raw")
-        for term in raw_terms:
-            terms.append(str(term))
-
+    terms += [f"{value}[filter]" for value in _filter_str_list(filters, "filter")]
+    terms += [f"{value}[prop]" for value in _filter_str_list(filters, "properties")]
+    for term in (
+        _length_range_term(filters),
+        _date_range_term(filters, "publication_date", "PDAT"),
+        _date_range_term(filters, "modification_date", "MDAT"),
+        _keyword_term(filters, "all_fields_include", False),
+        _keyword_term(filters, "all_fields_exclude", True),
+    ):
+        if term:
+            terms.append(term)
+    terms += [str(term) for term in _filter_str_list(filters, "raw")]
     return terms
 
 

@@ -352,6 +352,48 @@ def _normalize_post_prep_config(post_prep: Any, path: Path) -> None:
     )
 
 
+def _resolve_markers(markers_section: object, config_path: Path) -> dict[str, dict]:
+    """Merge inline [markers] tables with the tables loaded from [markers].file."""
+    markers_file = None
+    if isinstance(markers_section, dict):
+        if "markers_file" in markers_section:
+            raise typer.BadParameter(
+                "Use [markers].file instead of [markers].markers_file."
+            )
+        if "file" in markers_section:
+            markers_file = markers_section.get("file")
+            if not isinstance(markers_file, str):
+                raise typer.BadParameter("markers.file must be a string path.")
+
+    if markers_section is None:
+        markers_section = {}
+    if not isinstance(markers_section, dict):
+        raise typer.BadParameter("[markers] must be a table (dict).")
+    inline_markers: dict[str, dict] = {}
+    for key, value in markers_section.items():
+        if key in ("file", "markers_file"):
+            continue
+        if not isinstance(value, dict):
+            raise typer.BadParameter(f"markers.{key} must be a table (dict).")
+        inline_markers[key] = value
+
+    markers_from_file: dict[str, dict] = {}
+    if markers_file:
+        markers_path = resolve_support_file_path(markers_file, config_path, "Markers file")
+        with markers_path.open("rb") as f:
+            markers_data = tomllib.load(f)
+        markers_from_file = markers_data.get("markers")
+        if not isinstance(markers_from_file, dict) or not markers_from_file:
+            raise typer.BadParameter(
+                "Markers file must define a non-empty [markers] section."
+            )
+
+    merged: dict[str, dict] = {}
+    merged.update(markers_from_file)
+    merged.update(inline_markers)
+    return merged
+
+
 def load_config(
     path: Path, source: BuildSource = BuildSource.NCBI, *, post_prep: bool = False
 ) -> dict:
@@ -365,48 +407,9 @@ def load_config(
             "markers_file must be defined under [markers].file (top-level is not supported)."
         )
 
-    markers_file = None
-    markers_section = data.get("markers")
-    if isinstance(markers_section, dict):
-        if "markers_file" in markers_section:
-            raise typer.BadParameter(
-                "Use [markers].file instead of [markers].markers_file."
-            )
-        if "file" in markers_section:
-            markers_file = markers_section.get("file")
-            if not isinstance(markers_file, str):
-                raise typer.BadParameter("markers.file must be a string path.")
-
-    inline_markers: dict[str, dict] = {}
-    if markers_section is None:
-        markers_section = {}
-    if not isinstance(markers_section, dict):
-        raise typer.BadParameter("[markers] must be a table (dict).")
-    for key, value in markers_section.items():
-        if key in ("file", "markers_file"):
-            continue
-        if not isinstance(value, dict):
-            raise typer.BadParameter(f"markers.{key} must be a table (dict).")
-        inline_markers[key] = value
-
-    markers_from_file: dict[str, dict] = {}
-    if markers_file:
-        if not isinstance(markers_file, str):
-            raise typer.BadParameter("markers.file must be a string path.")
-        markers_path = resolve_support_file_path(markers_file, path, "Markers file")
-        with markers_path.open("rb") as f:
-            markers_data = tomllib.load(f)
-        markers_from_file = markers_data.get("markers")
-        if not isinstance(markers_from_file, dict) or not markers_from_file:
-            raise typer.BadParameter(
-                "Markers file must define a non-empty [markers] section."
-            )
-
-    merged = {}
-    merged.update(markers_from_file)
-    merged.update(inline_markers)
-    if merged:
-        data["markers"] = merged
+    markers = _resolve_markers(data.get("markers"), path)
+    if markers:
+        data["markers"] = markers
 
     requires_ncbi = source in {BuildSource.NCBI, BuildSource.BOTH}
     if requires_ncbi and "ncbi" not in data:

@@ -56,6 +56,41 @@ class HeaderExtractor:
     captures_organism: bool
 
 
+def _organism_field(template: str) -> str | None:
+    """The organism placeholder a template exposes, preferring the raw form."""
+    if template_has_field(template, "organism_raw"):
+        return "organism_raw"
+    if template_has_field(template, "organism"):
+        return "organism"
+    return None
+
+
+def _extractor_pattern(template: str, organism_field: str | None):
+    """Anchor a template so acc_id and the organism can be read back out.
+
+    Repeated fields become backreferences, so a header only matches when both
+    occurrences carry the same value. Returns None without an acc_id field.
+    """
+    parts: list[str] = []
+    seen_acc_id = False
+    seen_organism = False
+    for literal, field, _, _ in FORMATTER.parse(template):
+        parts.append(re.escape(literal))
+        if field is None:
+            continue
+        if field == "acc_id":
+            parts.append(r"(?P<acc_id>[A-Za-z0-9._-]+)" if not seen_acc_id else r"(?P=acc_id)")
+            seen_acc_id = True
+        elif organism_field and field == organism_field:
+            parts.append(r"(?P<organism_name>.*?)" if not seen_organism else r"(?P=organism_name)")
+            seen_organism = True
+        else:
+            parts.append(r".*?")
+    if not seen_acc_id:
+        return None
+    return re.compile("^" + "".join(parts) + "$"), seen_organism
+
+
 def compile_header_extractors(
     header_formats: Iterable[str],
 ) -> tuple[list[HeaderExtractor], bool, bool]:
@@ -63,45 +98,14 @@ def compile_header_extractors(
     has_acc_id_template = False
     has_organism_template = False
     for template in sorted(set(header_formats)):
-        has_acc_id = template_has_field(template, "acc_id")
-        organism_field = None
-        if template_has_field(template, "organism_raw"):
-            organism_field = "organism_raw"
-        elif template_has_field(template, "organism"):
-            organism_field = "organism"
-
-        has_acc_id_template = has_acc_id_template or has_acc_id
+        organism_field = _organism_field(template)
+        has_acc_id_template = has_acc_id_template or template_has_field(template, "acc_id")
         has_organism_template = has_organism_template or organism_field is not None
-        if not has_acc_id:
-            continue
-
-        parts: list[str] = []
-        seen_acc_id = False
-        seen_organism = False
-        for literal, field, _, _ in FORMATTER.parse(template):
-            parts.append(re.escape(literal))
-            if field is None:
-                continue
-            if field == "acc_id":
-                if not seen_acc_id:
-                    parts.append(r"(?P<acc_id>[A-Za-z0-9._-]+)")
-                    seen_acc_id = True
-                else:
-                    parts.append(r"(?P=acc_id)")
-            elif organism_field and field == organism_field:
-                if not seen_organism:
-                    parts.append(r"(?P<organism_name>.*?)")
-                    seen_organism = True
-                else:
-                    parts.append(r"(?P=organism_name)")
-            else:
-                parts.append(r".*?")
-        if seen_acc_id:
+        compiled = _extractor_pattern(template, organism_field)
+        if compiled is not None:
+            pattern, captures_organism = compiled
             extractors.append(
-                HeaderExtractor(
-                    pattern=re.compile("^" + "".join(parts) + "$"),
-                    captures_organism=seen_organism,
-                )
+                HeaderExtractor(pattern=pattern, captures_organism=captures_organism)
             )
     return extractors, has_acc_id_template, has_organism_template
 
