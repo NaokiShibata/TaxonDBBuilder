@@ -49,3 +49,7 @@ tauri-gui/resources
 # Large taxonomy file
 taxonomy.db
 taxdump/
+
+# Local pi agent/subagent tooling config (not project source)
+.pi/agents/refactor-auditor.md
+.pi/subagents.json
