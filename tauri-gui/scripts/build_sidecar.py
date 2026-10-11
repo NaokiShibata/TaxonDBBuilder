@@ -3,22 +3,10 @@ from __future__ import annotations
 
 import argparse
 import hashlib
-import platform
 import shutil
 import subprocess
 import sys
 from pathlib import Path
-
-def detect_os_key() -> str:
-    name = platform.system().lower()
-    if "linux" in name:
-        return "linux"
-    if "darwin" in name:
-        return "macos"
-    if "windows" in name:
-        return "windows"
-    raise RuntimeError(f"unsupported platform: {platform.system()}")
-
 
 def detect_target_triple(repo_root: Path) -> str:
     out = subprocess.check_output(["rustc", "-vV"], cwd=str(repo_root), text=True)
@@ -66,14 +54,9 @@ def main() -> int:
     if not spec_path.exists():
         raise FileNotFoundError(f"taxondbbuilder.spec not found: {spec_path}")
 
-    os_key = detect_os_key()
     target_triple = detect_target_triple(repo_root)
-    bin_name = "taxondbbuilder.exe" if os_key == "windows" else "taxondbbuilder"
-    bundled_name = (
-        f"taxondbbuilder-{target_triple}.exe"
-        if os_key == "windows"
-        else f"taxondbbuilder-{target_triple}"
-    )
+    bin_name = "taxondbbuilder"
+    bundled_name = f"taxondbbuilder-{target_triple}"
     target_dir = tauri_root / "src-tauri" / "bin"
     target_dir.mkdir(parents=True, exist_ok=True)
     dest_bin = target_dir / bundled_name
