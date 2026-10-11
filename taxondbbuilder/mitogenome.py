@@ -73,25 +73,46 @@ def identify_region(feature):
                             "repeat_region", "rep_origin"}:
         return None
     found = {"control_region"} if feature.type == "D-loop" else set()
+    found |= _alias_identities(feature)
+    if not found:
+        found = _anticodon_identities(feature)
+    if not found:
+        found = _note_identities(feature)
+    return next(iter(found)) if len(found) == 1 else None
+
+
+def _alias_identities(feature):
+    """Exact alias hits in the naming qualifiers; ';' separates several names."""
+    found = set()
     for field in ("gene", "product", "gene_synonym", "standard_name"):
         for value in feature.qualifiers.get(field, []):
             for name in value.split(";"):
                 region = ALIAS_IDS.get(_normalize(name))
                 if region:
                     found.add(region)
-    if not found:
-        labels = {_normalize(v) for field in ("product", "gene")
-                  for v in feature.qualifiers.get(field, [])}
-        anticodons = " ".join(feature.qualifiers.get("anticodon", []) + feature.qualifiers.get("note", [])).upper()
-        for amino, codon, region in [("Leu", "TAA", "tRNA-Leu(UUR)"), ("Leu", "TAG", "tRNA-Leu(CUN)"),
-                                    ("Ser", "TGA", "tRNA-Ser(UCN)"), ("Ser", "GCT", "tRNA-Ser(AGY)")]:
-            if _normalize("tRNA-" + amino) in labels and re.search(
-                    r"(?:SEQ:|ANTICODON:\s*)" + codon + r"(?![ACGT])", anticodons.replace("U", "T")):
-                found.add(region)
-    if not found:
-        for note in feature.qualifiers.get("note", []):
-            found.update(region for pattern, region in NOTE_PATTERNS if pattern.search(note))
-    return next(iter(found)) if len(found) == 1 else None
+    return found
+
+
+def _anticodon_identities(feature):
+    """Anticodon text separates the two Leu and two Ser tRNA positions."""
+    labels = {_normalize(v) for field in ("product", "gene")
+              for v in feature.qualifiers.get(field, [])}
+    anticodons = " ".join(feature.qualifiers.get("anticodon", []) + feature.qualifiers.get("note", [])).upper()
+    found = set()
+    for amino, codon, region in [("Leu", "TAA", "tRNA-Leu(UUR)"), ("Leu", "TAG", "tRNA-Leu(CUN)"),
+                                ("Ser", "TGA", "tRNA-Ser(UCN)"), ("Ser", "GCT", "tRNA-Ser(AGY)")]:
+        if _normalize("tRNA-" + amino) in labels and re.search(
+                r"(?:SEQ:|ANTICODON:\s*)" + codon + r"(?![ACGT])", anticodons.replace("U", "T")):
+            found.add(region)
+    return found
+
+
+def _note_identities(feature):
+    """Whole-word alias matches in free-text notes; the weakest evidence."""
+    found = set()
+    for note in feature.qualifiers.get("note", []):
+        found.update(region for pattern, region in NOTE_PATTERNS if pattern.search(note))
+    return found
 
 
 def location_text(location):
@@ -197,26 +218,43 @@ def _compatible(location, originals, length):
     return True
 
 
-def _flanks(record, region, index):
-    if not any("mitochondri" in value.casefold() for f in record.features if f.type == "source"
-               for value in f.qualifiers.get("organelle", [])):
+def _require_mitochondrial_context(record):
+    organelles = [value.casefold() for f in record.features if f.type == "source"
+                  for value in f.qualifiers.get("organelle", [])]
+    if not any("mitochondri" in value for value in organelles):
         raise ValueError("unsupported_context")
     if "Vertebrata" not in record.annotations.get("taxonomy", []):
         raise ValueError("unsupported_context")
+
+
+def _flank_anchor(record, index, name):
+    """The one usable annotation for a flank; zero or several are both fatal."""
+    usable = {str(f.location): f for f in index[name]
+              if _valid_location(f.location, len(record), exact=True)
+              and isinstance(f.location, SimpleLocation) and len(f.location) > MIN_LENGTH
+              and f.location.strand in {-1, 1} and _issue(f, record) is None}
+    if not usable:
+        raise ValueError("missing_flank")
+    if len(usable) != 1:
+        raise ValueError("ambiguous_flanks")
+    return next(iter(usable.values()))
+
+
+def _require_no_intervening_gene(record, gap, region, left_id, right_id):
+    for feature in record.features:
+        if feature.type not in {"gene", "CDS", "rRNA", "tRNA"}:
+            continue
+        if identify_region(feature) in {region, left_id, right_id}:
+            continue
+        if _valid_location(feature.location, len(record)) and _overlaps(gap, feature.location):
+            raise ValueError("intervening_gene")
+
+
+def _flanks(record, region, index):
+    _require_mitochondrial_context(record)
     i = ORDER.index(region)
     left_id, right_id = ORDER[i - 1], ORDER[(i + 1) % len(ORDER)]
-    anchors = []
-    for name in (left_id, right_id):
-        usable = {str(f.location): f for f in index[name]
-                  if _valid_location(f.location, len(record), exact=True)
-                  and isinstance(f.location, SimpleLocation) and len(f.location) > MIN_LENGTH
-                  and f.location.strand in {-1, 1} and _issue(f, record) is None}
-        if not usable:
-            raise ValueError("missing_flank")
-        if len(usable) != 1:
-            raise ValueError("ambiguous_flanks")
-        anchors.append(next(iter(usable.values())))
-    left, right = anchors
+    left, right = _flank_anchor(record, index, left_id), _flank_anchor(record, index, right_id)
     if _overlaps(left.location, right.location):
         raise ValueError("overlapping_flanks")
     orientation = left.location.strand * (-1 if left_id in NEGATIVE else 1)
@@ -228,17 +266,11 @@ def _flanks(record, region, index):
     gap = _arc(int(a.location.end), int(b.location.start), len(record), circular, strand)
     # CDS can extend into either flanking annotation; the gap is not its boundary.
     window = _arc(int(a.location.start), int(b.location.end), len(record), circular, strand)
-    for feature in record.features:
-        if feature.type not in {"gene", "CDS", "rRNA", "tRNA"}:
-            continue
-        if identify_region(feature) in {region, left_id, right_id}:
-            continue
-        if _valid_location(feature.location, len(record)) and _overlaps(gap, feature.location):
-            raise ValueError("intervening_gene")
+    _require_no_intervening_gene(record, gap, region, left_id, right_id)
     metadata = {"profile": "vertebrate", "left_flank_id": left_id,
                 "right_flank_id": right_id, "left_flank_location": location_text(left.location),
                 "right_flank_location": location_text(right.location)}
-    return gap, window, metadata, anchors
+    return gap, window, metadata, [left, right]
 
 
 def _slice_location(location, start, end):
@@ -256,7 +288,8 @@ def _slice_location(location, start, end):
     return parts[0] if len(parts) == 1 else CompoundLocation(parts)
 
 
-def _infer_cds(record, originals, gap, window, anchors):
+def _terminal_exception_spans(record, originals):
+    """Positions covered by terminal (stop codon) transl_except entries."""
     terminal_exceptions = []
     for feature in originals:
         for value in feature.qualifiers.get("transl_except", []):
@@ -268,10 +301,15 @@ def _infer_cds(record, originals, gap, window, anchors):
             if end - start not in (1, 2) or not 0 <= start < end <= len(record):
                 raise ValueError("unsupported_translation_exception")
             terminal_exceptions.append(set(range(start, end)))
+    return terminal_exceptions
+
+
+def _cds_evidence(record, originals, window, gap, anchors):
+    """Collect and validate everything the ORF scan needs from the record."""
+    terminal_exceptions = _terminal_exception_spans(record, originals)
     if any(f.qualifiers.get("codon_start", ["1"])[0] != "1" for f in originals):
         raise ValueError("unsupported_codon_start")
     table_id = _translation_table(record, originals)
-    table = CodonTable.unambiguous_dna_by_id[table_id]
     proteins = {"".join(value.split()).upper() for f in originals
                 for value in f.qualifiers.get("translation", [])}
     if len(proteins) > 1:
@@ -282,9 +320,6 @@ def _infer_cds(record, originals, gap, window, anchors):
         raise ValueError("ambiguous_coding_sequence")
     if not expected and not any(_valid_location(f.location, len(record)) for f in originals):
         raise ValueError("insufficient_cds_evidence")
-    # Precompute stops per frame instead of translating every suffix of the window.
-    stops = {frame: [i for i in range(frame, len(bases) - 2, 3)
-                     if bases[i:i + 3] in table.stop_codons] for frame in range(3)}
     window_points = list(window)
     gap_points = set(gap)
     gap_end = max(i for i, p in enumerate(window_points) if p in gap_points) + 1
@@ -293,45 +328,84 @@ def _infer_cds(record, originals, gap, window, anchors):
     allow_partial_stop = (terminal_anchor is not None
                           and terminal_anchor.type in {"tRNA", "rRNA"}
                           and terminal_anchor.location.strand == gap.strand)
+    return {"table_id": table_id, "table": CodonTable.unambiguous_dna_by_id[table_id],
+            "expected": expected, "bases": bases, "window_points": window_points,
+            "gap_end": gap_end, "terminal_exceptions": terminal_exceptions,
+            "allow_partial_stop": allow_partial_stop}
+
+
+def _stop_ends(bases, stops, start, gap_end, allow_partial_stop):
+    """Candidate end offsets for one start offset, in window coordinates."""
+    frame_stops = stops[start % 3]
+    stop_idx = bisect_left(frame_stops, start)
+    stop_end = frame_stops[stop_idx] + 3 if stop_idx < len(frame_stops) else None
+    ends = [stop_end] if stop_end is not None else []
+    remainder = (gap_end - start) % 3
+    if allow_partial_stop and gap_end > start and remainder in (1, 2):
+        tail = bases[gap_end - remainder:gap_end]
+        if tail in {"T", "TA"} and (stop_end is None or stop_end > gap_end):
+            ends.append(gap_end)
+    return ends
+
+
+def _rejected_by_terminal_exceptions(terminal_exceptions, window_points, end, remainder):
+    """A CDS cut short of its stop codon must end on the record's own exceptions."""
+    if not terminal_exceptions:
+        return False
+    return not remainder or any(
+        set(window_points[end - remainder:end]) != positions for positions in terminal_exceptions)
+
+
+def _known_start(originals, window_points, start, length):
+    """A lone point may identify the start, but cannot select an arbitrary ORF."""
+    return any(_valid_location(f.location, length) and
+               next(iter(f.location)) == window_points[start] for f in originals)
+
+
+def _translation_matches(bases, start, end, table_id, expected):
+    coding = bases[start:end]
+    protein = str(Seq(coding[:len(coding) // 3 * 3]).translate(table=table_id)).rstrip("*")
+    return not ("*" in protein or (expected and "M" + protein[1:] != expected))
+
+
+def _cds_candidate(record, originals, window, window_points, evidence, start, end):
+    """The candidate location once every boundary check passes, else None."""
+    if end - start <= MIN_LENGTH:
+        return None
+    remainder = (end - start) % 3
+    if _rejected_by_terminal_exceptions(evidence["terminal_exceptions"], window_points, end, remainder):
+        return None
+    loc = _slice_location(window, start, end)
+    if not _compatible(loc, originals, len(record)):
+        return None
+    if not evidence["expected"] and not _known_start(originals, window_points, start, len(record)):
+        return None
+    if not _translation_matches(evidence["bases"], start, end, evidence["table_id"], evidence["expected"]):
+        return None
+    return loc
+
+
+def _infer_cds(record, originals, gap, window, anchors):
+    evidence = _cds_evidence(record, originals, window, gap, anchors)
+    bases, table = evidence["bases"], evidence["table"]
+    window_points, gap_end = evidence["window_points"], evidence["gap_end"]
+    # Precompute stops per frame instead of translating every suffix of the window.
+    stops = {frame: [i for i in range(frame, len(bases) - 2, 3)
+                     if bases[i:i + 3] in table.stop_codons] for frame in range(3)}
     candidates = {}
     for start in range(len(bases) - MIN_LENGTH):
         if bases[start:start + 3] not in table.start_codons:
             continue
-        frame_stops = stops[start % 3]
-        stop_idx = bisect_left(frame_stops, start)
-        end = frame_stops[stop_idx] + 3 if stop_idx < len(frame_stops) else None
-        ends = [end] if end is not None else []
-        remainder = (gap_end - start) % 3
-        if allow_partial_stop and gap_end > start and remainder in (1, 2):
-            tail = bases[gap_end - remainder:gap_end]
-            if tail in {"T", "TA"} and (end is None or end > gap_end):
-                ends.append(gap_end)
-        for end in ends:
-            if end - start <= MIN_LENGTH:
-                continue
-            remainder = (end - start) % 3
-            if terminal_exceptions and (not remainder or any(
-                    set(window_points[end - remainder:end]) != positions for positions in terminal_exceptions)):
-                continue
-            loc = _slice_location(window, start, end)
-            if not _compatible(loc, originals, len(record)):
-                continue
-            if not expected:
-                # A lone point may identify the start, but cannot select an arbitrary ORF.
-                known_start = any(_valid_location(f.location, len(record)) and
-                                  next(iter(f.location)) == window_points[start] for f in originals)
-                if not known_start:
-                    continue
-            coding = bases[start:end]
-            protein = str(Seq(coding[:len(coding) // 3 * 3]).translate(table=table_id)).rstrip("*")
-            if "*" in protein or (expected and "M" + protein[1:] != expected):
-                continue
-            candidates[str(loc)] = loc
+        for end in _stop_ends(bases, stops, start, gap_end, evidence["allow_partial_stop"]):
+            loc = _cds_candidate(record, originals, window, window_points, evidence, start, end)
+            if loc is not None:
+                candidates[str(loc)] = loc
     if len(candidates) != 1:
         raise ValueError("ambiguous_cds_boundaries" if candidates else "insufficient_cds_evidence")
     loc = next(iter(candidates.values()))
     overlaps = [len(set(loc) & set(f.location)) for f in anchors]
-    return loc, {"transl_table": str(table_id), "overlap_bases": ",".join(map(str, overlaps)),
+    expected = evidence["expected"]
+    return loc, {"transl_table": str(evidence["table_id"]), "overlap_bases": ",".join(map(str, overlaps)),
                  "extraction_method": "translation_guided" if expected else "constrained_cds",
                  "boundary_evidence": "unique_translation_and_stop" if expected else "known_start_and_unique_stop"}
 
