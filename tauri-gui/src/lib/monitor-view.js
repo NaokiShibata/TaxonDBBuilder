@@ -5,14 +5,8 @@ function sumValues(record) {
   );
 }
 
-function buildMetricItems(metrics) {
+function taxidMetricItems(queryCountByTaxid, fetchCountByTaxid) {
   const items = [];
-  const queryCountByTaxid = metrics?.queryCountByTaxid || {};
-  const fetchCountByTaxid = metrics?.fetchCountByTaxid || {};
-  const boldSpecimenCountByTaxon = metrics?.boldSpecimenCountByTaxon || {};
-  const boldDownloadedByTaxon = metrics?.boldDownloadedByTaxon || {};
-  const boldMatchedByTaxon = metrics?.boldMatchedByTaxon || {};
-
   const allTaxids = new Set([
     ...Object.keys(queryCountByTaxid),
     ...Object.keys(fetchCountByTaxid),
@@ -31,7 +25,15 @@ function buildMetricItems(metrics) {
       );
     }
   }
+  return items;
+}
 
+function boldTaxonMetricItems(
+  boldSpecimenCountByTaxon,
+  boldDownloadedByTaxon,
+  boldMatchedByTaxon,
+) {
+  const items = [];
   const allBoldTaxa = new Set([
     ...Object.keys(boldSpecimenCountByTaxon),
     ...Object.keys(boldDownloadedByTaxon),
@@ -52,7 +54,21 @@ function buildMetricItems(metrics) {
       items.push(`bold taxon=${taxon}: ${parts.join(" ")}`);
     }
   }
+  return items;
+}
 
+function msaTreeItems(metrics) {
+  if (metrics?.msaTreeStatus == null) return [];
+  const items = [
+    `msa_tree: status=${metrics.msaTreeStatus} taxa=${metrics.msaTreeTaxa ?? "-"}`,
+  ];
+  if (metrics.msaTreeMsaPath) items.push(`msa file: ${metrics.msaTreeMsaPath}`);
+  if (metrics.msaTreeTreePath) items.push(`tree file: ${metrics.msaTreeTreePath}`);
+  return items;
+}
+
+function summaryMetricItems(metrics) {
+  const items = [];
   if (metrics?.matchedRecords != null)
     items.push(`matched records: ${metrics.matchedRecords}`);
   if (metrics?.keptRecordsBeforePostPrep != null) {
@@ -67,62 +83,74 @@ function buildMetricItems(metrics) {
   if (metrics?.crossOrganismGroups != null) {
     items.push(`cross_organism_groups: ${metrics.crossOrganismGroups}`);
   }
-  if (metrics?.msaTreeStatus != null) {
-    items.push(
-      `msa_tree: status=${metrics.msaTreeStatus} taxa=${metrics.msaTreeTaxa ?? "-"}`,
-    );
-    if (metrics.msaTreeMsaPath) items.push(`msa file: ${metrics.msaTreeMsaPath}`);
-    if (metrics.msaTreeTreePath) items.push(`tree file: ${metrics.msaTreeTreePath}`);
-  }
-
-  return items;
+  return items.concat(msaTreeItems(metrics));
 }
 
-function buildProgressDetail(phase, percent, metrics) {
-  const safePercent =
-    typeof percent === "number" ? Math.max(0, Math.min(percent, 100)) : null;
-  const parts = [];
-
+export function buildMetricItems(metrics) {
   const queryCountByTaxid = metrics?.queryCountByTaxid || {};
   const fetchCountByTaxid = metrics?.fetchCountByTaxid || {};
   const boldSpecimenCountByTaxon = metrics?.boldSpecimenCountByTaxon || {};
   const boldDownloadedByTaxon = metrics?.boldDownloadedByTaxon || {};
   const boldMatchedByTaxon = metrics?.boldMatchedByTaxon || {};
 
-  const total = sumValues(queryCountByTaxid);
-  if (total > 0) {
-    const fetched = Object.entries(fetchCountByTaxid).reduce(
-      (acc, [taxid, raw]) => {
-        const done = Number(raw) || 0;
-        const max = Number(queryCountByTaxid[taxid]) || done;
-        return acc + Math.min(done, max);
-      },
-      0,
-    );
-    const safeFetched = Math.min(fetched, total);
-    parts.push(
-      `fetch ${safeFetched}/${total} (${((safeFetched / total) * 100).toFixed(1)}%)`,
-    );
-  }
+  return [
+    ...taxidMetricItems(queryCountByTaxid, fetchCountByTaxid),
+    ...boldTaxonMetricItems(
+      boldSpecimenCountByTaxon,
+      boldDownloadedByTaxon,
+      boldMatchedByTaxon,
+    ),
+    ...summaryMetricItems(metrics),
+  ];
+}
 
-  const boldDownloadedTotal = sumValues(boldDownloadedByTaxon);
-  const boldMatchedTotal = sumValues(boldMatchedByTaxon);
-  const boldSpecimenTotal = sumValues(boldSpecimenCountByTaxon);
-  if (boldDownloadedTotal > 0 || boldSpecimenTotal > 0) {
-    const boldTaxonCount = new Set([
-      ...Object.keys(boldSpecimenCountByTaxon),
-      ...Object.keys(boldDownloadedByTaxon),
-      ...Object.keys(boldMatchedByTaxon),
-    ]).size;
-    let detail = `bold matched ${boldMatchedTotal}/${boldDownloadedTotal || 0}`;
-    if (boldSpecimenTotal > 0) {
-      detail += ` specimens ${boldSpecimenTotal}`;
-    }
-    if (boldTaxonCount > 0) {
-      detail += ` taxa ${boldTaxonCount}`;
-    }
-    parts.push(detail);
+function fetchProgressPart(queryCountByTaxid, fetchCountByTaxid) {
+  const total = sumValues(queryCountByTaxid);
+  if (total <= 0) return null;
+  const fetched = Object.entries(fetchCountByTaxid).reduce((acc, [taxid, raw]) => {
+    const done = Number(raw) || 0;
+    const max = Number(queryCountByTaxid[taxid]) || done;
+    return acc + Math.min(done, max);
+  }, 0);
+  const safeFetched = Math.min(fetched, total);
+  return `fetch ${safeFetched}/${total} (${((safeFetched / total) * 100).toFixed(1)}%)`;
+}
+
+function boldProgressPart(
+  boldSpecimenCountByTaxon,
+  boldDownloadedByTaxon,
+  boldMatchedByTaxon,
+) {
+  const downloadedTotal = sumValues(boldDownloadedByTaxon);
+  const matchedTotal = sumValues(boldMatchedByTaxon);
+  const specimenTotal = sumValues(boldSpecimenCountByTaxon);
+  if (downloadedTotal <= 0 && specimenTotal <= 0) return null;
+  const taxonCount = new Set([
+    ...Object.keys(boldSpecimenCountByTaxon),
+    ...Object.keys(boldDownloadedByTaxon),
+    ...Object.keys(boldMatchedByTaxon),
+  ]).size;
+  let detail = `bold matched ${matchedTotal}/${downloadedTotal || 0}`;
+  if (specimenTotal > 0) {
+    detail += ` specimens ${specimenTotal}`;
   }
+  if (taxonCount > 0) {
+    detail += ` taxa ${taxonCount}`;
+  }
+  return detail;
+}
+
+export function buildProgressDetail(phase, percent, metrics) {
+  const safePercent =
+    typeof percent === "number" ? Math.max(0, Math.min(percent, 100)) : null;
+  const parts = [
+    fetchProgressPart(metrics?.queryCountByTaxid || {}, metrics?.fetchCountByTaxid || {}),
+    boldProgressPart(
+      metrics?.boldSpecimenCountByTaxon || {},
+      metrics?.boldDownloadedByTaxon || {},
+      metrics?.boldMatchedByTaxon || {},
+    ),
+  ].filter((part) => part != null);
 
   if (safePercent != null && phase !== "Fetch/Parse") {
     parts.push(`total ${safePercent.toFixed(1)}%`);
