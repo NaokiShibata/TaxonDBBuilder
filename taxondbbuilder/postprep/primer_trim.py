@@ -322,6 +322,10 @@ def summarize_rows_to_records(
         )
     }
     # sidecar rows are positional: rows[i] was produced by the record seqs[i].
+    if len(rows) != len(seqs):
+        raise ValueError(
+            f"primer sidecar rows ({len(rows)}) != sequences ({len(seqs)})"
+        )
     for row, seq in zip(rows, seqs):
         if not seq:
             continue
@@ -344,6 +348,10 @@ def summarize_rows_to_records(
 def _collect_vsearch_candidates(
     rows: list[dict[str, Any]], seqs: list[str]
 ) -> list[dict[str, Any]]:
+    if len(rows) != len(seqs):
+        raise ValueError(
+            f"primer sidecar rows ({len(rows)}) != sequences ({len(seqs)})"
+        )
     candidates: list[dict[str, Any]] = []
     for idx, row in enumerate(rows):
         if str(row.get("confidence", "")) not in {"low", "medium"}:
@@ -995,6 +1003,41 @@ def _run_primer_trim_rounds(
     return results, all_rows
 
 
+def _aligned_sequences(
+    records: list[tuple[str, str]], rows: list[dict[str, Any]]
+) -> list[str]:
+    """Return record sequences after verifying rows are positionally aligned.
+
+    _run_primer_trim_round appends exactly one row per record, in record
+    order, so rows[i] must describe records[i]. Verify that invariant here
+    (header identity plus the trim_end + right_trim_bp == len(seq) identity)
+    instead of trusting it.
+    shortcut: two records sharing a header AND sequence length are
+    indistinguishable to these checks; upgrade to unique record ids if that
+    ever becomes a real failure mode.
+    """
+    if len(rows) != len(records):
+        raise ValueError(
+            f"primer sidecar rows ({len(rows)}) != input records ({len(records)})"
+        )
+    seqs: list[str] = []
+    for index, (header, seq) in enumerate(records):
+        row = rows[index]
+        if row.get("record_id") != header:
+            raise ValueError(
+                f"primer sidecar row {index} record_id "
+                f"{row.get('record_id')!r} != input header {header!r}"
+            )
+        derived_len = int(row.get("trim_end", 0)) + int(row.get("right_trim_bp", 0))
+        if derived_len != len(seq):
+            raise ValueError(
+                f"primer sidecar row {index} ({header!r}) trim_end+right_trim_bp "
+                f"{derived_len} != sequence length {len(seq)}"
+            )
+        seqs.append(seq)
+    return seqs
+
+
 def _apply_primer_recheck(
     ctx: _PrimerTrimContext,
     best_summary: dict[str, Any],
@@ -1009,9 +1052,9 @@ def _apply_primer_recheck(
             if ctx.recheck_tool != "off"
             else None,
         )
-    # _run_primer_trim_round appends exactly one row per record, in record order,
-    # so sidecar_rows[i] and records[i] describe the same input record.
-    seqs = [seq for _, seq in records]
+    # Must run before run_vsearch_endpoint_recheck: _merge_vsearch_hits
+    # mutates right_trim_bp in place and would invalidate the length check.
+    seqs = _aligned_sequences(records, sidecar_rows)
     attempted, rescued, error = run_vsearch_endpoint_recheck(
         sidecar_rows,
         seqs,
