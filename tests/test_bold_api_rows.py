@@ -1,8 +1,8 @@
 """Characterization of the BOLD API payload and row helpers.
 
-These pin shapes the BOLD JSON/TSV responses actually arrive in, including the
-quirks (a blank scope/value pair still yields ":", gzip download byte counts
-mix compressed and decompressed sizes) so refactors stay honest.
+These pin the shapes the BOLD JSON/TSV responses actually arrive in, including
+the two transport details that are easy to get wrong: a term with no scope or
+value contributes nothing to the query, and a gzip transfer has no usable total.
 """
 
 from __future__ import annotations
@@ -28,6 +28,7 @@ def test_successful_terms_cover_string_and_dict_shapes():
             {"scope": "COI", "value": "COI-5P"},
             {"scope": "S", "field": "  ", "value": "V"},
             {"scope": "", "value": ""},
+            {"scope": "COI", "value": "  "},
             42,
             None,
         ]
@@ -39,7 +40,6 @@ def test_successful_terms_cover_string_and_dict_shapes():
         "COI:markercode:COI-5P",
         "COI:COI-5P",
         "S:V",
-        ":",
     ]
     assert bold._extract_successful_terms({"successful_terms": "no"}) == []
     assert bold._extract_successful_terms(None) == []
@@ -115,7 +115,7 @@ def test_marker_resolution_prefers_exact_codes_then_looser_strategies():
     )
 
 
-def test_download_streams_gzip_body_and_reports_compressed_length(
+def test_download_streams_gzip_body_without_a_misleading_total(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ):
     import taxondb_bold as bold
@@ -129,7 +129,9 @@ def test_download_streams_gzip_body_and_reports_compressed_length(
     dest = tmp_path / "documents.tsv"
     meta = bold.download_documents_to_path("qid", bold.get_bold_runtime_config({}), dest)
     assert meta["downloaded_bytes"] == len(b"marker_code\nCOI-5P\n")
-    assert meta["content_length"] == 39
+    # 39 is the compressed transfer size; reporting it as the total would let
+    # progress pass 100%.
+    assert meta["content_length"] is None
     assert dest.read_bytes() == b"marker_code\nCOI-5P\n"
     assert [path.name for path in tmp_path.iterdir()] == ["documents.tsv"]
 

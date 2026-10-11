@@ -217,8 +217,8 @@ def _first_scalar(payload: Any, keys: Iterable[str]) -> str | None:
 def _successful_term_text(term: Any) -> str | None:
     """One preprocessor term as query text.
 
-    A term with only scope and value has no field part, and an empty pair still
-    renders as ":"; callers filter the empties out.
+    A term with only scope and value has no field part; callers filter the
+    empties out.
     """
     if isinstance(term, str):
         return term.strip()
@@ -230,7 +230,14 @@ def _successful_term_text(term: Any) -> str | None:
     scope = term.get("scope")
     field = term.get("field")
     value = term.get("value")
-    if isinstance(scope, str) and isinstance(value, str):
+    # A term with no scope or no value carries nothing usable; emitting ":" would
+    # put an empty clause into the joined BOLD query.
+    if (
+        isinstance(scope, str)
+        and isinstance(value, str)
+        and scope.strip()
+        and value.strip()
+    ):
         if isinstance(field, str) and field.strip():
             return f"{scope}:{field}:{value}"
         return f"{scope}:{value}"
@@ -360,11 +367,7 @@ def _download_headers(format_name: str, runtime_cfg: dict[str, Any]) -> dict[str
 def _stream_download_to_file(
     response: Any, part_path: Path, runtime_cfg: dict[str, Any], progress_callback: Any | None
 ) -> tuple[int, int | None]:
-    """Write one response body to part_path, inflating a gzip transfer.
-
-    content_length is the transferred (possibly compressed) size, so progress
-    can exceed 100% once the body is inflated.
-    """
+    """Write one response body to part_path, inflating a gzip transfer."""
     header = response.headers.get("Content-Length")
     try:
         content_length = int(header) if header else None
@@ -374,6 +377,9 @@ def _stream_download_to_file(
     raw_stream = response
     if "gzip" in response.headers.get("Content-Encoding", "").lower():
         raw_stream = gzip.GzipFile(fileobj=response)
+        # Content-Length counts the compressed transfer; comparing it against
+        # inflated bytes would report progress past 100%.
+        content_length = None
 
     chunk_size = int(runtime_cfg["download_chunk_size"])
     downloaded_bytes = 0

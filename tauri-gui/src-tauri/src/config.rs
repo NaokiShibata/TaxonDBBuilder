@@ -810,6 +810,8 @@ fn post_prep_steps(post: &PostPrepToml, primer_file: &str, primer_set: &[String]
     if !primer_file.is_empty() && !primer_set.is_empty() {
         steps.push("primer_trim".to_string());
     }
+    // [filters] sequence_length_min/max bound the NCBI search (SLEN), not the
+    // post-prep trim, so only the [post_prep] lengths enable this step.
     if post.sequence_length_min.is_some() || post.sequence_length_max.is_some() {
         steps.push("length_filter".to_string());
     }
