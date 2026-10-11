@@ -770,6 +770,99 @@ pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, Strin
     ))
 }
 
+fn has_filter_value(values: &[String], wanted: &str) -> bool {
+    values.iter().any(|value| value.trim() == wanted)
+}
+
+fn imported_source(has_ncbi: bool, has_bold: bool) -> String {
+    match (has_ncbi, has_bold) {
+        (true, true) => "both",
+        (true, false) => "ncbi",
+        _ => "bold",
+    }
+    .to_string()
+}
+
+fn imported_filters(filters: FiltersToml) -> FiltersInput {
+    FiltersInput {
+        mitochondrion: has_filter_value(&filters.filter, "mitochondrion"),
+        ddbj_embl_genbank: has_filter_value(&filters.filter, "ddbj_embl_genbank"),
+        biomol_genomic: has_filter_value(&filters.properties, "biomol_genomic"),
+        length_min: filters.sequence_length_min,
+        length_max: filters.sequence_length_max,
+    }
+}
+
+fn msa_tree_mode(post: &PostPrepToml) -> String {
+    if !post.msa_tree_mode.trim().is_empty() {
+        return post.msa_tree_mode.trim().to_string();
+    }
+    if post.msa_tree_enable {
+        "combined"
+    } else {
+        DEFAULT_MSA_TREE_MODE
+    }
+    .to_string()
+}
+
+fn post_prep_steps(post: &PostPrepToml, primer_file: &str, primer_set: &[String]) -> Vec<String> {
+    let mut steps = Vec::new();
+    if !primer_file.is_empty() && !primer_set.is_empty() {
+        steps.push("primer_trim".to_string());
+    }
+    if post.sequence_length_min.is_some() || post.sequence_length_max.is_some() {
+        steps.push("length_filter".to_string());
+    }
+    if post.quality_max_ambiguous_fraction.is_some()
+        || post.quality_reject_invalid_iupac.is_some()
+        || post.duplicate_sequence_policy.is_some()
+    {
+        steps.push("quality_filter".to_string());
+    }
+    steps.push("duplicate_report".to_string());
+    steps
+}
+
+fn imported_post_prep(post: PostPrepToml) -> PostPrepInput {
+    let msa_mode = msa_tree_mode(&post);
+    let primer_file = post.primer_file.trim().to_string();
+    let primer_set = post
+        .primer_set
+        .iter()
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .collect::<Vec<_>>();
+    let steps = post_prep_steps(&post, &primer_file, &primer_set);
+
+    PostPrepInput {
+        enable: true,
+        msa_tree_mode: msa_mode,
+        primer_file,
+        primer_set,
+        steps,
+        sequence_length_min: post.sequence_length_min,
+        sequence_length_max: post.sequence_length_max,
+        quality_max_ambiguous_fraction: post.quality_max_ambiguous_fraction,
+        quality_reject_invalid_iupac: post.quality_reject_invalid_iupac,
+        duplicate_sequence_policy: post.duplicate_sequence_policy,
+        primer_max_mismatch: post.primer_max_mismatch,
+        primer_max_error_rate: post.primer_max_error_rate,
+        primer_min_overlap_bp: post.primer_min_overlap_bp,
+        primer_min_overlap_ratio: post.primer_min_overlap_ratio,
+        primer_end_max_offset: post.primer_end_max_offset,
+        primer_trim_mode: trimmed_option(&post.primer_trim_mode),
+        primer_keep_retained_fasta: post.primer_keep_retained_fasta,
+        primer_iter_enable: post.primer_iter_enable,
+        primer_iter_max_rounds: post.primer_iter_max_rounds,
+        primer_iter_stop_delta: post.primer_iter_stop_delta,
+        primer_iter_target_conf: post.primer_iter_target_conf,
+        primer_recheck_tool: trimmed_option(&post.primer_recheck_tool),
+        primer_recheck_min_identity: post.primer_recheck_min_identity,
+        primer_recheck_min_query_cov: post.primer_recheck_min_query_cov,
+        primer_sidecar_format: trimmed_option(&post.primer_sidecar_format),
+    }
+}
+
 pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, String> {
     let text =
         fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
@@ -782,12 +875,7 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
     let has_bold = config.bold.is_some();
     let mut imported = ImportedDbTomlConfig {
         source_path: path.to_string_lossy().to_string(),
-        source: match (has_ncbi, has_bold) {
-            (true, true) => "both",
-            (true, false) => "ncbi",
-            _ => "bold",
-        }
-        .to_string(),
+        source: imported_source(has_ncbi, has_bold),
         marker_options,
         ..ImportedDbTomlConfig::default()
     };
@@ -815,86 +903,10 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
             .to_string(),
         export_formats: config.output.export_formats,
     };
-    imported.filters = FiltersInput {
-        mitochondrion: config
-            .filters
-            .filter
-            .iter()
-            .any(|value| value.trim() == "mitochondrion"),
-        ddbj_embl_genbank: config
-            .filters
-            .filter
-            .iter()
-            .any(|value| value.trim() == "ddbj_embl_genbank"),
-        biomol_genomic: config
-            .filters
-            .properties
-            .iter()
-            .any(|value| value.trim() == "biomol_genomic"),
-        length_min: config.filters.sequence_length_min,
-        length_max: config.filters.sequence_length_max,
-    };
+    imported.filters = imported_filters(config.filters);
 
     if let Some(post) = config.post_prep {
-        let msa_tree_mode = if post.msa_tree_mode.trim().is_empty() {
-            if post.msa_tree_enable {
-                "combined"
-            } else {
-                DEFAULT_MSA_TREE_MODE
-            }
-            .to_string()
-        } else {
-            post.msa_tree_mode.trim().to_string()
-        };
-        let primer_file = post.primer_file.trim().to_string();
-        let primer_set = post
-            .primer_set
-            .into_iter()
-            .map(|value| value.trim().to_string())
-            .filter(|value| !value.is_empty())
-            .collect::<Vec<_>>();
-        let mut steps = Vec::new();
-        if !primer_file.is_empty() && !primer_set.is_empty() {
-            steps.push("primer_trim".to_string());
-        }
-        if post.sequence_length_min.is_some() || post.sequence_length_max.is_some() {
-            steps.push("length_filter".to_string());
-        }
-        if post.quality_max_ambiguous_fraction.is_some()
-            || post.quality_reject_invalid_iupac.is_some()
-            || post.duplicate_sequence_policy.is_some()
-        {
-            steps.push("quality_filter".to_string());
-        }
-        steps.push("duplicate_report".to_string());
-
-        imported.post_prep = PostPrepInput {
-            enable: true,
-            msa_tree_mode,
-            primer_file,
-            primer_set,
-            steps,
-            sequence_length_min: post.sequence_length_min,
-            sequence_length_max: post.sequence_length_max,
-            quality_max_ambiguous_fraction: post.quality_max_ambiguous_fraction,
-            quality_reject_invalid_iupac: post.quality_reject_invalid_iupac,
-            duplicate_sequence_policy: post.duplicate_sequence_policy,
-            primer_max_mismatch: post.primer_max_mismatch,
-            primer_max_error_rate: post.primer_max_error_rate,
-            primer_min_overlap_bp: post.primer_min_overlap_bp,
-            primer_min_overlap_ratio: post.primer_min_overlap_ratio,
-            primer_end_max_offset: post.primer_end_max_offset,
-            primer_trim_mode: trimmed_option(&post.primer_trim_mode),
-            primer_keep_retained_fasta: post.primer_keep_retained_fasta,
-            primer_iter_enable: post.primer_iter_enable,
-            primer_iter_max_rounds: post.primer_iter_max_rounds,
-            primer_iter_stop_delta: post.primer_iter_stop_delta,
-            primer_iter_target_conf: post.primer_iter_target_conf,
-            primer_recheck_tool: trimmed_option(&post.primer_recheck_tool),
-            primer_recheck_min_identity: post.primer_recheck_min_identity,
-            primer_recheck_min_query_cov: post.primer_recheck_min_query_cov,
-            primer_sidecar_format: trimmed_option(&post.primer_sidecar_format),
-        };
+        imported.post_prep = imported_post_prep(post);
     }
 
     Ok(imported)
@@ -955,6 +967,61 @@ mod tests {
             .post_prep
             .steps
             .contains(&"length_filter".to_string()));
+    }
+
+    #[test]
+    fn parses_source_filters_and_post_prep_steps() {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("taxondb-import-{stamp}"));
+        fs::create_dir_all(&dir).expect("create dir");
+        let path = dir.join("both.toml");
+        fs::write(
+            &path,
+            "[ncbi]\nemail = \" me@example.com \"\napi_key = \" key \"\n\n[bold]\n\n\
+             [filters]\nfilter = [\" mitochondrion \", \"other\"]\nproperties = [\"biomol_genomic\"]\n\
+             sequence_length_min = 100\nsequence_length_max = 2000\n\n\
+             [post_prep]\nmsa_tree_enable = false\nprimer_file = \"primers.toml\"\n\
+             primer_set = [\" libird \", \"\"]\nquality_max_ambiguous_fraction = 0.05\n\
+             duplicate_sequence_policy = \"representative\"\n",
+        )
+        .expect("write config");
+
+        let imported = parse_db_toml_config(&path).expect("parse both config");
+        assert_eq!(imported.source, "both");
+        assert_eq!(imported.email, "me@example.com");
+        assert_eq!(imported.api_key, "key");
+        assert!(imported.filters.mitochondrion);
+        assert!(!imported.filters.ddbj_embl_genbank);
+        assert!(imported.filters.biomol_genomic);
+        assert_eq!(imported.filters.length_min, Some(100));
+        assert_eq!(imported.filters.length_max, Some(2000));
+        assert_eq!(imported.post_prep.msa_tree_mode, DEFAULT_MSA_TREE_MODE);
+        assert_eq!(imported.post_prep.primer_set, vec!["libird".to_string()]);
+        assert_eq!(
+            imported.post_prep.steps,
+            vec![
+                "primer_trim".to_string(),
+                "quality_filter".to_string(),
+                "duplicate_report".to_string(),
+            ]
+        );
+
+        let bold_only = dir.join("bold.toml");
+        fs::write(
+            &bold_only,
+            "[post_prep]\nmsa_tree_enable = true\nsequence_length_min = 10\n",
+        )
+        .expect("write bold config");
+        let imported = parse_db_toml_config(&bold_only).expect("parse bold config");
+        assert_eq!(imported.source, "bold");
+        assert_eq!(imported.post_prep.msa_tree_mode, "combined");
+        assert_eq!(
+            imported.post_prep.steps,
+            vec!["length_filter".to_string(), "duplicate_report".to_string()]
+        );
     }
 
     #[test]
@@ -1040,10 +1107,11 @@ mod tests {
         assert!(Path::new(merged["markers"]["file"].as_str().expect("marker file")).is_absolute());
         request.post_prep.enable = false;
         request.base_config_path = path.to_string_lossy().to_string();
-        let disabled_path = write_job_config(&request, &dir.join("disabled")).expect("disabled config");
-        let disabled: toml::Value = toml::from_str(
-            &fs::read_to_string(disabled_path).expect("read disabled config")
-        ).expect("parse disabled config");
+        let disabled_path =
+            write_job_config(&request, &dir.join("disabled")).expect("disabled config");
+        let disabled: toml::Value =
+            toml::from_str(&fs::read_to_string(disabled_path).expect("read disabled config"))
+                .expect("parse disabled config");
         assert!(disabled.get("post_prep").is_none());
         fs::remove_dir_all(dir).expect("remove test directory");
     }
