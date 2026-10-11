@@ -61,6 +61,21 @@ def _apply_quality_rules(
             row["reason"] = "too_many_ambiguous_bases"
 
 
+def _reject_later_duplicates(group: list[dict[str, Any]]) -> None:
+    for row in group[1:]:
+        row["reason"] = "duplicate_sequence"
+
+
+def _reject_conflicting_duplicates(group: list[dict[str, Any]]) -> None:
+    """Drop the whole group when the same sequence carries different names."""
+    names = {row["organism_name"] for row in group if row["organism_name"]}
+    if len(names) > 1:
+        for row in group:
+            row["reason"] = "taxonomy_conflict"
+    else:
+        _reject_later_duplicates(group)
+
+
 def _apply_duplicate_policy(
     rows: list[dict[str, Any]], duplicate_policy: str
 ) -> None:
@@ -71,16 +86,9 @@ def _apply_duplicate_policy(
             groups[row["sequence"]].append(row)
     for group in groups.values():
         if duplicate_policy == "representative":
-            for row in group[1:]:
-                row["reason"] = "duplicate_sequence"
+            _reject_later_duplicates(group)
         elif duplicate_policy == "exclude_conflicts":
-            names = {row["organism_name"] for row in group if row["organism_name"]}
-            if len(names) > 1:
-                for row in group:
-                    row["reason"] = "taxonomy_conflict"
-            else:
-                for row in group[1:]:
-                    row["reason"] = "duplicate_sequence"
+            _reject_conflicting_duplicates(group)
 
 
 def _write_rejection_report(

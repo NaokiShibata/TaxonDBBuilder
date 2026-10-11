@@ -691,7 +691,7 @@ def _run_post_prep(ctx: _BuildContext) -> None:
     _run_msa_tree_post_prep(ctx)
 
 
-def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
+def _log_acc_organism_map(ctx: _BuildContext) -> tuple[Path, dict]:
     acc_species_map_path, stats = write_acc_organism_mapping_csv(
         ctx.out_path, ctx.emitted_records
     )
@@ -702,6 +702,10 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         f" unique_accessions={stats['unique_accessions']} unique_organisms={stats['unique_organisms']}"
     )
     ctx.run_logger.info(f"# acc_organism_map_csv: {acc_species_map_path}")
+    return acc_species_map_path, stats
+
+
+def _log_interoperability_exports(ctx: _BuildContext) -> list[dict]:
     export_results = write_interoperability_exports(
         ctx.out_path, ctx.emitted_records, ctx.export_formats
     )
@@ -712,6 +716,15 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
             f" format={result['format']} exported={result['exported_records']}"
             f" skipped={result['skipped_records']} paths={paths}"
         )
+    return export_results
+
+
+def _build_output_paths(
+    ctx: _BuildContext,
+    source_merge_path: Path,
+    acc_species_map_path: Path,
+    export_results: list[dict],
+) -> list[Path]:
     output_paths = [ctx.out_path, source_merge_path, acc_species_map_path]
     output_paths.extend(
         path for result in export_results for path in result["paths"]
@@ -721,6 +734,28 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         for path in ctx.out_path.parent.glob(f"{ctx.out_path.name}.*")
         if path != ctx.log_path and not path.name.endswith(".manifest.json")
     )
+    return output_paths
+
+
+def _log_build_counters(ctx: _BuildContext) -> None:
+    for label, key in (
+        ("total records", "total_records"),
+        ("matched records", "matched_records"),
+        ("matched features", "matched_features"),
+        ("kept records", "kept_records"),
+        ("skipped duplicates (same accession+sequence)", "skipped_same"),
+        ("kept duplicates (same accession, different sequence)", "duplicated_diff"),
+    ):
+        ctx.run_logger.info(f"# {label}: {ctx.counters[key]}")
+    if ctx.dup_accessions:
+        ctx.run_logger.info("# duplicate accessions with different sequences:")
+        for acc, count in sorted(ctx.dup_accessions.items()):
+            ctx.run_logger.info(f"# - {acc}: {count} sequences")
+
+
+def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
+    acc_species_map_path, stats = _log_acc_organism_map(ctx)
+    export_results = _log_interoperability_exports(ctx)
     manifest_path = write_run_manifest(
         ctx.out_path,
         ctx.config,
@@ -735,22 +770,12 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         if ctx.uses_ncbi
         else [],
         bold_queries=ctx.bold_queries,
-        output_paths=output_paths,
+        output_paths=_build_output_paths(
+            ctx, source_merge_path, acc_species_map_path, export_results
+        ),
     )
     ctx.run_logger.info(f"# manifest: {manifest_path}")
-    for label, key in (
-        ("total records", "total_records"),
-        ("matched records", "matched_records"),
-        ("matched features", "matched_features"),
-        ("kept records", "kept_records"),
-        ("skipped duplicates (same accession+sequence)", "skipped_same"),
-        ("kept duplicates (same accession, different sequence)", "duplicated_diff"),
-    ):
-        ctx.run_logger.info(f"# {label}: {ctx.counters[key]}")
-    if ctx.dup_accessions:
-        ctx.run_logger.info("# duplicate accessions with different sequences:")
-        for acc, count in sorted(ctx.dup_accessions.items()):
-            ctx.run_logger.info(f"# - {acc}: {count} sequences")
+    _log_build_counters(ctx)
     ctx.run_logger.info(f"# output: {ctx.out_path}")
     ctx.run_logger.info(f"# finished: {datetime.now().isoformat()}")
     render_result_table(
