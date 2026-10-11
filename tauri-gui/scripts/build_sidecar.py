@@ -28,21 +28,6 @@ def detect_target_triple(repo_root: Path) -> str:
     raise RuntimeError("failed to detect rust target triple from `rustc -vV`")
 
 
-def write_stub_binary(path: Path, os_key: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    if os_key == "windows":
-        content = "@echo off\r\necho taxondbbuilder sidecar stub. Build real binary with scripts/build_sidecar.py\r\nexit /b 1\r\n"
-        path.write_text(content, encoding="utf-8")
-    else:
-        content = (
-            "#!/usr/bin/env sh\n"
-            "echo 'taxondbbuilder sidecar stub. Build real binary with scripts/build_sidecar.py' >&2\n"
-            "exit 1\n"
-        )
-        path.write_text(content, encoding="utf-8")
-        path.chmod(0o755)
-
-
 def sidecar_fingerprint(repo_root: Path, target_triple: str) -> str:
     inputs = [
         repo_root / "taxondbbuilder.py",
@@ -69,11 +54,6 @@ def main() -> int:
     parser.add_argument(
         "--tauri-root", default=".", help="tauri-gui root path (contains src-tauri/)"
     )
-    parser.add_argument(
-        "--stub",
-        action="store_true",
-        help="Create target-triple sidecar stub file only (offline/cargo-check aid).",
-    )
     args = parser.parse_args()
 
     repo_root = Path(args.repo_root).resolve()
@@ -98,11 +78,6 @@ def main() -> int:
     target_dir.mkdir(parents=True, exist_ok=True)
     dest_bin = target_dir / bundled_name
 
-    if args.stub:
-        write_stub_binary(dest_bin, os_key)
-        print(f"created sidecar stub: {dest_bin}")
-        return 0
-
     fingerprint = sidecar_fingerprint(repo_root, target_triple)
     fingerprint_path = target_dir / f".{bundled_name}.sha256"
     if dest_bin.is_file() and fingerprint_path.is_file():
@@ -120,7 +95,7 @@ def main() -> int:
         )
     except subprocess.CalledProcessError as exc:
         raise RuntimeError(
-            "PyInstaller is not available. Install it first, or use --stub for offline cargo check."
+            "PyInstaller is not available. Install it first."
         ) from exc
 
     cmd = [sys.executable, "-m", "PyInstaller", str(spec_path)]

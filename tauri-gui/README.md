@@ -111,15 +111,6 @@ npm --prefix tauri-gui run tauri:build
 この経路はGTK/WebKit依存ライブラリを再収集しないため、アプリのコード変更時に使えます。
 依存関係を変更した場合や初回は `npm run tauri:build` でAppDirを作り直してください。
 
-オフラインでRust側だけを確認する場合は、実バイナリの代わりにstubを配置できます。
-
-```bash
-pixi run -e dev python tauri-gui/scripts/build_sidecar.py \
-  --repo-root . \
-  --tauri-root tauri-gui \
-  --stub
-```
-
 ### 実行
 
 生成物を起動します。Linuxですと`.AppImage`ファイルが対象になります。
