@@ -247,3 +247,45 @@ test("db.toml import failure logs an error and leaves the form and path alone", 
   expect(await value(page, "#primer-set")).toBe("mifish_unity");
   expect(errors).toEqual([]);
 });
+
+test("run-events drive the monitor and unlock the results view", async ({ page }) => {
+  const errors = await openApp(page, {
+    // The Rust side answers with a default GuiConfig on a fresh install, and
+    // that empty config is what seeds the default marker selection.
+    load_gui_config: { value: {} },
+    start_run: {
+      value: { outputPath: "/srv/out/mifish", jobDir: "/srv/job1", logPath: "/srv/job1/run.log" },
+    },
+  });
+  await page.fill("#taxid-input", "1234");
+  await page.click("#add-taxid");
+  await page.fill("#output-root", "/srv/out");
+  await page.fill("#email", "survey@example.com");
+  await page.click("#run");
+  await expect(page.locator("#log-view")).toContainText("job dir: /srv/job1");
+  expect(await page.locator("#view-monitor.active").count()).toBe(1);
+
+  await page.evaluate(() => {
+    const emit = (payload) => window.__guiEmit__("run-event", payload);
+    emit({ eventType: "log", line: "hello from sidecar" });
+    emit({ eventType: "status", status: "Running" });
+    emit({ eventType: "progress", phase: "post_prep", percent: 42 });
+    emit({ eventType: "error", message: "boom" });
+    emit({ eventType: "result", jobDir: "/srv/job1", files: ["/srv/job1/out.fasta"] });
+    emit("not-an-object");
+    emit({ eventType: "unknown" });
+  });
+  await expect(page.locator("#log-view")).toContainText("hello from sidecar");
+  await expect(page.locator("#log-view")).toContainText("[error] boom");
+  expect(await page.locator("#phase").textContent()).toBe("post_prep");
+  // #progress is a <progress> element, so read the DOM property.
+  expect(await page.evaluate(() => document.querySelector("#progress").value)).toBe(42);
+  await expect(page.locator("#progress-detail")).toContainText("42");
+  // The error event lands after the status event, so "Failed" wins.
+  expect(await page.locator("#status").textContent()).toBe("Failed");
+  await expect(page.locator("#result-job-dir-path")).toHaveText("/srv/job1");
+  await expect(page.locator("#result-files")).toContainText("out.fasta");
+  await expect(page.locator("#tab-results")).toBeEnabled();
+  expect(await page.locator("#view-results.active").count()).toBe(1);
+  expect(errors).toEqual([]);
+});

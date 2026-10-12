@@ -504,7 +504,10 @@ function setOutputExportFormatSelection(formats, inferMifish = false) {
   }
 }
 
-function applyImportedDbToml(imported) {
+// One helper per imported db.toml table, each writing the matching form region.
+// `|| current` keeps what the form already holds; `?? ""` clears it. The two
+// forms are not interchangeable - the tests in tests/e2e/gui-form.e2e.mjs pin them.
+function applyImportedBase(imported) {
   state.baseConfigPath = imported.sourcePath || "";
   setMarkerOptions(imported.markerOptions);
   els.sourceInput.value = imported.source || "ncbi";
@@ -513,15 +516,17 @@ function applyImportedDbToml(imported) {
   const apiKey = imported.apiKey || "";
   els.apiKeyInput.value = apiKey;
   els.saveApiKeyInput.checked = apiKey.length > 0;
+}
 
-  const filters = imported.filters || {};
+function applyImportedFilters(filters) {
   els.filterMitoInput.checked = Boolean(filters.mitochondrion);
   els.filterDdbjInput.checked = Boolean(filters.ddbjEmblGenbank);
   els.filterBiomolInput.checked = Boolean(filters.biomolGenomic);
   els.filterLengthMinInput.value = filters.lengthMin ?? "";
   els.filterLengthMaxInput.value = filters.lengthMax ?? "";
+}
 
-  const postPrep = imported.postPrep || {};
+function applyImportedPostPrep(postPrep) {
   els.postEnableInput.checked = Boolean(postPrep.enable);
   setMsaTreeMode(postPrep.msaTreeMode);
   els.primerFileInput.value = postPrep.primerFile || "";
@@ -536,21 +541,31 @@ function applyImportedDbToml(imported) {
   els.duplicateSequencePolicyInput.value =
     postPrep.duplicateSequencePolicy || "keep";
   setPostPrepStepSelection(postPrep.steps || []);
+}
 
-  const ncbiOptions = imported.ncbiOptions || {};
+function applyImportedNcbiOptions(ncbiOptions) {
   els.ncbiDbInput.value = ncbiOptions.db || els.ncbiDbInput.value;
   els.ncbiRettypeInput.value = ncbiOptions.rettype || els.ncbiRettypeInput.value;
   els.ncbiRetmodeInput.value = ncbiOptions.retmode || els.ncbiRetmodeInput.value;
   els.ncbiPerQueryInput.value = ncbiOptions.perQuery || els.ncbiPerQueryInput.value;
   els.ncbiUseHistoryInput.checked = ncbiOptions.useHistory !== false;
   els.ncbiDelaySecInput.value = ncbiOptions.delaySec ?? "";
+}
 
-  const outputOptions = imported.outputOptions || {};
+function applyImportedOutputOptions(outputOptions) {
   els.outputDefaultHeaderFormatInput.value =
     outputOptions.defaultHeaderFormat || els.outputDefaultHeaderFormatInput.value;
   els.outputMifishHeaderFormatInput.value =
     outputOptions.mifishHeaderFormat || els.outputMifishHeaderFormatInput.value;
   setOutputExportFormatSelection(outputOptions.exportFormats, true);
+}
+
+function applyImportedDbToml(imported) {
+  applyImportedBase(imported);
+  applyImportedFilters(imported.filters || {});
+  applyImportedPostPrep(imported.postPrep || {});
+  applyImportedNcbiOptions(imported.ncbiOptions || {});
+  applyImportedOutputOptions(imported.outputOptions || {});
   syncSourceMode();
 }
 
@@ -770,81 +785,104 @@ function collectRequest() {
   };
 }
 
+function handleRunLog(payload) {
+  if (payload.line) monitorView.appendLog(payload.line);
+}
+
+function handleRunStatus(payload) {
+  if (payload.status) els.status.textContent = payload.status;
+}
+
+function handleRunProgress(payload) {
+  if (payload.phase) els.phase.textContent = payload.phase;
+  if (payload.percent != null) els.progress.value = payload.percent;
+  monitorView.renderProgressDetail(payload.phase, payload.percent, payload.metrics);
+  if (!payload.metrics) return;
+  monitorView.renderMetrics(payload.metrics);
+  if (payload.metrics.msaTreeStatus) {
+    state.msaTreeStatus = payload.metrics.msaTreeStatus;
+    state.msaTreeTaxa = payload.metrics.msaTreeTaxa ?? null;
+  }
+}
+
+function handleRunResult(payload) {
+  state.jobDir = payload.jobDir || "";
+  state.files = payload.files || [];
+  setResultsEnabled(true);
+  renderResultJobDir();
+  monitorView.renderResultFiles(state.files);
+  switchView("results");
+  renderRunTree();
+}
+
+function handleRunError(payload) {
+  if (!payload.message) return;
+  monitorView.appendLog(`[error] ${payload.message}`);
+  els.status.textContent = "Failed";
+}
+
+// One handler per run-event type; the dispatcher only screens the payload.
+function handleRunEvent(event) {
+  const payload = event.payload;
+  if (!payload || typeof payload !== "object") return;
+  if (payload.eventType === "log") handleRunLog(payload);
+  if (payload.eventType === "status") handleRunStatus(payload);
+  if (payload.eventType === "progress") handleRunProgress(payload);
+  if (payload.eventType === "result") handleRunResult(payload);
+  if (payload.eventType === "error") handleRunError(payload);
+}
+
 async function setupEventListener() {
   if (state.unlisten) {
     state.unlisten();
     state.unlisten = null;
   }
 
-  state.unlisten = await listen("run-event", (event) => {
-    const payload = event.payload;
-    if (!payload || typeof payload !== "object") return;
+  state.unlisten = await listen("run-event", handleRunEvent);
+}
 
-    if (payload.eventType === "log" && payload.line) {
-      monitorView.appendLog(payload.line);
-    }
-    if (payload.eventType === "status" && payload.status) {
-      els.status.textContent = payload.status;
-    }
-    if (payload.eventType === "progress") {
-      if (payload.phase) els.phase.textContent = payload.phase;
-      if (payload.percent != null) els.progress.value = payload.percent;
-      monitorView.renderProgressDetail(payload.phase, payload.percent, payload.metrics);
-      if (payload.metrics) {
-        monitorView.renderMetrics(payload.metrics);
-        if (payload.metrics.msaTreeStatus) {
-          state.msaTreeStatus = payload.metrics.msaTreeStatus;
-          state.msaTreeTaxa = payload.metrics.msaTreeTaxa ?? null;
-        }
-      }
-    }
-    if (payload.eventType === "result") {
-      state.jobDir = payload.jobDir || "";
-      state.files = payload.files || [];
-      setResultsEnabled(true);
-      renderResultJobDir();
-      monitorView.renderResultFiles(state.files);
-      switchView("results");
-      renderRunTree();
-    }
-    if (payload.eventType === "error" && payload.message) {
-      monitorView.appendLog(`[error] ${payload.message}`);
-      els.status.textContent = "Failed";
-    }
-  });
+function applySavedRunFields(saved) {
+  els.outputRootInput.value = saved.outputRoot || "";
+  els.outputPrefixInput.value = saved.outputPrefix || els.outputPrefixInput.value;
+  els.emailInput.value = saved.email || "";
+  els.apiKeyInput.value = saved.saveApiKey ? saved.apiKey || "" : "";
+  els.saveApiKeyInput.checked = Boolean(saved.saveApiKey);
+  if (saved.marker) {
+    els.markerSelect.value = saved.marker;
+    addMarkers(saved.marker);
+  } else if (!state.markers.length) {
+    addMarkers(els.markerSelect.value);
+  }
+  if (!saved.source) return;
+  els.sourceInput.value = saved.source;
+  syncSourceMode();
+}
+
+function applySavedNcbiFields(saved) {
+  if (saved.ncbiDb) els.ncbiDbInput.value = saved.ncbiDb;
+  if (saved.ncbiRettype) els.ncbiRettypeInput.value = saved.ncbiRettype;
+  if (saved.ncbiRetmode) els.ncbiRetmodeInput.value = saved.ncbiRetmode;
+  if (saved.ncbiPerQuery) els.ncbiPerQueryInput.value = `${saved.ncbiPerQuery}`;
+  if (saved.ncbiUseHistory != null) els.ncbiUseHistoryInput.checked = Boolean(saved.ncbiUseHistory);
+  if (saved.ncbiDelaySec != null) els.ncbiDelaySecInput.value = `${saved.ncbiDelaySec}`;
+}
+
+function applySavedOutputFields(saved) {
+  if (saved.outputDefaultHeaderFormat) {
+    els.outputDefaultHeaderFormatInput.value = saved.outputDefaultHeaderFormat;
+  }
+  if (saved.outputMifishHeaderFormat) {
+    els.outputMifishHeaderFormatInput.value = saved.outputMifishHeaderFormat;
+  }
 }
 
 async function loadSavedConfig() {
   try {
     const saved = await invoke("load_gui_config");
     if (!saved) return;
-    els.outputRootInput.value = saved.outputRoot || "";
-    els.outputPrefixInput.value = saved.outputPrefix || els.outputPrefixInput.value;
-    els.emailInput.value = saved.email || "";
-    els.apiKeyInput.value = saved.saveApiKey ? saved.apiKey || "" : "";
-    els.saveApiKeyInput.checked = Boolean(saved.saveApiKey);
-    if (saved.marker) {
-      els.markerSelect.value = saved.marker;
-      addMarkers(saved.marker);
-    } else if (!state.markers.length) {
-      addMarkers(els.markerSelect.value);
-    }
-    if (saved.source) {
-      els.sourceInput.value = saved.source;
-      syncSourceMode();
-    }
-    if (saved.ncbiDb) els.ncbiDbInput.value = saved.ncbiDb;
-    if (saved.ncbiRettype) els.ncbiRettypeInput.value = saved.ncbiRettype;
-    if (saved.ncbiRetmode) els.ncbiRetmodeInput.value = saved.ncbiRetmode;
-    if (saved.ncbiPerQuery) els.ncbiPerQueryInput.value = `${saved.ncbiPerQuery}`;
-    if (saved.ncbiUseHistory != null) els.ncbiUseHistoryInput.checked = Boolean(saved.ncbiUseHistory);
-    if (saved.ncbiDelaySec != null) els.ncbiDelaySecInput.value = `${saved.ncbiDelaySec}`;
-    if (saved.outputDefaultHeaderFormat) {
-      els.outputDefaultHeaderFormatInput.value = saved.outputDefaultHeaderFormat;
-    }
-    if (saved.outputMifishHeaderFormat) {
-      els.outputMifishHeaderFormatInput.value = saved.outputMifishHeaderFormat;
-    }
+    applySavedRunFields(saved);
+    applySavedNcbiFields(saved);
+    applySavedOutputFields(saved);
     setOutputExportFormatSelection(["mifish_pipeline"]);
     updateGuidanceState();
   } catch (error) {
