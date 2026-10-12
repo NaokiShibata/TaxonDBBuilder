@@ -1,5 +1,11 @@
 # Changelog
 
+## 3.3.4 (planned)
+
+### Scope
+- GUI の品質改善に限定する。`tauri-gui/src/main.js` の責務分離、`main.js` を対象にした GUI 自動テスト基盤、系統樹の検索ハイライトが CSS に上書きされる問題の修正。
+- バックエンド (Python / Rust) の挙動変更と新規機能追加は行わない。
+
 ## 3.3.3 (2026-10-13)
 
 ### Scope
