@@ -356,6 +356,144 @@ function viewBoxString(viewBox) {
   return [viewBox.x, viewBox.y, viewBox.width, viewBox.height].join(" ");
 }
 
+function appendBranchLines(svg, data, node, position) {
+  const childYs = node.children.map(
+    (child) => data.tree.positions.get(child).y,
+  );
+  svg.appendChild(
+    svgElement("line", {
+      x1: position.x,
+      y1: Math.min(...childYs),
+      x2: position.x,
+      y2: Math.max(...childYs),
+      stroke: "#446b88",
+      "stroke-width": 1.5,
+      class: "tree-node-branch",
+    }),
+  );
+}
+
+function appendSupportLabel(svg, node, position) {
+  const support = nodeSupport(node);
+  if (!support) return;
+  const supportLabel = svgElement("text", {
+    x: position.x + 6,
+    y: position.y - 6,
+    fill: "#7b4f2c",
+    "font-size": 10,
+    "font-weight": 600,
+    class: "tree-node-support",
+  });
+  supportLabel.textContent = support;
+  svg.appendChild(supportLabel);
+}
+
+function appendLeafNode(svg, position, node, matched) {
+  const palette = leafPalette(matched);
+  const group = svgElement("g", { class: "tree-node" });
+  group.appendChild(
+    svgElement("circle", {
+      cx: position.x,
+      cy: position.y,
+      r: 3.5,
+      fill: palette.fill,
+      stroke: palette.stroke,
+      "stroke-width": palette.strokeWidth,
+      class: "tree-node-point",
+    }),
+  );
+  const label = svgElement("text", {
+    x: position.x + 7,
+    y: position.y + 4,
+    fill: palette.labelFill,
+    "font-size": 12,
+    "font-weight": palette.fontWeight,
+    class: palette.labelClass,
+  });
+  label.textContent = nodeName(node);
+  group.appendChild(label);
+  svg.appendChild(group);
+  return group;
+}
+
+// Recursion host. Connector lines must be appended inside the child loop,
+// before each child's subtree: hoisting them out of this loop (or into
+// appendBranchLines) reorders the SVG output.
+function drawTreeNode(svg, data, node, ctx) {
+  const position = data.tree.positions.get(node);
+  if (node.children.length) {
+    appendBranchLines(svg, data, node, position);
+    for (const child of node.children) {
+      const childPosition = data.tree.positions.get(child);
+      svg.appendChild(
+        svgElement("line", {
+          x1: position.x,
+          y1: childPosition.y,
+          x2: childPosition.x,
+          y2: childPosition.y,
+          stroke: "#446b88",
+          "stroke-width": 1.5,
+          class: "tree-node-branch",
+        }),
+      );
+      drawTreeNode(svg, data, child, ctx);
+    }
+    if (node !== data.root) appendSupportLabel(svg, node, position);
+    return;
+  }
+  const group = appendLeafNode(svg, position, node, ctx.isMatched(node));
+  ctx.attachTooltip(group, node);
+}
+
+function appendBackgroundPaths(svg, paths) {
+  for (const [color, commands] of paths) {
+    svg.appendChild(
+      svgElement("path", {
+        d: commands.join(""),
+        fill: color,
+        "fill-opacity": 0.24,
+        class: "msa-background",
+      }),
+    );
+  }
+}
+
+function appendMsaRow(svg, data, leaf) {
+  const sequence = data.alignment.get(nodeName(leaf));
+  const y = data.tree.positions.get(leaf).y + 4;
+  if (sequence == null) {
+    const missing = svgElement("text", {
+      x: data.alignmentStart,
+      y,
+      fill: "#b04a4a",
+      "font-size": 11,
+      class: "msa-missing",
+    });
+    missing.textContent = "No matching MSA sequence";
+    svg.appendChild(missing);
+    return;
+  }
+  const row = svgElement("text", {
+    x: data.alignmentStart,
+    y,
+    "font-family": MSA_FONT_FAMILY,
+    "font-size": data.alignmentFontSize,
+    textLength: sequence.length * data.alignmentCellWidth,
+    lengthAdjust: "spacingAndGlyphs",
+    "xml:space": "preserve",
+    class: "msa-sequence",
+  });
+  for (const run of colorRuns(
+    sequence,
+    (index) => msaBaseColor(sequence[index] || ""),
+  )) {
+    const base = svgElement("tspan", { fill: run.color });
+    base.textContent = sequence.slice(run.start, run.end);
+    row.appendChild(base);
+  }
+  svg.appendChild(row);
+}
+
 export function renderTreeSVG(
   root,
   containerEl,
@@ -505,82 +643,8 @@ export function renderTreeSVG(
   }
 
   function drawRectangular(svg, data) {
-    function draw(node) {
-      const position = data.tree.positions.get(node);
-      if (node.children.length) {
-        const childYs = node.children.map(
-          (child) => data.tree.positions.get(child).y,
-        );
-        svg.appendChild(
-          svgElement("line", {
-            x1: position.x,
-            y1: Math.min(...childYs),
-            x2: position.x,
-            y2: Math.max(...childYs),
-            stroke: "#446b88",
-            "stroke-width": 1.5,
-            class: "tree-node-branch",
-          }),
-        );
-        for (const child of node.children) {
-          const childPosition = data.tree.positions.get(child);
-          svg.appendChild(
-            svgElement("line", {
-              x1: position.x,
-              y1: childPosition.y,
-              x2: childPosition.x,
-              y2: childPosition.y,
-              stroke: "#446b88",
-              "stroke-width": 1.5,
-              class: "tree-node-branch",
-            }),
-          );
-          draw(child);
-        }
-        const support = nodeSupport(node);
-        if (support && node !== data.root) {
-          const supportLabel = svgElement("text", {
-            x: position.x + 6,
-            y: position.y - 6,
-            fill: "#7b4f2c",
-            "font-size": 10,
-            "font-weight": 600,
-            class: "tree-node-support",
-          });
-          supportLabel.textContent = support;
-          svg.appendChild(supportLabel);
-        }
-        return;
-      }
-
-      const palette = leafPalette(isMatched(node));
-      const group = svgElement("g", { class: "tree-node" });
-      group.appendChild(
-        svgElement("circle", {
-          cx: position.x,
-          cy: position.y,
-          r: 3.5,
-          fill: palette.fill,
-          stroke: palette.stroke,
-          "stroke-width": palette.strokeWidth,
-          class: "tree-node-point",
-        }),
-      );
-      const label = svgElement("text", {
-        x: position.x + 7,
-        y: position.y + 4,
-        fill: palette.labelFill,
-        "font-size": 12,
-        "font-weight": palette.fontWeight,
-        class: palette.labelClass,
-      });
-      label.textContent = nodeName(node);
-      group.appendChild(label);
-      addTooltipEvents(group, node);
-      svg.appendChild(group);
-    }
-    draw(data.root);
-
+    const ctx = { isMatched, attachTooltip: addTooltipEvents };
+    drawTreeNode(svg, data, data.root, ctx);
     if (!data.alignmentLength) return;
     for (const x of msaRulerTicks(data)) {
       const tick = svgElement("text", {
@@ -595,58 +659,15 @@ export function renderTreeSVG(
       tick.textContent = "│";
       svg.appendChild(tick);
     }
-
-    const backgroundPaths = msaBackgroundPaths(
-      data,
-      state.alignmentAgreement,
-      state.conservationThreshold,
+    appendBackgroundPaths(
+      svg,
+      msaBackgroundPaths(
+        data,
+        state.alignmentAgreement,
+        state.conservationThreshold,
+      ),
     );
-    for (const [color, commands] of backgroundPaths) {
-      svg.appendChild(
-        svgElement("path", {
-          d: commands.join(""),
-          fill: color,
-          "fill-opacity": 0.24,
-          class: "msa-background",
-        }),
-      );
-    }
-
-    for (const leaf of data.tree.leaves) {
-      const sequence = data.alignment.get(nodeName(leaf));
-      const y = data.tree.positions.get(leaf).y + 4;
-      if (sequence == null) {
-        const missing = svgElement("text", {
-          x: data.alignmentStart,
-          y,
-          fill: "#b04a4a",
-          "font-size": 11,
-          class: "msa-missing",
-        });
-        missing.textContent = "No matching MSA sequence";
-        svg.appendChild(missing);
-        continue;
-      }
-      const row = svgElement("text", {
-        x: data.alignmentStart,
-        y,
-        "font-family": MSA_FONT_FAMILY,
-        "font-size": data.alignmentFontSize,
-        textLength: sequence.length * data.alignmentCellWidth,
-        lengthAdjust: "spacingAndGlyphs",
-        "xml:space": "preserve",
-        class: "msa-sequence",
-      });
-      for (const run of colorRuns(
-        sequence,
-        (index) => msaBaseColor(sequence[index] || ""),
-      )) {
-        const base = svgElement("tspan", { fill: run.color });
-        base.textContent = sequence.slice(run.start, run.end);
-        row.appendChild(base);
-      }
-      svg.appendChild(row);
-    }
+    for (const leaf of data.tree.leaves) appendMsaRow(svg, data, leaf);
   }
 
   function redraw() {
