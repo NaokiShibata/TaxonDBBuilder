@@ -15,6 +15,9 @@
 - `tauri-gui/src-tauri/bin/README.md`。「sidecar バイナリは不要で、GUI は統合 Rust ランナーを使う」と記述していたが、`externalBin: ["bin/taxondbbuilder"]` が実際に sidecar バイナリを要求しており、記述が実装と矛盾していた。ディレクトリ自体は `build_sidecar.py` が作成するため、git 上のプレースホルダも不要。
 - `tauri-gui/package.json` の `preview` スクリプト。GUI は `tauri:dev` (devUrl 1420) もしくはバンドルで起動し、standalone の preview サーバは使わない。
 
+### Known issues
+- 系統樹の葉を検索でハイライトしたとき、`leafPalette` が設定する `stroke` (`#d76735`) と `stroke-width` (2.5) が画面に反映されない。`tauri-gui/src/styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が presentation attribute より優先されるため、実際に変わるのは `fill` と `font-weight` のみ。リファクタリング前から存在する CSS の問題で、今回は修正していない。Chromium (Playwright) と WebKitGTK 2.52.6 の両方で同じ挙動を実測済み。修正は CSS 1 行（`.tree-node-point` の stroke 指定を外す、もしくわ match 時だけ上書きする）だが、見た目の意図を確認して別途決める。現状の挙動は `tauri-gui/tests/e2e/tree-view.e2e.mjs` の "search highlights only the matching leaf" が固定している。
+
 ### Notes
 - rpm を出荷しなくなったため、rpm ペイロードの zstd 化は取りやめた。計測結果は残している。164 MB の PyInstaller sidecar に対する rpm バンドリングは gzip 既定で 16m25s、zstd level 3 で 3m51s。ペイロードは deflate 済みで圧縮率は 1% 未満のため、圧縮方式は成果物サイズにほぼ影響しない。
 - 新規 clone で sidecar をビルドせずに `cargo test --offline` を実行すると、`externalBin` の不足で失敗する。README の手順 (`pixi install -e dev` からビルド) どおりなら問題ない。CI を導入する場合は sidecar ビルドを前に置く。
