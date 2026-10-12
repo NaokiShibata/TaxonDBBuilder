@@ -482,6 +482,13 @@ function setPrimerCandidateSelection(primerSets) {
   setCheckedValues(primerCandidateEls, primerSets);
 }
 
+// The checked candidates are the only source of truth for the default
+// primer_set. Without this the form ships MiFish-Unity checked but an empty
+// primer_set, and the CLI rejects primer_trim with "requires post_prep.primer_set".
+function syncPrimerSetFromCandidates() {
+  els.primerSetInput.value = readCheckedValues(primerCandidateEls).join(",");
+}
+
 function setOutputExportFormatSelection(formats, inferMifish = false) {
   const requested = (formats || []).find(
     (format) => outputExportHeaderFormats[format],
@@ -897,9 +904,9 @@ function resetForm() {
   els.qualityRejectInvalidIupacInput.checked = true;
   els.duplicateSequencePolicyInput.value = "keep";
   els.primerFileInput.value = "";
-  els.primerSetInput.value = "";
   els.postEnableInput.checked = true;
   setPrimerCandidateSelection(["mifish_unity"]);
+  syncPrimerSetFromCandidates();
   setMsaTreeMode("per_taxid");
   setPostPrepStepSelection(["primer_trim", "length_filter", "quality_filter"]);
   setOutputExportFormatSelection([]);
@@ -1033,7 +1040,7 @@ postStepEls.forEach((el) => {
 });
 primerCandidateEls.forEach((el) => {
   el.addEventListener("change", () => {
-    els.primerSetInput.value = readCheckedValues(primerCandidateEls).join(",");
+    syncPrimerSetFromCandidates();
     updateGuidanceState();
   });
 });
@@ -1089,6 +1096,7 @@ addTaxids(els.taxidsHidden.value);
 renderTaxids();
 syncTaxidsHidden();
 syncSourceMode();
+syncPrimerSetFromCandidates();
 loadSavedConfig();
 renderResultJobDir();
 setTreeViewControlsEnabled(false);
