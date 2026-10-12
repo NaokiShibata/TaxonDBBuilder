@@ -323,16 +323,30 @@ test.describe("tree view in a real browser", () => {
       "rgb(215, 103, 53)",
       "rgb(68, 107, 136)",
     ]);
-    // Known quirk, pinned on purpose: styles.css sets .tree-node-point stroke
-    // to #fff, which outranks the matched stroke attribute, so only fill and
-    // font weight actually change on screen.
+    // The matched node keeps its own stroke: the palette sets stroke #d76735 /
+    // stroke-width 2.5 as presentation attributes and no CSS rule outranks them.
     const strokes = await page.$$eval(`${CONTAINER} .tree-node-point`, (nodes) =>
-      nodes.map((node) => getComputedStyle(node).stroke),
+      nodes.map((node) => {
+        const style = getComputedStyle(node);
+        return `${style.stroke} ${style.strokeWidth}`;
+      }),
     );
-    expect(new Set(strokes)).toEqual(new Set(["rgb(255, 255, 255)"]));
+    expect(strokes).toEqual([
+      "rgb(255, 255, 255) 1px",
+      "rgb(255, 255, 255) 1px",
+      "rgb(215, 103, 53) 2.5px",
+      "rgb(255, 255, 255) 1px",
+    ]);
 
     await call(page, "setSearch", "");
     await expect(page.locator(`${CONTAINER} .tree-node-label-match`)).toHaveCount(0);
+    const cleared = await page.$$eval(`${CONTAINER} .tree-node-point`, (nodes) =>
+      nodes.map((node) => {
+        const style = getComputedStyle(node);
+        return `${style.stroke} ${style.strokeWidth}`;
+      }),
+    );
+    expect(new Set(cleared)).toEqual(new Set(["rgb(255, 255, 255) 1px"]));
   });
 
   test("conservation threshold rewrites the MSA background cells", async ({

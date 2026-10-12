@@ -997,11 +997,6 @@ progress {
   font-variant-ligatures: none;
 }
 
-.tree-node-point {
-  stroke: #fff;
-  stroke-width: 1;
-}
-
 .tree-view-tooltip {
   position: absolute;
   z-index: 2;

@@ -6,6 +6,9 @@
 - GUI の品質改善に限定する。`tauri-gui/src/main.js` の責務分離、`main.js` を対象にした GUI 自動テスト基盤、系統樹の検索ハイライトが CSS に上書きされる問題の修正。
 - バックエンド (Python / Rust) の挙動変更と新規機能追加は行わない。
 
+### Fixed
+- 系統樹の検索ハイライトがノートの縁に反映されない問題を修正した (`v3.3.3` の Known issues に記録したもの)。`styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が `leafPalette` の presentation attribute より優先され、マッチしたノートの縁が常に白 1px になっていた。CSS 側を削除し、`tree-view.js` が設定する `stroke: #d76735` / `stroke-width: 2.5` が効くようにした。非マッチノートの見た目は変わらない (元から白 1px)。
+
 ## 3.3.3 (2026-10-13)
 
 ### Scope
