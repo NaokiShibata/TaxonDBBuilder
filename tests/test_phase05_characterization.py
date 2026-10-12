@@ -691,3 +691,46 @@ def test_fetch_genbank_resume_cache_is_isolated_by_query(
         assert list(chunks) == [(0, f"chunk-{query}")]
 
     assert len(list((dump_dir / ".cache" / "taxid999").glob("query-*"))) == 2
+
+
+def test_efetch_retries_back_off_linearly_and_reraise_http_error_unwrapped(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The caller inspects exc.code to fall back to id-based fetch, so the
+    HTTPError must survive the retry loop unwrapped, with its code intact."""
+    import taxondbbuilder as builder
+
+    attempts = 0
+
+    def esearch(**kwargs: Any):
+        return _FakeHandle({"Count": "1", "WebEnv": "webenv", "QueryKey": "1"})
+
+    def efetch(**kwargs: Any):
+        nonlocal attempts
+        attempts += 1
+        raise HTTPError(
+            "https://example.invalid", HTTPStatus.SERVICE_UNAVAILABLE, "busy", {}, None
+        )
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(builder.Entrez, "esearch", esearch)
+    monkeypatch.setattr(builder.Entrez, "read", lambda handle: handle.payload)
+    monkeypatch.setattr(builder.Entrez, "efetch", efetch)
+    monkeypatch.setattr(builder.time, "sleep", sleeps.append)
+
+    cfg = {
+        "db": "nucleotide",
+        "rettype": "gb",
+        "retmode": "text",
+        "per_query": 100,
+        "fetch_retries": 4,
+        "retry_delay_sec": 0.25,
+    }
+    count, chunks = builder.fetch_genbank("fixture", cfg, 0)
+    assert count == 1
+    with pytest.raises(HTTPError) as excinfo:
+        list(chunks)
+    assert excinfo.type is HTTPError
+    assert excinfo.value.code == 503
+    assert attempts == 4
+    assert sleeps == [0.25, 0.5, 0.75]

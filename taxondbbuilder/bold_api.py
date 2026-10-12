@@ -19,6 +19,8 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, urlencode
 from urllib.request import Request, urlopen
 
+from .net_retry import retry_call
+
 DEFAULT_BASE_URL = "https://portal.boldsystems.org/api"
 DEFAULT_TIMEOUT_SEC = 60.0
 DEFAULT_RETRIES = 3
@@ -137,7 +139,7 @@ def _request_json(url: str, runtime_cfg: dict[str, Any]) -> Any:
         "User-Agent": str(runtime_cfg["user_agent"]),
     }
 
-    for attempt in range(retries + 1):
+    def attempt() -> Any:
         request = Request(url, headers=headers, method="GET")
         try:
             with urlopen(request, timeout=timeout_sec) as response:
@@ -148,19 +150,17 @@ def _request_json(url: str, runtime_cfg: dict[str, Any]) -> Any:
                 charset = response.headers.get_content_charset() or "utf-8"
                 text = body.decode(charset, errors="replace")
                 return _parse_json_payload(text)
-        except HTTPError as exc:
-            if attempt >= retries:
-                raise BoldApiError(f"BOLD HTTP error {exc.code}: {exc.reason}") from exc
-        except URLError as exc:
-            if attempt >= retries:
-                raise BoldApiError(f"BOLD network error: {exc.reason}") from exc
         except json.JSONDecodeError as exc:
+            # Not transient: propagate immediately, never retried.
             raise BoldApiError(f"BOLD response JSON decode error: {exc}") from exc
 
-        if backoff_sec > 0:
-            time.sleep(backoff_sec * (attempt + 1))
-
-    raise BoldApiError("BOLD request failed after retries.")
+    return retry_call(
+        attempt,
+        retries=retries,
+        backoff_sec=backoff_sec,
+        retry_on=(HTTPError, URLError),
+        wrap=_download_failure,
+    )
 
 
 def _build_url(base_url: str, path: str, params: dict[str, str] | None = None) -> str:
@@ -424,8 +424,9 @@ def download_documents_to_path(
     headers = _download_headers(format_name, runtime_cfg)
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
-    for attempt in range(retries + 1):
-        part_path = dest_path.with_suffix(dest_path.suffix + ".part")
+    part_path = dest_path.with_suffix(dest_path.suffix + ".part")
+
+    def attempt() -> dict[str, Any]:
         request = Request(url, headers=headers, method="GET")
         try:
             with urlopen(request, timeout=timeout_sec) as response:
@@ -439,17 +440,17 @@ def download_documents_to_path(
                 "downloaded_bytes": downloaded_bytes,
                 "content_length": content_length,
             }
-        except (HTTPError, URLError, OSError) as exc:
-            if attempt >= retries:
-                raise _download_failure(exc) from exc
         finally:
             if part_path.exists():
                 part_path.unlink(missing_ok=True)
 
-        if backoff_sec > 0:
-            time.sleep(backoff_sec * (attempt + 1))
-
-    raise BoldApiError("BOLD document download failed after retries.")
+    return retry_call(
+        attempt,
+        retries=retries,
+        backoff_sec=backoff_sec,
+        retry_on=(HTTPError, URLError, OSError),
+        wrap=_download_failure,
+    )
 
 
 def _normalized_tsv_fieldnames(reader: csv.DictReader) -> None:
