@@ -6,6 +6,13 @@
 - GUI の品質改善に限定する。`tauri-gui/src/main.js` の責務分離、`main.js` を対象にした GUI 自動テスト基盤、系統樹の検索ハイライトが CSS に上書きされる問題の修正。
 - バックエンド (Python / Rust) の挙動変更と新規機能追加は行わない。
 
+### Changed
+- `tauri-gui/src/main.js` の設定適用とイベント処理をセクション単位に分割した。db.toml インポートは TOML テーブル別 (`applyImportedBase` / `applyImportedFilters` / `applyImportedPostPrep` / `applyImportedNcbiOptions` / `applyImportedOutputOptions`)、保存済み設定の復元はグループ別、`run-event` の無名ハンドラはイベント種別別の関数にした。`applyImportedDbToml` は cognitive 24 / cyclomatic 25 から分割後の最大 7 / 8 になり、`main.js` 全体では cognitive 最大 24 → 15、cognitive 合計 288 → 305 (関数数 124 → 138 の分割による増分)、cyclomatic 最大 25 → 17。フィールドの適用順序と `|| 現在値` / `?? ""` の使い分けは変えていない。`renderRunTree` (15 / 17) はこれ以上分割しても移動するだけなので対象外にした。
+
+### Added
+- GUI 自動テスト基盤として `tauri-gui/tests/e2e/tauri-stub.mjs` を追加した。`window.__TAURI_INTERNALS__` (invoke / transformCallback / unregisterCallback) を偽装し、vite dev (port 1420) 上で実際の `main.js` を起動する。コマンド戻り値はテストごとのデータで、`plugin:event|listen` を記録するので `run-event` をテスト側から送れる。`main.js` は import 時に DOM を参照するため Node 単体では起動できず、jsdom 等の新規依存は追加していない。
+- `tauri-gui/tests/e2e/gui-form.e2e.mjs` 9 件。primer_set の既定値・チェック変更・Reset での同期、保存済み設定の復元と失敗時の警告、db.toml インポートの全フィールド適用、空ペイロード時の既定値と現値保持 (`|| 現在値` と `?? ""` の非対称を固定)、インポート失敗時のログと非変更、run-event による monitor 更新と Results の解禁。`npx playwright test` は 21 件 (tree-view 12 件 + gui-form 9 件)。
+
 ### Fixed
 - 系統樹の検索ハイライトがノートの縁に反映されない問題を修正した (`v3.3.3` の Known issues に記録したもの)。`styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が `leafPalette` の presentation attribute より優先され、マッチしたノートの縁が常に白 1px になっていた。CSS 側を削除し、`tree-view.js` が設定する `stroke: #d76735` / `stroke-width: 2.5` が効くようにした。非マッチノートの見た目は変わらない (元から白 1px)。
 
