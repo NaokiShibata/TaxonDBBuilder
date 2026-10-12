@@ -3,11 +3,18 @@
 ## 3.3.3 (planned)
 
 ### Scope
-- `main` (`83a29a8`、タグ `v3.3.2`) から `build/appimage-only` を Pull Request でマージする差分を対象。
+- `main` (`36d02a1`、タグ `v3.3.2` から 37 コミット) を対象。`build/appimage-only` の出荷変更と `refactor/complexity-reduction` の複雑度削減・回帰検証を 1 つのリリースにまとめた。
+- 日付未定。タグ `v3.3.3` を切る時点で正式な日付に更新する。
 
 ### Changed
 - 出荷する成果物を AppImage のみにした。`bundle.targets` を `["appimage"]` に固定し、deb と rpm を生成しない。ビルドは 5m23s から 1m23s に短縮した。deb と rpm が約 4 分を占めていたが、リリース資産は一貫して AppImage 1 本のみだった。
 - sidecar のビルドを Linux 専用にした。`build_sidecar.py` から `detect_os_key` と Windows 用の `.exe` 名前付けを削除した。pixi workspace は `linux-64` のみを対象としており、他の分岐は到達不能だった。
+- ネットワーク再試行を `taxondbbuilder/net_retry.py` に共通化した。BOLD の 2 箇所 (`_request_json` と `download_documents_to_path`) を `retry_call` に寄せ、到達不能だった末尾の raise 2 本を削除した。NCBI の `_iter_genbank_history_chunks` は `exc.code` を読んで id ベースのフォールバック分岐に入るため、意図的に共通化していない (pin テストのみ追加)。
+- 系統樹描画の `drawRectangular` を責務単位で分割した (cognitive 36 / cyclomatic 22 → 3 / 4、抽出した 10 ユニット最大の値は 9 / 7)。純粋関数 (`colorRuns`、`msaRulerTicks`、`msaBackgroundPaths`、`leafPalette`) と DOM ユニット (`appendBranchLines`、`appendSupportLabel`、`appendLeafNode`、`appendBackgroundPaths`、`appendMsaRow`、`drawTreeNode`) に分けている。
+- Python の高複雑度関数を段階的に分割した: マーカー正規化、post-prep オプション解決、BOLD API のペイロード解析・行整形・ダウンロード、NCBI の feature マッチ、mitogenome の領域解決と CDS 推定、quality filter、primer endpoint 検索、config と header のバリデータ。認知的複雑度は合計 1963 → 1702、最大 161 → 23、p90 18 → 13。循環的複雑度は合計 1519 → 1595 (関数数 237 → 321 の分割による増分)、最大 60 → 19。
+- Rust は `parse_db_toml_config` をセクション別ビルダーに分割した (cognitive 合計 299 → 236、最大 99 → 13)。
+- GUI は monitor のメトリクス描画と進捗行解析をグループ別に分割し、db.toml インポートをセクション別にした。JS 本番コードの cognitive 最大は 36 → 24 (現在最大は `main.js` の `applyImportedDbToml`)。
+- 抽出状態の受け口を `models.ExtractionSink` に統一し、ヘッダ値の語彙を `headers.HEADER_VALUE_KEYS` と `header_values()`、マージ列を `models.SOURCE_MERGE_COLUMNS` に集約した。
 
 ### Removed
 - sidecar の stub 配置経路 (`build_sidecar.py --stub` と `write_stub_binary`)。CI が存在せず、リポジトリ内のどこからも呼ばれていなかった。
@@ -15,12 +22,26 @@
 - `tauri-gui/src-tauri/bin/README.md`。「sidecar バイナリは不要で、GUI は統合 Rust ランナーを使う」と記述していたが、`externalBin: ["bin/taxondbbuilder"]` が実際に sidecar バイナリを要求しており、記述が実装と矛盾していた。ディレクトリ自体は `build_sidecar.py` が作成するため、git 上のプレースホルダも不要。
 - `tauri-gui/package.json` の `preview` スクリプト。GUI は `tauri:dev` (devUrl 1420) もしくはバンドルで起動し、standalone の preview サーバは使わない。
 
+### Fixed
+- FASTA ヘッダが重複すると、別のレコードの分類情報と配列が誤って組み合わさる不具合を修正した。`record_index.pair_fasta_with_rows` を追加し、1 つのヘッダが複数行に対応する場合と FASTA 内でヘッダが重複する場合は `HeaderCollisionError` を投げて推測をやめた。長さフィルタで生き残った配列が削除済みレコードの分類情報を持つ、`recheck_tool="vsearch"` で同一配列が二重出力される、FASTA の並び順で分類情報が総入れ替わりする、の 3 系統を再現テストで確認してから修正している。
+- primer_trim の行と配列の対応を実行時に検証した (`_aligned_sequences`)。件数、`record_id` とヘッダ、`trim_end + right_trim_bp == len(seq)` を確認する。
+- GUI で MiFish-Unity が既定チェックなのに `primer_set` が入力されていないため、`post-prep step 'primer_trim' requires post_prep.primer_set` でビルドが開始できなかった。既定チェックを `primer_set` 入力に同期した。
+- BOLD が gzip 圧縮レスポンスの `Content-Length` を総バイト数として報告し、進捗表示が実体より大きくなっていた。圧縮時は総数を不明 (None) にした。
+- 空の scope / value 検索語がそのままクエリに混ざっていた。空白語を除外した。
+- BOLD ダウンロードで `.part` ファイルが二重にリネームされていた (`_fetch_bold_documents`)。
+
+### Added
+- Playwright によるブラウザ回帰テスト 12 件 (`tauri-gui/tests/e2e/`、`npm run test:e2e`)。実 `tree-view.js` と実 `styles.css` を固定の Newick/FASTA で描画し、clientWidth 連動のレイアウト、wheel ズームのアンカー保持と 12%〜6x クランプ、pointer ドラッグと capture 解放、`resetView`、tooltip の表示・追従・位置クランプ、検索ハイライト、保存率変更での MSA 背景更新、XMLSerializer 出力の XML 妥当性、viewport 3 幅、JS 例外と未処理 rejection の検出を検証する。ブラウザは Chromium のみ。
+- 回帰テストの拡充。Python のテストファイルは 11 → 19、JS のテストは 2 → 7 になった。実行件数は Python 290、Node 33、Playwright 12、Rust 13。Golden 38 ファイルは全件一致。
+- WebKitGTK 2.52.6 での描画検証 (使い捨て harness、リポジトリ外)。job6 の実 Newick/MSA を実 `tree-view.js` で描画し、レイアウト公式一致・wheel 0.85・パン量の一致・XML エクスポート妥当を数値で確認した。デバイスレベル入力 (XTEST) は WebView に到達しなかったため、pointer capture と tooltip は WebKitGTK では未検証。
+
 ### Known issues
-- 系統樹の葉を検索でハイライトしたとき、`leafPalette` が設定する `stroke` (`#d76735`) と `stroke-width` (2.5) が画面に反映されない。`tauri-gui/src/styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が presentation attribute より優先されるため、実際に変わるのは `fill` と `font-weight` のみ。リファクタリング前から存在する CSS の問題で、今回は修正していない。Chromium (Playwright) と WebKitGTK 2.52.6 の両方で同じ挙動を実測済み。修正は CSS 1 行（`.tree-node-point` の stroke 指定を外す、もしくわ match 時だけ上書きする）だが、見た目の意図を確認して別途決める。現状の挙動は `tauri-gui/tests/e2e/tree-view.e2e.mjs` の "search highlights only the matching leaf" が固定している。
+- 系統樹の葉を検索でハイライトしたとき、`leafPalette` が設定する `stroke` (`#d76735`) と `stroke-width` (2.5) が画面に反映されない。`tauri-gui/src/styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が presentation attribute より優先されるため、実際に変わるのは `fill` と `font-weight` のみ。リファクタリング前から存在する CSS の問題で、今回は修正していない。Chromium (Playwright) と WebKitGTK 2.52.6 の両方で同じ挙動を実測済み。修正は CSS 1 行（`.tree-node-point` の stroke 指定を外す、もしくは match 時だけ上書きする）だが、見た目の意図を確認して別途決める。現状の挙動は `tauri-gui/tests/e2e/tree-view.e2e.mjs` の "search highlights only the matching leaf" が固定している。
 
 ### Notes
 - rpm を出荷しなくなったため、rpm ペイロードの zstd 化は取りやめた。計測結果は残している。164 MB の PyInstaller sidecar に対する rpm バンドリングは gzip 既定で 16m25s、zstd level 3 で 3m51s。ペイロードは deflate 済みで圧縮率は 1% 未満のため、圧縮方式は成果物サイズにほぼ影響しない。
 - 新規 clone で sidecar をビルドせずに `cargo test --offline` を実行すると、`externalBin` の不足で失敗する。README の手順 (`pixi install -e dev` からビルド) どおりなら問題ない。CI を導入する場合は sidecar ビルドを前に置く。
+- 複雑度は cccc 1.8.0 (`--no-config --no-cache --lang py,rs,es`) の `summary` ブロックで計測した (ネスト関数を含む)。parse error は 0、`tauri-gui/src/tree-view.js` は `--max-cognitive 15 --max-cyclomatic 10` を通過。循環的複雑度の合計が増えたのは分割による関数数増で、個別関数が悪化した箇所はない。
 
 ## 3.3.2 (2026-09-21)
 
