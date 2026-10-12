@@ -1,6 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const PORT = 4173;
+const PORT = 4173; // static fixture server (tree-view.e2e.mjs)
+const VITE_PORT = 1420; // vite dev, same port tauri dev uses (gui-form.e2e.mjs)
 
 export default defineConfig({
   testDir: "./tests/e2e",
@@ -12,10 +13,18 @@ export default defineConfig({
     trace: "retain-on-failure",
   },
   projects: [{ name: "chromium", use: { ...devices["Desktop Chrome"] } }],
-  webServer: {
-    command: "node tests/e2e/server.mjs",
-    port: PORT,
-    reuseExistingServer: true,
-    stdout: "ignore",
-  },
+  webServer: [
+    {
+      command: "node tests/e2e/server.mjs",
+      port: PORT,
+      reuseExistingServer: true,
+      stdout: "ignore",
+    },
+    {
+      command: "npx vite",
+      port: VITE_PORT,
+      reuseExistingServer: true,
+      stdout: "ignore",
+    },
+  ],
 });
