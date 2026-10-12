@@ -21,10 +21,6 @@ from urllib.request import Request, urlopen
 
 from .net_retry import retry_call
 
-# The retry loops moved to net_retry, but tests patch bold.time.sleep, so this
-# module must keep exposing the time module as an attribute.
-_TIME = time
-
 DEFAULT_BASE_URL = "https://portal.boldsystems.org/api"
 DEFAULT_TIMEOUT_SEC = 60.0
 DEFAULT_RETRIES = 3
