@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>tree-view fixture</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <!-- Mirrors the results-view markup that main.js hands to renderTreeSVG. -->
+    <div id="tree-view-container"></div>
+
+    <script type="module">
+      import {
+        parseFasta,
+        parseNewick,
+        renderTreeSVG,
+      } from "/src/tree-view.js";
+
+      const NEWICK =
+        "((Taxon_alba:0.12,Taxon_rubra:0.18)0.95,(Taxon_viridis:0.30,Taxon_cyanea:0.41)0.80)root;";
+      // Columns 0-7 carry the agreement mix the background test relies on
+      // (col2 C=50/G=25/T=25, col5 A=75/C=25); columns 8-19 are fully
+      // conserved so the ruler step (10) is exercised without extra fills.
+      const FASTA = [
+        ">Taxon_alba",
+        "AACGTACGACGTACGTACGT",
+        ">Taxon_rubra",
+        "AACGTACGACGTACGTACGT",
+        ">Taxon_viridis",
+        "AAGGTCCGACGTACGTACGT",
+        ">Taxon_cyanea",
+        "AATGTACGACGTACGTACGT",
+      ].join("\n");
+
+      const fixture = { errors: [], controller: null };
+      window.taxonFixture = fixture;
+
+      window.addEventListener("error", (event) => {
+        fixture.errors.push(`error: ${event.message}`);
+      });
+      window.addEventListener("unhandledrejection", (event) => {
+        fixture.errors.push(`rejection: ${event.reason}`);
+      });
+
+      fixture.render = ({ threshold = 100 } = {}) => {
+        const container = document.querySelector("#tree-view-container");
+        container.replaceChildren();
+        fixture.controller = renderTreeSVG(
+          parseNewick(NEWICK),
+          container,
+          parseFasta(FASTA),
+          threshold,
+        );
+        return fixture.controller;
+      };
+
+      fixture.render();
+    </script>
+  </body>
+</html>
