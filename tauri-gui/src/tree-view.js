@@ -172,6 +172,79 @@ export function showMsaBackground(character, columnAgreement, threshold) {
   return !base || (columnAgreement.get(base) || 0) < threshold;
 }
 
+// Run-length walk shared by the MSA background and sequence row painters.
+// colorAt is called only for valid sequence indices; the null sentinel at
+// sequence.length closes the final run without consulting colorAt.
+export function colorRuns(sequence, colorAt) {
+  const runs = [];
+  let runStart = 0;
+  let runColor = colorAt(0);
+  for (let index = 1; index <= sequence.length; index += 1) {
+    const color = index < sequence.length ? colorAt(index) : null;
+    if (color === runColor) continue;
+    runs.push({ start: runStart, end: index, color: runColor });
+    runStart = index;
+    runColor = color;
+  }
+  return runs;
+}
+
+export function msaRulerTicks(data) {
+  const rulerStep =
+    data.alignmentCellWidth >= 2.4
+      ? 10
+      : Math.ceil(24 / data.alignmentCellWidth / 10) * 10;
+  const ticks = [];
+  for (
+    let index = rulerStep - 1;
+    index < data.alignmentLength;
+    index += rulerStep
+  ) {
+    ticks.push(data.alignmentStart + index * data.alignmentCellWidth);
+  }
+  return ticks;
+}
+
+export function msaBackgroundPaths(data, alignmentAgreement, threshold) {
+  const paths = new Map();
+  for (const leaf of data.tree.leaves) {
+    const sequence = data.alignment.get(nodeName(leaf));
+    if (sequence == null) continue;
+    const y = data.tree.positions.get(leaf).y - 9;
+    // The index-0 agreement guard stays asymmetric with later columns on
+    // purpose: unifying it would change throw-vs-render on ragged input.
+    const runs = colorRuns(sequence, (index) => {
+      const columnAgreement =
+        index === 0
+          ? alignmentAgreement[0] || new Map()
+          : alignmentAgreement[index];
+      return showMsaBackground(sequence[index], columnAgreement, threshold)
+        ? msaBaseColor(sequence[index] || "")
+        : null;
+    });
+    for (const run of runs) {
+      if (!run.color) continue;
+      const x = data.alignmentStart + run.start * data.alignmentCellWidth;
+      const width = (run.end - run.start) * data.alignmentCellWidth;
+      const commands = paths.get(run.color) || [];
+      commands.push(`M${x} ${y}h${width}v18h-${width}v-18z`);
+      paths.set(run.color, commands);
+    }
+  }
+  return paths;
+}
+
+export function leafPalette(matched) {
+  return {
+    fill: matched ? "#d76735" : "#446b88",
+    stroke: matched ? "#d76735" : "#fff",
+    strokeWidth: matched ? 2.5 : 1,
+    labelFill: matched ? "#d76735" : "#2e4f66",
+    fontWeight: matched ? 700 : 400,
+    labelClass: `tree-node-label${matched ? " tree-node-label-match" : ""}`,
+  };
+}
+
 function inspectTree(root) {
   const leaves = [];
   const nodes = [];
@@ -480,25 +553,26 @@ export function renderTreeSVG(
         return;
       }
 
+      const palette = leafPalette(isMatched(node));
       const group = svgElement("g", { class: "tree-node" });
       group.appendChild(
         svgElement("circle", {
           cx: position.x,
           cy: position.y,
           r: 3.5,
-          fill: isMatched(node) ? "#d76735" : "#446b88",
-          stroke: isMatched(node) ? "#d76735" : "#fff",
-          "stroke-width": isMatched(node) ? 2.5 : 1,
+          fill: palette.fill,
+          stroke: palette.stroke,
+          "stroke-width": palette.strokeWidth,
           class: "tree-node-point",
         }),
       );
       const label = svgElement("text", {
         x: position.x + 7,
         y: position.y + 4,
-        fill: isMatched(node) ? "#d76735" : "#2e4f66",
+        fill: palette.labelFill,
         "font-size": 12,
-        "font-weight": isMatched(node) ? 700 : 400,
-        class: `tree-node-label${isMatched(node) ? " tree-node-label-match" : ""}`,
+        "font-weight": palette.fontWeight,
+        class: palette.labelClass,
       });
       label.textContent = nodeName(node);
       group.appendChild(label);
@@ -508,17 +582,9 @@ export function renderTreeSVG(
     draw(data.root);
 
     if (!data.alignmentLength) return;
-    const rulerStep =
-      data.alignmentCellWidth >= 2.4
-        ? 10
-        : Math.ceil(24 / data.alignmentCellWidth / 10) * 10;
-    for (
-      let index = rulerStep - 1;
-      index < data.alignmentLength;
-      index += rulerStep
-    ) {
+    for (const x of msaRulerTicks(data)) {
       const tick = svgElement("text", {
-        x: data.alignmentStart + index * data.alignmentCellWidth,
+        x,
         y: 16,
         fill: "#4b708c",
         "font-family": MSA_FONT_FAMILY,
@@ -530,41 +596,11 @@ export function renderTreeSVG(
       svg.appendChild(tick);
     }
 
-    const backgroundPaths = new Map();
-    for (const leaf of data.tree.leaves) {
-      const sequence = data.alignment.get(nodeName(leaf));
-      if (sequence == null) continue;
-      const y = data.tree.positions.get(leaf).y - 9;
-      let runStart = 0;
-      let runColor = showMsaBackground(
-        sequence[0],
-        state.alignmentAgreement[0] || new Map(),
-        state.conservationThreshold,
-      )
-        ? msaBaseColor(sequence[0] || "")
-        : null;
-      for (let index = 1; index <= sequence.length; index += 1) {
-        const color =
-          index < sequence.length &&
-          showMsaBackground(
-            sequence[index],
-            state.alignmentAgreement[index],
-            state.conservationThreshold,
-          )
-            ? msaBaseColor(sequence[index])
-            : null;
-        if (color === runColor) continue;
-        if (runColor) {
-          const x = data.alignmentStart + runStart * data.alignmentCellWidth;
-          const width = (index - runStart) * data.alignmentCellWidth;
-          const commands = backgroundPaths.get(runColor) || [];
-          commands.push(`M${x} ${y}h${width}v18h-${width}v-18z`);
-          backgroundPaths.set(runColor, commands);
-        }
-        runStart = index;
-        runColor = color;
-      }
-    }
+    const backgroundPaths = msaBackgroundPaths(
+      data,
+      state.alignmentAgreement,
+      state.conservationThreshold,
+    );
     for (const [color, commands] of backgroundPaths) {
       svg.appendChild(
         svgElement("path", {
@@ -601,17 +637,13 @@ export function renderTreeSVG(
         "xml:space": "preserve",
         class: "msa-sequence",
       });
-      let runStart = 0;
-      let runColor = msaBaseColor(sequence[0] || "");
-      for (let index = 1; index <= sequence.length; index += 1) {
-        const color =
-          index < sequence.length ? msaBaseColor(sequence[index]) : null;
-        if (color === runColor) continue;
-        const base = svgElement("tspan", { fill: runColor });
-        base.textContent = sequence.slice(runStart, index);
+      for (const run of colorRuns(
+        sequence,
+        (index) => msaBaseColor(sequence[index] || ""),
+      )) {
+        const base = svgElement("tspan", { fill: run.color });
+        base.textContent = sequence.slice(run.start, run.end);
         row.appendChild(base);
-        runStart = index;
-        runColor = color;
       }
       svg.appendChild(row);
     }
