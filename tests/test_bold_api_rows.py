@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import gzip
 from pathlib import Path
-from urllib.error import HTTPError
+from urllib.error import HTTPError, URLError
 
 import pytest
 
@@ -191,3 +191,105 @@ def test_fetch_bold_documents_returns_a_real_path_and_reuses_the_cache(
     cached = _fetch_bold_documents(prepared, dest, "tsv", "Taxon", True, logger, None)
     assert cached["cached"] is True
     assert cached["downloaded_bytes"] == len(payload)
+
+
+def test_request_json_retries_network_error_with_linear_backoff(
+    monkeypatch: pytest.MonkeyPatch
+):
+    """retries+1 attempts, delay = backoff_sec * (attempt+1), cause preserved."""
+    import taxondb_bold as bold
+
+    calls = 0
+
+    def boom(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise URLError("down")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(bold, "urlopen", boom)
+    monkeypatch.setattr(bold.time, "sleep", sleeps.append)
+    cfg = bold.get_bold_runtime_config({"retries": 2, "backoff_sec": 1.5})
+    with pytest.raises(bold.BoldApiError, match="BOLD network error") as excinfo:
+        bold._request_json("https://example.invalid", cfg)
+    assert calls == 3
+    assert sleeps == [1.5, 3.0]
+    assert isinstance(excinfo.value.__cause__, URLError)
+
+
+def test_request_json_never_retries_a_json_decode_error(
+    monkeypatch: pytest.MonkeyPatch
+):
+    """A malformed body is not transient: one attempt, no sleep."""
+    import taxondb_bold as bold
+
+    calls = 0
+
+    def not_json(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        return _BoldResponse(b"not-json")
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(bold, "urlopen", not_json)
+    monkeypatch.setattr(bold.time, "sleep", sleeps.append)
+    cfg = bold.get_bold_runtime_config({"retries": 2, "backoff_sec": 1.5})
+    with pytest.raises(bold.BoldApiError, match="JSON decode error"):
+        bold._request_json("https://example.invalid", cfg)
+    assert calls == 1
+    assert sleeps == []
+
+
+def test_request_json_reports_http_status_and_reason(
+    monkeypatch: pytest.MonkeyPatch
+):
+    import taxondb_bold as bold
+
+    def boom(*args, **kwargs):
+        raise HTTPError("http://x", 503, "unavailable", {}, None)
+
+    monkeypatch.setattr(bold, "urlopen", boom)
+    monkeypatch.setattr(bold.time, "sleep", lambda _seconds: None)
+    cfg = bold.get_bold_runtime_config({"retries": 0})
+    with pytest.raises(bold.BoldApiError, match="BOLD HTTP error 503: unavailable") as excinfo:
+        bold._request_json("https://example.invalid", cfg)
+    assert isinstance(excinfo.value.__cause__, HTTPError)
+
+
+def test_download_retries_http_error_with_linear_backoff(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    import taxondb_bold as bold
+
+    def boom(*args, **kwargs):
+        raise HTTPError("http://x", 503, "unavailable", {}, None)
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(bold, "urlopen", boom)
+    monkeypatch.setattr(bold.time, "sleep", sleeps.append)
+    cfg = bold.get_bold_runtime_config({"retries": 2, "backoff_sec": 1.5})
+    dest = tmp_path / "documents.tsv"
+    with pytest.raises(bold.BoldApiError, match="BOLD HTTP error 503: unavailable") as excinfo:
+        bold.download_documents_to_path("qid", cfg, dest)
+    assert sleeps == [1.5, 3.0]
+    assert isinstance(excinfo.value.__cause__, HTTPError)
+    assert [path.name for path in tmp_path.iterdir()] == []
+
+
+def test_download_leaves_no_part_file_when_the_body_fails_midstream(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """The .part cleanup runs even when the failure is in read(), not urlopen."""
+    import taxondb_bold as bold
+
+    class _BrokenBody(_BoldResponse):
+        def read(self, size: int = -1) -> bytes:
+            raise OSError("connection reset")
+
+    monkeypatch.setattr(bold, "urlopen", lambda *args, **kwargs: _BrokenBody(b"x"))
+    monkeypatch.setattr(bold.time, "sleep", lambda _seconds: None)
+    cfg = bold.get_bold_runtime_config({"retries": 1, "backoff_sec": 0})
+    dest = tmp_path / "documents.tsv"
+    with pytest.raises(bold.BoldApiError, match="BOLD download error"):
+        bold.download_documents_to_path("qid", cfg, dest)
+    assert [path.name for path in tmp_path.iterdir()] == []
