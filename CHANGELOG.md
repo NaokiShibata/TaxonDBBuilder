@@ -1,10 +1,10 @@
 # Changelog
 
-## 3.3.3 (planned)
+## 3.3.3 (2026-10-13)
 
 ### Scope
 - `main` (`36d02a1`) からの 38 コミットが対象 (タグ `v3.3.2` の `83a29a8` からは 47 コミット)。`build/appimage-only` の出荷変更と `refactor/complexity-reduction` の複雑度削減・回帰検証を 1 つのリリースにまとめた。
-- 日付未定。タグ `v3.3.3` を切る時点で正式な日付に更新する。
+- 2026-10-13 にタグ `v3.3.3` として公開した。
 
 ### Changed
 - 出荷する成果物を AppImage のみにした。`bundle.targets` を `["appimage"]` に固定し、deb と rpm を生成しない。ビルドは 5m23s から 1m23s に短縮した。deb と rpm が約 4 分を占めていたが、リリース資産は一貫して AppImage 1 本のみだった。
@@ -42,6 +42,7 @@
 - rpm を出荷しなくなったため、rpm ペイロードの zstd 化は取りやめた。計測結果は残している。164 MB の PyInstaller sidecar に対する rpm バンドリングは gzip 既定で 16m25s、zstd level 3 で 3m51s。ペイロードは deflate 済みで圧縮率は 1% 未満のため、圧縮方式は成果物サイズにほぼ影響しない。
 - 新規 clone で sidecar をビルドせずに `cargo test --offline` を実行すると、`externalBin` の不足で失敗する。README の手順 (`pixi install -e dev` からビルド) どおりなら問題ない。CI を導入する場合は sidecar ビルドを前に置く。
 - 複雑度は cccc 1.8.0 (`--no-config --no-cache --lang py,rs,es`) の `summary` ブロックで計測した (ネスト関数を含む)。parse error は 0、`tauri-gui/src/tree-view.js` は `--max-cognitive 15 --max-cyclomatic 10` を通過。循環的複雑度の合計が増えたのは分割による関数数増で、個別関数が悪化した箇所はない。
+- v3.3.3 からビルド済み AppImage と SHA256 チェックサムを GitHub Release の成果物として添付する。タグを切る前にビルドした成果物を添付するため、タグのコミットとビルド入力の一致をビルドログで確認する。
 
 ## 3.3.2 (2026-09-21)
 
@@ -53,7 +54,7 @@
 
 ### Notes
 - タグ `v3.3.2` は `83a29a8` を指すが、そのコミットのバージョン宣言 (VERSION、`tauri.conf.json`、`package.json`、`Cargo.toml`) は 3.3.1 のままだった。3.3.2 への bump コミット `153bdc5` は `issue-11-complete-mitogenome` にのみ存在し、main に届いていない。
-- 成果物を GitHub リリースに添付する運用ではない (`v3.3.0` と `v3.3.1` の資産はなし)。`v3.3.2` にのみ 233 MiB の `TaxonDBBuilder_3.3.2_amd64.AppImage` が添付されていたが、タグが指すソースから再現できずダウンロードも 0 回だったため削除した。これで全リリースの資産が空になった。タグとバージョン宣言の対応だけが信頼できる記録になるため、3.3.3 では bump を main 側の履歴に載せてからタグを切る。
+- 成果物を GitHub リリースに添付する運用ではない (`v3.3.0` と `v3.3.1` の資産はなし)。`v3.3.2` にのみ 233 MiB の `TaxonDBBuilder_3.3.2_amd64.AppImage` が添付されていたが、タグが指すソースから再現できずダウンロードも 0 回だったため削除した。これで全リリースの資産が空になった。タグとバージョン宣言の対応だけが信頼できる記録になるため、3.3.3 では bump を main 側の履歴に載せてからタグを切り、資産の添付を再開した。
 
 ## 3.3.1 (2026-09-21)
 
