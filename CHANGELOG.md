@@ -3,7 +3,7 @@
 ## 3.3.3 (planned)
 
 ### Scope
-- `main` (`36d02a1`、タグ `v3.3.2` から 37 コミット) を対象。`build/appimage-only` の出荷変更と `refactor/complexity-reduction` の複雑度削減・回帰検証を 1 つのリリースにまとめた。
+- `main` (`36d02a1`) からの 38 コミットが対象 (タグ `v3.3.2` の `83a29a8` からは 47 コミット)。`build/appimage-only` の出荷変更と `refactor/complexity-reduction` の複雑度削減・回帰検証を 1 つのリリースにまとめた。
 - 日付未定。タグ `v3.3.3` を切る時点で正式な日付に更新する。
 
 ### Changed
