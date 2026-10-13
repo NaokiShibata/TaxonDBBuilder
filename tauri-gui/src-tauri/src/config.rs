@@ -466,6 +466,18 @@ fn config_sibling(path: &Path, suffix: &str) -> PathBuf {
     path.with_file_name(format!("{name}{suffix}"))
 }
 
+fn unique_backup_path(path: &Path, suffix: &str) -> PathBuf {
+    // fs::rename replaces whatever is already at the destination, so a second
+    // unreadable config must not destroy the copy kept by the first one.
+    let mut candidate = config_sibling(path, suffix);
+    let mut index = 1;
+    while candidate.exists() {
+        candidate = config_sibling(path, &format!("{suffix}.{index}"));
+        index += 1;
+    }
+    candidate
+}
+
 pub(crate) fn read_gui_config(path: &Path) -> Result<GuiConfig, String> {
     if !path.exists() {
         return Ok(GuiConfig::default());
@@ -477,7 +489,7 @@ pub(crate) fn read_gui_config(path: &Path) -> Result<GuiConfig, String> {
         Err(e) => {
             // start_run rewrites this path, so an unreadable file has to be moved
             // aside before anything can overwrite it.
-            let backup = config_sibling(path, ".corrupt");
+            let backup = unique_backup_path(path, ".corrupt");
             let note = match fs::rename(path, &backup) {
                 Ok(()) => format!("; kept the unreadable copy at {}", backup.display()),
                 Err(backup_error) => format!("; could not keep a copy: {backup_error}"),
@@ -1028,6 +1040,7 @@ fn marker_options_from_config(config: &toml::Value, config_path: &Path) -> Vec<S
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::os::unix::fs::PermissionsExt;
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_dir(tag: &str) -> PathBuf {
@@ -1066,6 +1079,96 @@ mod tests {
         // The next start sees no file, so it falls back to the defaults instead of
         // repeating the same failure, and start_run can no longer clobber the content.
         assert_eq!(read_gui_config(&path).expect("defaults after backup").email, "");
+    }
+
+    #[test]
+    fn an_existing_corrupt_backup_is_not_overwritten() {
+        let dir = temp_dir("gui-corrupt-twice");
+        let path = dir.join("gui_config.json");
+        let first = r#"{"marker": "first-loss","#;
+        let second = r#"{"marker": "second-loss","#;
+
+        fs::write(&path, first).expect("write first");
+        read_gui_config(&path).expect_err("reject first");
+        fs::write(&path, second).expect("write second again");
+        let error = read_gui_config(&path).expect_err("reject second");
+
+        // A second unreadable file must not destroy the copy kept by the first one.
+        assert_eq!(
+            fs::read_to_string(dir.join("gui_config.json.corrupt")).expect("first backup"),
+            first
+        );
+        let kept = fs::read_to_string(dir.join("gui_config.json.corrupt.1")).expect("second backup");
+        assert_eq!(kept, second);
+        assert!(error.contains("gui_config.json.corrupt.1"), "{error}");
+    }
+
+    #[test]
+    fn a_stale_temp_file_is_replaced_by_the_new_write() {
+        let dir = temp_dir("gui-stale-tmp");
+        let path = dir.join("gui_config.json");
+        fs::write(&path, "{ half written").expect("write previous config");
+        fs::write(dir.join("gui_config.json.tmp"), "stale").expect("write stale temp");
+
+        let config = GuiConfig {
+            marker: "16s".to_string(),
+            ..GuiConfig::default()
+        };
+        write_gui_config(&path, &config).expect("write over stale temp");
+
+        assert_eq!(read_gui_config(&path).expect("read").marker, "16s");
+        assert!(!dir.join("gui_config.json.tmp").exists(), "temp must be consumed");
+    }
+
+    #[test]
+    fn a_failed_rename_keeps_the_existing_config() {
+        let dir = temp_dir("gui-rename-fail");
+        // A directory on the config path makes rename fail while the temp write succeeds.
+        let path = dir.join("gui_config.json");
+        fs::create_dir(&path).expect("config path is a directory");
+        fs::write(path.join("previous"), "keep me").expect("write inner file");
+
+        let error = write_gui_config(&path, &GuiConfig::default()).expect_err("rename must fail");
+        assert!(error.contains("failed to write"), "{error}");
+        assert_eq!(
+            fs::read_to_string(path.join("previous")).expect("original kept"),
+            "keep me"
+        );
+        assert!(
+            !dir.join("gui_config.json.tmp").exists(),
+            "the temp file must not be left behind after a failed rename"
+        );
+    }
+
+    #[test]
+    fn an_unreadable_config_reports_the_read_failure_without_a_backup() {
+        let dir = temp_dir("gui-unreadable");
+        let path = dir.join("gui_config.json");
+        fs::create_dir(&path).expect("config path is a directory");
+
+        let error = read_gui_config(&path).expect_err("read must fail");
+        assert!(error.contains("failed to read"), "{error}");
+        assert!(
+            !dir.join("gui_config.json.corrupt").exists(),
+            "an unreadable file is not a corrupt file"
+        );
+    }
+
+    #[test]
+    fn a_write_failure_leaves_the_previous_config_intact() {
+        let dir = temp_dir("gui-write-fail");
+        let path = dir.join("gui_config.json");
+        fs::write(&path, r#"{"marker": "12s"}"#).expect("write previous");
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o500)).expect("make dir read-only");
+
+        let error = write_gui_config(&path, &GuiConfig::default()).expect_err("write must fail");
+        assert!(error.contains("failed to write"), "{error}");
+
+        fs::set_permissions(&dir, fs::Permissions::from_mode(0o700)).expect("restore perms");
+        assert_eq!(
+            fs::read_to_string(&path).expect("previous config intact"),
+            r#"{"marker": "12s"}"#
+        );
     }
 
     #[test]
