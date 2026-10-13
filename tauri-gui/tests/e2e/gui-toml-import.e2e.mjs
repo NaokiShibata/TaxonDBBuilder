@@ -222,3 +222,71 @@ test("exportFormats rewrites the mifish header format it selects", async ({ page
   // The selection wins over the header format that came in the same payload.
   expect(await value(page, "#output-mifish-header-format")).toBe("{acc_id} {organism_raw}");
 });
+
+// The msa_tree step is derived in the browser (getSelectedPostPrepSteps adds it for
+// any mode other than "disabled"), so the start_run payload is where an unintended
+// step would actually show up. Rust decides the mode; these pin what the form does
+// with it.
+async function importAndRun(page, postPrep) {
+  const errors = await openGuiApp(page, {
+    load_gui_config: { value: {} },
+    choose_db_toml_file: { value: "/srv/job/db.toml" },
+    import_db_toml: { value: payload({ postPrep: { ...payload().postPrep, ...postPrep } }) },
+    start_run: {
+      value: {
+        jobId: "job-1",
+        jobDir: "/srv/out/Results/job-1",
+        configPath: "/srv/out/Results/job-1/config/db.toml",
+        outputPath: "/srv/out/Results/job-1/mifish",
+        logPath: "/srv/out/Results/job-1/run.log",
+        command: "taxondbbuilder build",
+      },
+    },
+  });
+  await page.click("#load-db-toml");
+  await page.fill("#taxid-input", "1234");
+  await page.click("#add-taxid");
+  await page.fill("#output-root", "/srv/out");
+  await page.fill("#email", "survey@example.com");
+  await page.click("#run");
+  const req = await page.evaluate(
+    () => window.__guiInvocations__.find((entry) => entry.cmd === "start_run")?.args.req,
+  );
+  return { req, errors };
+}
+
+test("an imported msa_tree mode of disabled adds no msa_tree step", async ({ page }) => {
+  const { req, errors } = await importAndRun(page, {
+    enable: true,
+    msaTreeMode: "disabled",
+    steps: ["quality_filter"],
+  });
+  expect(req.postPrep.msaTreeMode).toBe("disabled");
+  expect(req.postPrep.steps).toEqual(["quality_filter"]);
+  expect(await checked(page, ".msa-tree-mode[value='disabled']")).toBe(true);
+  expect(errors).toEqual([]);
+});
+
+test("an explicit msa_tree mode carries through and adds the step", async ({ page }) => {
+  const { req, errors } = await importAndRun(page, {
+    enable: true,
+    msaTreeMode: "per_taxid",
+    steps: ["quality_filter"],
+  });
+  expect(req.postPrep.msaTreeMode).toBe("per_taxid");
+  expect(req.postPrep.steps).toEqual(["quality_filter", "msa_tree"]);
+  expect(errors).toEqual([]);
+});
+
+test("post_prep disabled keeps the whole section off regardless of mode", async ({ page }) => {
+  // Rust derives "combined" when msa_tree_enable is set even with enable = false,
+  // so the request has to carry enable = false for taxondbbuilder to skip it.
+  const { req, errors } = await importAndRun(page, {
+    enable: false,
+    msaTreeMode: "combined",
+    steps: [],
+  });
+  expect(req.postPrep.enable).toBe(false);
+  expect(req.postPrep.msaTreeMode).toBe("combined");
+  expect(errors).toEqual([]);
+});

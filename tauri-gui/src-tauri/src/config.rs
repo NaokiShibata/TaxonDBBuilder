@@ -1250,6 +1250,33 @@ mod tests {
     }
 
     #[test]
+    fn import_keeps_an_explicit_msa_tree_mode() {
+        let dir = temp_dir("import-mode-explicit");
+        let on = dir.join("on.toml");
+        fs::write(
+            &on,
+            "[post_prep]\nenable = true\nmsa_tree_enable = true\nmsa_tree_mode = \"per_taxid\"\n",
+        )
+        .expect("write on.toml");
+        assert_eq!(
+            parse_db_toml_config(&on).expect("parse").post_prep.msa_tree_mode,
+            "per_taxid"
+        );
+
+        // An explicit "disabled" wins over the value derived from msa_tree_enable.
+        let off = dir.join("off.toml");
+        fs::write(
+            &off,
+            "[post_prep]\nenable = true\nmsa_tree_enable = true\nmsa_tree_mode = \"disabled\"\n",
+        )
+        .expect("write off.toml");
+        assert_eq!(
+            parse_db_toml_config(&off).expect("parse").post_prep.msa_tree_mode,
+            "disabled"
+        );
+    }
+
+    #[test]
     fn import_rejects_an_unknown_msa_tree_mode() {
         let path = temp_dir("import-mode").join("db.toml");
         fs::write(
