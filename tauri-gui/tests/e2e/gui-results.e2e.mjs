@@ -259,3 +259,78 @@ test("cancel sends cancel_run and a failed cancel is logged", async ({ page }) =
   await expect(page.locator("#log-view")).toContainText("[error] killed");
   expect(errors).toEqual([]);
 });
+
+// state.msaTreeStatus / msaTreeTaxa arrive on progress events and are rendered by
+// formatTreeUnavailableMessage whenever the tree panel has nothing to draw.
+async function runWithTreeStatus(page, metrics, files = [], extraCommands = {}) {
+  const errors = await openGuiApp(
+    page,
+    runCommands({ ...readTreeAndMsa(), ...extraCommands }, { outputPath: "" }),
+  );
+  await page.fill("#taxid-input", "1234");
+  await page.click("#add-taxid");
+  await page.fill("#output-root", "/srv/out");
+  await page.fill("#email", "survey@example.com");
+  await page.click("#run");
+  await expect(page.locator("#log-view")).toContainText("job dir:");
+  await page.evaluate(
+    ([payloadMetrics, payloadFiles]) => {
+      const emit = (payload) => window.__guiEmit__("run-event", payload);
+      emit({ eventType: "progress", phase: "post_prep", percent: 90, metrics: payloadMetrics });
+      emit({ eventType: "result", jobDir: "/srv/out/Results/job-1", files: payloadFiles });
+    },
+    [metrics, files],
+  );
+  await expect(page.locator("#view-results.active")).toHaveCount(1);
+  return errors;
+}
+
+const treeMessage = (page) => page.locator("#tree-view-container .tree-view-message").textContent();
+
+test("a tree skipped for size names the sequence count", async ({ page }) => {
+  const errors = await runWithTreeStatus(page, {
+    msaTreeStatus: "skipped_too_many_taxa",
+    msaTreeTaxa: 1234,
+  });
+  await expect(page.locator("#tree-view-status")).toHaveText("No phylogenetic tree file found.");
+  expect(await treeMessage(page)).toBe(
+    "Tree generation was skipped because the sequence count exceeded the limit. (sequences: 1234)",
+  );
+  expect(errors).toEqual([]);
+});
+
+test("a skipped tree without a taxa count omits the count", async ({ page }) => {
+  const errors = await runWithTreeStatus(page, { msaTreeStatus: "skipped_too_many_taxa" });
+  expect(await treeMessage(page)).toBe(
+    "Tree generation was skipped because the sequence count exceeded the limit.",
+  );
+  expect(errors).toEqual([]);
+});
+
+test("any other tree status is shown as the reason", async ({ page }) => {
+  const errors = await runWithTreeStatus(page, { msaTreeStatus: "mafft_failed" });
+  expect(await treeMessage(page)).toBe(
+    "The phylogenetic tree was not generated (reason: mafft_failed)",
+  );
+  expect(errors).toEqual([]);
+});
+
+test("an ok status with no tree file falls back to the plain message", async ({ page }) => {
+  const errors = await runWithTreeStatus(page, { msaTreeStatus: "ok" });
+  expect(await treeMessage(page)).toBe("The phylogenetic tree was not generated.");
+  expect(errors).toEqual([]);
+});
+
+test("the reason also shows when the tree file exists but cannot be read", async ({ page }) => {
+  const errors = await runWithTreeStatus(
+    page,
+    { msaTreeStatus: "skipped_too_many_taxa", msaTreeTaxa: 42 },
+    [TREE_PATH],
+    { read_text_file: { routes: [{ includes: ".tree.nwk", reject: "failed to read" }] } },
+  );
+  await expect(page.locator("#tree-view-status")).toHaveText(
+    "Failed to load the phylogenetic tree file.",
+  );
+  expect(await treeMessage(page)).toContain("sequence count exceeded the limit. (sequences: 42)");
+  expect(errors).toEqual([]);
+});
