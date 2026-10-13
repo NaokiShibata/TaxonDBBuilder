@@ -9,6 +9,17 @@ export const GUI_URL = "http://127.0.0.1:1420/";
 
 export async function installTauriStub(page, commands = {}) {
   await page.addInitScript((table) => {
+    // This body is serialised into the page, so every helper it uses lives here.
+    // `routes` lets a path-taking command answer per file: the first route whose
+    // `includes` matches args.path wins, otherwise `other`.
+    const pick = (entry, args) => {
+      if (!entry || !entry.routes) return entry || null;
+      const path = args && typeof args.path === "string" ? args.path : "";
+      for (const route of entry.routes) {
+        if (!route.includes || path.includes(route.includes)) return route;
+      }
+      return entry.other || null;
+    };
     const internals = {
       metadata: { currentWindow: { label: "main" }, currentWebview: { label: "main" } },
       callbacks: new Map(),
@@ -33,7 +44,7 @@ export async function installTauriStub(page, commands = {}) {
           internals.listeners.set(args.event, ids);
           return internals.nextCallbackId++;
         }
-        const entry = table[cmd];
+        const entry = pick(table[cmd], args);
         if (entry && entry.reject) throw new Error(entry.reject);
         return entry && "value" in entry ? entry.value : null;
       },
