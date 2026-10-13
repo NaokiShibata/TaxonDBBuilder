@@ -5,30 +5,37 @@
 ### Scope
 - GUI の品質改善に限定する。`tauri-gui/src/main.js` の責務分離、`main.js` を対象にした GUI 自動テスト基盤、系統樹の検索ハイライトが CSS に上書きされる問題の修正。
 - 設定読み込みと db.toml インポートの境界条件を契約ベースで固定し、Results 画面 (実行 → 進捗 → 完了 → 系統樹・MSA 描画 → 検索 / 保存率 / ズーム / SVG 出力) を実 `main.js` 経由の統合テストで検証する。
-- バックエンド (Python / Rust) の挙動変更と新規機能追加は行わない。
+- SVG エクスポートが単独ファイルで再現しない書式 (ラベルのフォントと support 数値の縁取り) を presentation attribute へ移した。
+- Python の挙動変更と新規機能追加は行わない。Rust は GUI 設定の永続化 (`gui_config.json` の退避とアトミック書き込み) と db.toml インポートの選択肢検証に限定して変更した。
 
 ### Changed
 - `tauri-gui/src/main.js` の設定適用とイベント処理をセクション単位に分割した。db.toml インポートは TOML テーブル別 (`applyImportedBase` / `applyImportedFilters` / `applyImportedPostPrep` / `applyImportedNcbiOptions` / `applyImportedOutputOptions`)、保存済み設定の復元はグループ別、`run-event` の無名ハンドラはイベント種別別の関数にした。`applyImportedDbToml` は cognitive 24 / cyclomatic 25 → 分割後の最大 7 / 8、`loadSavedConfig` は 18 / 19 → 2 / 3。フィールドの適用順序と `|| 現在値` / `?? ""` の使い分けは変えていない。
 - `renderRunTree` (15 / 17) を「ツリーファイルの特定」「ピッカー生成」「1 本のツリーと MSA の読み込み・描画」に分割した (`collectTreePaths` / `populateTreeSelect` / `loadTreeInput` / `disableTreePanel`)。try/catch の適用範囲は従来と同じで、`renderTreeSVG` が投げた場合も同じステータス文言になる。何も読まれていなかった `state.treePaths` は削除した。
-- 複雑度の測定は `cccc 1.8.0 --no-config --no-cache --lang es` に統一した (`tauri-gui/src` の本番 JS)。cognitive 合計 402 → 397 → 394、cognitive 最大 24 → 15 → 15 (残る 15 は `tree-view.js` の `parseFasta` で 3.3.4 では未変更)、cyclomatic 最大 25 → 17 → 16、単位数は 207 → 220 → 224。`main.js` だけを見ると cognitive 最大 24 → 15 → 9、cyclomatic 最大 25 → 17 → 9 で、分割で増えた関数 17 本 (207 → 224) が合計値を押し上げる要因になっている。
+- 系統樹のラベル書式と support 数値の縁取りを、CSS から presentation attribute へ移した。`styles.css` の `.tree-node-label { font-family }` と `.tree-node-support { paint-order / stroke / stroke-width / stroke-linejoin }` を削除し、`tree-view.js` が同じ値を属性として書くようにした。エクスポート時の clone は stylesheet を持たないため、保存した SVG だけラベルが既定セリフに落ち、support 数値の白縁が消えていた。画面表示は computed style が同一 (WebKitGTK 2.52.6 で `stroke rgb(255,255,255) 3px` / `paint-order stroke` / font `"Noto Sans JP", sans-serif` を in-app と単独文書の両方で確認)。MSA 側の `font-variant-ligatures: none` は monospace で実害がないため CSS のまま。
+- 複雑度の測定は `cccc 1.8.0 --no-config --no-cache` に統一した。JS 本番 (`tauri-gui/src`) は cognitive 合計 402 → 394 → 394、cognitive 最大 24 → 15 → 15 (残る 15 は `tree-view.js` の `parseFasta` で 3.3.4 では未変更)、cyclomatic 最大 25 → 16 → 16、単位数 207 → 224 → 224。`main.js` だけを見ると cognitive 最大 24 → 9 → 9、cyclomatic 最大 25 → 9 → 9。Rust 本番 (`src-tauri/src`) は cognitive 合計 236 → 236 → 244、最大 13 → 13 → 13 で、追加した検証ヘルパーが合計を増やしている。JS テストは cognitive 合計 24 → 48 → 49、最大 5 → 10 → 10 (最大はテスト基盤の stub ヘルパー)。3 時点すべて parse error 0。
+- 数値は v3.3.3 (`f47b114`) → Phase 2 の開始点 (`e08f8d1`) → 最終 HEAD の順。
 
 ### Added
 - GUI 自動テスト基盤として `tauri-gui/tests/e2e/tauri-stub.mjs` を追加した。`window.__TAURI_INTERNALS__` (invoke / transformCallback / unregisterCallback) を偽装し、vite dev (port 1420) 上で実際の `main.js` を起動する。コマンド戻り値はテストごとのデータで、`plugin:event|listen` を記録するので `run-event` をテスト側から送れる。`read_text_file` は `routes` (args.path の部分一致で最初の一致を採用、無一致なら `other`) でファイルごとに別の応答を返せる。`main.js` は import 時に DOM を参照するため Node 単体では起動できず、jsdom 等の新規依存は追加していない。
 - `gui-form.e2e.mjs` 9 件: primer_set の既定値・チェック変更・Reset での同期、保存済み設定の復元と失敗時の警告、db.toml インポートの全フィールド適用、空ペイロード時の既定値と現値保持、インポート失敗時のログと非変更、run-event による monitor 更新と Results の解禁。
 - `gui-config.e2e.mjs` 7 件: 起動時の設定読み込み境界条件。有効な設定、空オブジェクト、`marker: ""`、部分設定 (`0` と `false` が `!= null` ガードを通過することを含む)、`saveApiKey: false` で API キーを消す、null 応答、IPC reject。
-- `gui-toml-import.e2e.mjs` 10 件: `ImportedDbTomlConfig` の契約に沿った入力行列。Option フィールドは空文字化、非 Option フィールドの空文字は現値保持、`perQuery = 0` は不指定扱い、`qualityRejectInvalidIupac` の null と false、`duplicateSequencePolicy` の null と不正値、未知の `msaTreeMode`、`markerOptions` による選択肢差し替えと選択済みの除去、`exportFormats` が MiFish ヘッダ書式を上書きする挙動。
-- `gui-results.e2e.mjs` 10 件: 実行開始から Results 描画までの統合テスト。`.tree.nwk` からのツリー選択と TaxID ラベル、Newick と `.msa.fasta` の読み込み、検索・保存率・ズーム・SVG エクスポート、SVG マークアップが単独文書でも検索ハイライトを維持すること、失敗系 (Newick 解析不能、ツリーファイル読み込み不能、MSA 欠落、SVG 保存失敗、ツリーファイル無し) と `cancel_run`。
-- `npx playwright test` は 48 件 (tree-view 12 + gui-form 9 + gui-config 7 + gui-toml-import 10 + gui-results 10)。
+- `gui-toml-import.e2e.mjs` 10 件: `ImportedDbTomlConfig` の契約に沿った入力行列。Option フィールドは空文字化、非 Option フィールドの空文字は現値保持、`perQuery = 0` は不指定扱い、`qualityRejectInvalidIupac` の null と false、`duplicateSequencePolicy` の null と不正値 (不正値はインポート時点で拒否し、セレクトは現値を保持)、未知の `msaTreeMode` (インポートで拒否されるため防御的な固定)、`markerOptions` による選択肢差し替えと選択済みの除去、`exportFormats` が MiFish ヘッダ書式を上書きする挙動。
+- `gui-results.e2e.mjs` 15 件: 実行開始から Results 描画までの統合テスト。`.tree.nwk` からのツリー選択と TaxID ラベル、Newick と `.msa.fasta` の読み込み、検索・保存率・ズーム・SVG エクスポート、SVG マークアップが単独文書でも検索ハイライトとラベル書式・support の縁取りを維持すること、失敗系 (Newick 解析不能、ツリーファイル読み込み不能、MSA 欠落、SVG 保存失敗、ツリーファイル無し) と `cancel_run`。ツリー生成不可の表示は metrics のステータス別に 5 件追加し、`skipped_too_many_taxa` の件数接尾 (`sequences: N`)、他ステータスの reason 接尾、ステータス無し・ファイル有りのフォールバック文言を分けて固定した。
+- `npx playwright test` は 55 件 (tree-view 12 + gui-form 9 + gui-config 7 + gui-toml-import 10 + gui-results 15)。
+- Rust の設定テスト 7 件 (`src-tauri/src/config.rs`)。`gui_config.json` が無い場合は既定値、壊れている場合は `gui_config.json.corrupt` へ退避して退避ファイルが残ること、書き込みと読み込みの往復で `.tmp` が残らないこと、`duplicate_sequence_policy` の拒否と正規化、`msa_tree_mode` の拒否、msa_tree 有効 + mode 無しで `combined` になること。`cargo test` は 13 → 20 件。
 
 ### Fixed
-- 系統樹の検索ハイライトがノートの縁に反映されない問題を修正した (`v3.3.3` の Known issues に記録したもの)。`styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が `leafPalette` の presentation attribute より優先され、マッチしたノートの縁が常に白 1px になっていた。CSS 側を削除し、`tree-view.js` が設定する `stroke: #d76735` / `stroke-width: 2.5` が効くようにした。非マッチノートの見た目は変わらない (元から白 1px)。WebKitGTK 4.1 で computed style を再検証し、通常時 `rgb(255,255,255) 1px`、一致時 `rgb(215,103,53) 2.5px`、非一致時と検索解除後は通常どおりであることを確認した。エクスポートした SVG を外部 CSS 無しで単独表示しても一致ノートのハイライトが残る (presentation attribute 由来)。一方、`.tree-node-label` / `.msa-sequence` / `.msa-ruler` / `.tree-node-support` の書式は CSS 側にあるため、単独 SVG ではフォントがフォールバックする (下記 Known issues)。
+- db.toml インポートで `post_prep.duplicate_sequence_policy` と `post_prep.msa_tree_mode` の選択肢外の値を拒否するようにした。従来はそのまま GUI に流れ込み、セレクトが空になるだけでエラーは実行時 (`taxondbbuilder/config.py`) まで出なかった。Rust の `imported_post_prep` が `Result` を返し、Python と同じ正規化 (`strip().lower()`) と同じ拒否メッセージで弾く。有効値の正規化も Python に揃えたため、`REPRESENTATIVE` のような入力でも実行できる。
+- `gui_config.json` が壊れていたとき、次回の `start_run` が無警告で上書きしていた。Rust 側を `read_gui_config` / `write_gui_config` に分離し、読み込み失敗時は壊れたファイルを `gui_config.json.corrupt` として退避してから既定値を返し、書き込みは `.tmp` + rename のアトミック更新にした。クラッシュ時の中間状態 (`write` 途中の切り詰め) でも元の設定は残る。退避ファイル名はエラーメッセージに入る。
+- 系統樹のラベルと support 数値の書式が、エクスポートした SVG だけで失われていた問題を修正した。
+- 系統樹の検索ハイライトがノートの縁に反映されない問題を修正した (`v3.3.3` の Known issues に記録したもの)。`styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が `leafPalette` の presentation attribute より優先され、マッチしたノートの縁が常に白 1px になっていた。CSS 側を削除し、`tree-view.js` が設定する `stroke: #d76735` / `stroke-width: 2.5` が効くようにした。非マッチノートの見た目は変わらない (元から白 1px)。WebKitGTK 4.1 で computed style を再検証し、通常時 `rgb(255,255,255) 1px`、一致時 `rgb(215,103,53) 2.5px`、非一致時と検索解除後は通常どおりであることを確認した。エクスポートした SVG を外部 CSS 無しで単独表示しても一致ノートのハイライトが残る (presentation attribute 由来)。
 - `gui_config.json` が壊れていて `load_gui_config` が reject した場合、設定読み込みが途中終了し、マーカーが 1 つも選択されないまま Run が起動できない状態になっていた。警告ログを出したうえで空の設定として扱い、既定マーカーと HTML 既定値を適用するようにした。Rust 側は設定ファイルが無い場合に `GuiConfig::default()` を返すため、この経路は実機ではファイル破損でのみ発生する。
 
 ### Known issues
-- db.toml の `post_prep.duplicate_sequence_policy` に選択肢外の値を書くと、GUI のセレクトは空になるだけで実行時 (`taxondbbuilder/config.py`) に初めて拒否される。GUI 側での即時検証は仕様判断が必要なため変更していない。
-- db.toml の `post_prep.msa_tree_mode` に未知の値を書くと GUI は `disabled` として扱う。Rust の既定値も `disabled` だが、`taxondbbuilder/cli.py` の既定値は `combined` で、層によって既定が異なる。
-- `ncbi.per_query` は u32 のため `0` だけを渡すと「不指定」と解釈され、GUI は現在の値を保持する。
-- SVG エクスポートには `<style>` を含めないため、ノードラベルと MSA 行のタイポグラフィは `styles.css` 依存で、単独ファイルではブラウザ既定フォールバックになる。
+- `gui_config.json` の退避とアトミック書き込みは Rust 側だけの変更で、GUI 側の通知経路は変えていない。読み込み失敗の警告は Monitor ビューのログに出るが、起動直後はそのタブが無効なため、ユーザーがビューを切り替えるまで警告を目にできない。退避ファイル自体は残る。
+- `post_prep.msa_tree_mode` の既定値は Rust が `disabled`、`taxondbbuilder/cli.py` が `combined` のまま。Rust は「msa_tree が有効で mode 無し」なら `combined` に解決するため実行結果は Python と一致し、`disabled` は msa_tree 無効時の既定にしか影響しない。ここを変えると GUI の post-prep step 選択に `msa_tree` が入るため、3.3.4 では変更していない。未知の値はインポート時点で拒否される。
+- db.toml の `ncbi.per_query` は u32 のため `0` だけを渡すと「不指定」と解釈され、GUI は現在の値を保持する。
+- SVG エクスポートには `<style>` を含めない方針は維持した。ノードラベル・support 数値・MSA 行の fill / stroke / font-family は presentation attribute に移ったため単独ファイルでも再現するが、MSA 行の `font-variant-ligatures: none` だけが `styles.css` 側に残る。monospace フォンでは合字がほぼ出ないため実害は小さいと判断した。
 
 ## 3.3.3 (2026-10-13)
 
