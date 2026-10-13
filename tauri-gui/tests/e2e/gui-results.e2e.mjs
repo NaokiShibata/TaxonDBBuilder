@@ -157,6 +157,20 @@ test("exporting the tree sends well-formed SVG and reports the saved path", asyn
   expect(parsed.parserError).toBe(false);
   expect(parsed.points).toBe(4);
   expect(parsed.labels).toBeGreaterThan(4);
+
+  // Standalone check: the markup alone, in a document that never loads
+  // styles.css. The highlight must still compute; typography is CSS-only and
+  // falls back (reported as a known gap).
+  const standalone = await page.context().newPage();
+  await standalone.setContent(content);
+  const standaloneStrokes = await standalone.$$eval("svg .tree-node-point", (nodes) =>
+    nodes.map((node) => `${getComputedStyle(node).stroke} ${getComputedStyle(node).strokeWidth}`),
+  );
+  expect(standaloneStrokes.filter((value) => value === "rgb(215, 103, 53) 2.5px")).toHaveLength(1);
+  expect(standaloneStrokes.filter((value) => value === "rgb(255, 255, 255) 1px")).toHaveLength(3);
+  expect(await standalone.$eval("svg .tree-node-label", (node) =>
+    getComputedStyle(node).fill,
+  )).toBe("rgb(46, 79, 102)");
   expect(errors).toEqual([]);
 });
 
