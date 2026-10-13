@@ -20,8 +20,8 @@
 - `gui-form.e2e.mjs` 9 件: primer_set の既定値・チェック変更・Reset での同期、保存済み設定の復元と失敗時の警告、db.toml インポートの全フィールド適用、空ペイロード時の既定値と現値保持、インポート失敗時のログと非変更、run-event による monitor 更新と Results の解禁。
 - `gui-config.e2e.mjs` 7 件: 起動時の設定読み込み境界条件。有効な設定、空オブジェクト、`marker: ""`、部分設定 (`0` と `false` が `!= null` ガードを通過することを含む)、`saveApiKey: false` で API キーを消す、null 応答、IPC reject。
 - `gui-toml-import.e2e.mjs` 10 件: `ImportedDbTomlConfig` の契約に沿った入力行列。Option フィールドは空文字化、非 Option フィールドの空文字は現値保持、`perQuery = 0` は不指定扱い、`qualityRejectInvalidIupac` の null と false、`duplicateSequencePolicy` の null と不正値 (不正値はインポート時点で拒否し、セレクトは現値を保持)、未知の `msaTreeMode` (インポートで拒否されるため防御的な固定)、`markerOptions` による選択肢差し替えと選択済みの除去、`exportFormats` が MiFish ヘッダ書式を上書きする挙動。
-- `gui-results.e2e.mjs` 15 件: 実行開始から Results 描画までの統合テスト。`.tree.nwk` からのツリー選択と TaxID ラベル、Newick と `.msa.fasta` の読み込み、検索・保存率・ズーム・SVG エクスポート、SVG マークアップが単独文書でも検索ハイライトとラベル書式・support の縁取りを維持すること、失敗系 (Newick 解析不能、ツリーファイル読み込み不能、MSA 欠落、SVG 保存失敗、ツリーファイル無し) と `cancel_run`。ツリー生成不可の表示は metrics のステータス別に 5 件追加し、`skipped_too_many_taxa` の件数接尾 (`sequences: N`)、他ステータスの reason 接尾、ステータス無し・ファイル有りのフォールバック文言を分けて固定した。
-- `npx playwright test` は 55 件 (tree-view 12 + gui-form 9 + gui-config 7 + gui-toml-import 10 + gui-results 15)。
+- `gui-results.e2e.mjs` 16 件: 実行開始から Results 描画までの統合テスト。`.tree.nwk` からのツリー選択と TaxID ラベル、Newick と `.msa.fasta` の読み込み、検索・保存率・ズーム・SVG エクスポート、SVG マークアップが単独文書でも検索ハイライトとラベル書式・support の縁取りを維持すること、失敗系 (Newick 解析不能、ツリーファイル読み込み不能、MSA 欠落、SVG 保存失敗、ツリーファイル無し) と `cancel_run`。ツリー生成不可の表示は metrics のステータス別に 5 件追加し、`skipped_too_many_taxa` の件数接尾 (`sequences: N`)、他ステータスの reason 接尾、ステータス無し・ファイル有りのフォールバック文言を分けて固定した。
+- `npx playwright test` は 54 件 (tree-view 12 + gui-form 9 + gui-config 7 + gui-toml-import 10 + gui-results 16)。
 - Rust の設定テスト 7 件 (`src-tauri/src/config.rs`)。`gui_config.json` が無い場合は既定値、壊れている場合は `gui_config.json.corrupt` へ退避して退避ファイルが残ること、書き込みと読み込みの往復で `.tmp` が残らないこと、`duplicate_sequence_policy` の拒否と正規化、`msa_tree_mode` の拒否、msa_tree 有効 + mode 無しで `combined` になること。`cargo test` は 13 → 20 件。
 
 ### Fixed
