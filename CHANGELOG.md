@@ -4,17 +4,31 @@
 
 ### Scope
 - GUI の品質改善に限定する。`tauri-gui/src/main.js` の責務分離、`main.js` を対象にした GUI 自動テスト基盤、系統樹の検索ハイライトが CSS に上書きされる問題の修正。
+- 設定読み込みと db.toml インポートの境界条件を契約ベースで固定し、Results 画面 (実行 → 進捗 → 完了 → 系統樹・MSA 描画 → 検索 / 保存率 / ズーム / SVG 出力) を実 `main.js` 経由の統合テストで検証する。
 - バックエンド (Python / Rust) の挙動変更と新規機能追加は行わない。
 
 ### Changed
-- `tauri-gui/src/main.js` の設定適用とイベント処理をセクション単位に分割した。db.toml インポートは TOML テーブル別 (`applyImportedBase` / `applyImportedFilters` / `applyImportedPostPrep` / `applyImportedNcbiOptions` / `applyImportedOutputOptions`)、保存済み設定の復元はグループ別、`run-event` の無名ハンドラはイベント種別別の関数にした。`applyImportedDbToml` は cognitive 24 / cyclomatic 25 から分割後の最大 7 / 8 になり、`main.js` 全体では cognitive 最大 24 → 15、cognitive 合計 288 → 305 (関数数 124 → 138 の分割による増分)、cyclomatic 最大 25 → 17。フィールドの適用順序と `|| 現在値` / `?? ""` の使い分けは変えていない。`renderRunTree` (15 / 17) はこれ以上分割しても移動するだけなので対象外にした。
+- `tauri-gui/src/main.js` の設定適用とイベント処理をセクション単位に分割した。db.toml インポートは TOML テーブル別 (`applyImportedBase` / `applyImportedFilters` / `applyImportedPostPrep` / `applyImportedNcbiOptions` / `applyImportedOutputOptions`)、保存済み設定の復元はグループ別、`run-event` の無名ハンドラはイベント種別別の関数にした。`applyImportedDbToml` は cognitive 24 / cyclomatic 25 → 分割後の最大 7 / 8、`loadSavedConfig` は 18 / 19 → 2 / 3。フィールドの適用順序と `|| 現在値` / `?? ""` の使い分けは変えていない。
+- `renderRunTree` (15 / 17) を「ツリーファイルの特定」「ピッカー生成」「1 本のツリーと MSA の読み込み・描画」に分割した (`collectTreePaths` / `populateTreeSelect` / `loadTreeInput` / `disableTreePanel`)。try/catch の適用範囲は従来と同じで、`renderTreeSVG` が投げた場合も同じステータス文言になる。何も読まれていなかった `state.treePaths` は削除した。
+- 複雑度の測定は `cccc 1.8.0 --no-config --no-cache --lang es` に統一した (`tauri-gui/src` の本番 JS)。cognitive 合計 402 → 397 → 394、cognitive 最大 24 → 15 → 15 (残る 15 は `tree-view.js` の `parseFasta` で 3.3.4 では未変更)、cyclomatic 最大 25 → 17 → 16、単位数は 207 → 220 → 224。`main.js` だけを見ると cognitive 最大 24 → 15 → 9、cyclomatic 最大 25 → 17 → 9 で、分割で増えた関数 17 本 (207 → 224) が合計値を押し上げる要因になっている。
 
 ### Added
-- GUI 自動テスト基盤として `tauri-gui/tests/e2e/tauri-stub.mjs` を追加した。`window.__TAURI_INTERNALS__` (invoke / transformCallback / unregisterCallback) を偽装し、vite dev (port 1420) 上で実際の `main.js` を起動する。コマンド戻り値はテストごとのデータで、`plugin:event|listen` を記録するので `run-event` をテスト側から送れる。`main.js` は import 時に DOM を参照するため Node 単体では起動できず、jsdom 等の新規依存は追加していない。
-- `tauri-gui/tests/e2e/gui-form.e2e.mjs` 9 件。primer_set の既定値・チェック変更・Reset での同期、保存済み設定の復元と失敗時の警告、db.toml インポートの全フィールド適用、空ペイロード時の既定値と現値保持 (`|| 現在値` と `?? ""` の非対称を固定)、インポート失敗時のログと非変更、run-event による monitor 更新と Results の解禁。`npx playwright test` は 21 件 (tree-view 12 件 + gui-form 9 件)。
+- GUI 自動テスト基盤として `tauri-gui/tests/e2e/tauri-stub.mjs` を追加した。`window.__TAURI_INTERNALS__` (invoke / transformCallback / unregisterCallback) を偽装し、vite dev (port 1420) 上で実際の `main.js` を起動する。コマンド戻り値はテストごとのデータで、`plugin:event|listen` を記録するので `run-event` をテスト側から送れる。`read_text_file` は `routes` (args.path の部分一致で最初の一致を採用、無一致なら `other`) でファイルごとに別の応答を返せる。`main.js` は import 時に DOM を参照するため Node 単体では起動できず、jsdom 等の新規依存は追加していない。
+- `gui-form.e2e.mjs` 9 件: primer_set の既定値・チェック変更・Reset での同期、保存済み設定の復元と失敗時の警告、db.toml インポートの全フィールド適用、空ペイロード時の既定値と現値保持、インポート失敗時のログと非変更、run-event による monitor 更新と Results の解禁。
+- `gui-config.e2e.mjs` 7 件: 起動時の設定読み込み境界条件。有効な設定、空オブジェクト、`marker: ""`、部分設定 (`0` と `false` が `!= null` ガードを通過することを含む)、`saveApiKey: false` で API キーを消す、null 応答、IPC reject。
+- `gui-toml-import.e2e.mjs` 10 件: `ImportedDbTomlConfig` の契約に沿った入力行列。Option フィールドは空文字化、非 Option フィールドの空文字は現値保持、`perQuery = 0` は不指定扱い、`qualityRejectInvalidIupac` の null と false、`duplicateSequencePolicy` の null と不正値、未知の `msaTreeMode`、`markerOptions` による選択肢差し替えと選択済みの除去、`exportFormats` が MiFish ヘッダ書式を上書きする挙動。
+- `gui-results.e2e.mjs` 10 件: 実行開始から Results 描画までの統合テスト。`.tree.nwk` からのツリー選択と TaxID ラベル、Newick と `.msa.fasta` の読み込み、検索・保存率・ズーム・SVG エクスポート、SVG マークアップが単独文書でも検索ハイライトを維持すること、失敗系 (Newick 解析不能、ツリーファイル読み込み不能、MSA 欠落、SVG 保存失敗、ツリーファイル無し) と `cancel_run`。
+- `npx playwright test` は 48 件 (tree-view 12 + gui-form 9 + gui-config 7 + gui-toml-import 10 + gui-results 10)。
 
 ### Fixed
-- 系統樹の検索ハイライトがノートの縁に反映されない問題を修正した (`v3.3.3` の Known issues に記録したもの)。`styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が `leafPalette` の presentation attribute より優先され、マッチしたノートの縁が常に白 1px になっていた。CSS 側を削除し、`tree-view.js` が設定する `stroke: #d76735` / `stroke-width: 2.5` が効くようにした。非マッチノートの見た目は変わらない (元から白 1px)。
+- 系統樹の検索ハイライトがノートの縁に反映されない問題を修正した (`v3.3.3` の Known issues に記録したもの)。`styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が `leafPalette` の presentation attribute より優先され、マッチしたノートの縁が常に白 1px になっていた。CSS 側を削除し、`tree-view.js` が設定する `stroke: #d76735` / `stroke-width: 2.5` が効くようにした。非マッチノートの見た目は変わらない (元から白 1px)。WebKitGTK 4.1 で computed style を再検証し、通常時 `rgb(255,255,255) 1px`、一致時 `rgb(215,103,53) 2.5px`、非一致時と検索解除後は通常どおりであることを確認した。エクスポートした SVG を外部 CSS 無しで単独表示しても一致ノートのハイライトが残る (presentation attribute 由来)。一方、`.tree-node-label` / `.msa-sequence` / `.msa-ruler` / `.tree-node-support` の書式は CSS 側にあるため、単独 SVG ではフォントがフォールバックする (下記 Known issues)。
+- `gui_config.json` が壊れていて `load_gui_config` が reject した場合、設定読み込みが途中終了し、マーカーが 1 つも選択されないまま Run が起動できない状態になっていた。警告ログを出したうえで空の設定として扱い、既定マーカーと HTML 既定値を適用するようにした。Rust 側は設定ファイルが無い場合に `GuiConfig::default()` を返すため、この経路は実機ではファイル破損でのみ発生する。
+
+### Known issues
+- db.toml の `post_prep.duplicate_sequence_policy` に選択肢外の値を書くと、GUI のセレクトは空になるだけで実行時 (`taxondbbuilder/config.py`) に初めて拒否される。GUI 側での即時検証は仕様判断が必要なため変更していない。
+- db.toml の `post_prep.msa_tree_mode` に未知の値を書くと GUI は `disabled` として扱う。Rust の既定値も `disabled` だが、`taxondbbuilder/cli.py` の既定値は `combined` で、層によって既定が異なる。
+- `ncbi.per_query` は u32 のため `0` だけを渡すと「不指定」と解釈され、GUI は現在の値を保持する。
+- SVG エクスポートには `<style>` を含めないため、ノードラベルと MSA 行のタイポグラフィは `styles.css` 依存で、単独ファイルではブラウザ既定フォールバックになる。
 
 ## 3.3.3 (2026-10-13)
 
