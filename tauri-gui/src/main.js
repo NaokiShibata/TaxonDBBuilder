@@ -113,7 +113,6 @@ const state = {
   files: [],
   msaTreeStatus: "",
   msaTreeTaxa: null,
-  treePaths: [],
   selectedTreePath: "",
   unlisten: null,
   taxids: [],
@@ -651,16 +650,17 @@ function setTreeViewControlsEnabled(enabled) {
   });
 }
 
-async function renderRunTree() {
-  const collectedTreePaths = state.files.filter((path) =>
-    path.toLowerCase().endsWith(".tree.nwk"),
-  );
-  const fallbackTreePath = state.outputPath ? `${state.outputPath}.tree.nwk` : "";
-  state.treePaths = collectedTreePaths.length
-    ? collectedTreePaths
-    : (fallbackTreePath ? [fallbackTreePath] : []);
+// Which trees exist, which one is selected, and how to show one of them are three
+// separate questions; renderRunTree only sequences them.
+function collectTreePaths() {
+  const collected = state.files.filter((path) => path.toLowerCase().endsWith(".tree.nwk"));
+  if (collected.length) return collected;
+  return state.outputPath ? [`${state.outputPath}.tree.nwk`] : [];
+}
+
+function populateTreeSelect(paths) {
   els.treeSelect.replaceChildren();
-  for (const path of state.treePaths) {
+  for (const path of paths) {
     const filename = path.split(/[\\/]/).pop() || path;
     const taxidMatch = filename.match(/\.taxid([^\.]+)\.tree\.nwk$/i);
     const option = document.createElement("option");
@@ -668,40 +668,54 @@ async function renderRunTree() {
     option.textContent = taxidMatch ? `TaxID ${taxidMatch[1]}` : filename;
     els.treeSelect.appendChild(option);
   }
-  els.treeSelect.disabled = state.treePaths.length === 0;
-  const treePath = state.treePaths.includes(state.selectedTreePath)
+  els.treeSelect.disabled = paths.length === 0;
+}
+
+function disableTreePanel(message, unavailableMessage) {
+  treeViewController?.dispose();
+  treeViewController = null;
+  setTreeViewControlsEnabled(false);
+  els.treeViewStatus.textContent = message;
+  renderTreeStatus(els.treeViewContainer, unavailableMessage);
+}
+
+// A missing MSA is not fatal: the tree still draws, without the background layer.
+async function loadTreeInput(treePath) {
+  const root = parseNewick(await invoke("read_text_file", { path: treePath }));
+  const msaPath = treePath.replace(/\.tree\.nwk$/i, ".msa.fasta");
+  let alignment = new Map();
+  let msaStatus = "No MSA";
+  try {
+    alignment = parseFasta(await invoke("read_text_file", { path: msaPath }));
+    msaStatus = `${alignment.size} sequences × ${alignment.values().next().value.length} bases`;
+  } catch (error) {
+    console.warn(`Failed to load MSA: ${msaPath}`, error);
+  }
+  return { root, alignment, msaStatus };
+}
+
+async function renderRunTree() {
+  const paths = collectTreePaths();
+  populateTreeSelect(paths);
+  const treePath = paths.includes(state.selectedTreePath)
     ? state.selectedTreePath
-    : state.treePaths[0] || "";
+    : paths[0] || "";
   state.selectedTreePath = treePath;
   els.treeSelect.value = treePath;
-  const treeFilename = treePath ? treePath.split(/[\\/]/).pop() || treePath : "";
   const unavailableMessage = formatTreeUnavailableMessage(
     state.msaTreeStatus,
     state.msaTreeTaxa,
   );
 
   if (!treePath) {
-    treeViewController?.dispose();
-    treeViewController = null;
-    setTreeViewControlsEnabled(false);
-    els.treeViewStatus.textContent = "No phylogenetic tree file found.";
-    renderTreeStatus(els.treeViewContainer, unavailableMessage);
+    disableTreePanel("No phylogenetic tree file found.", unavailableMessage);
     return;
   }
 
+  const treeFilename = treePath.split(/[\\/]/).pop() || treePath;
   els.treeViewStatus.textContent = `Loading: ${treeFilename}`;
   try {
-    const newickText = await invoke("read_text_file", { path: treePath });
-    const root = parseNewick(newickText);
-    const msaPath = treePath.replace(/\.tree\.nwk$/i, ".msa.fasta");
-    let alignment = new Map();
-    let msaStatus = "No MSA";
-    try {
-      alignment = parseFasta(await invoke("read_text_file", { path: msaPath }));
-      msaStatus = `${alignment.size} sequences × ${alignment.values().next().value.length} bases`;
-    } catch (error) {
-      console.warn(`Failed to load MSA: ${msaPath}`, error);
-    }
+    const { root, alignment, msaStatus } = await loadTreeInput(treePath);
     treeViewController?.dispose();
     treeViewController = renderTreeSVG(
       root,
@@ -714,11 +728,7 @@ async function renderRunTree() {
     els.msaConservation.disabled = alignment.size === 0;
     els.treeViewStatus.textContent = `${treeFilename} / ${msaStatus}`;
   } catch (error) {
-    treeViewController?.dispose();
-    treeViewController = null;
-    setTreeViewControlsEnabled(false);
-    els.treeViewStatus.textContent = "Failed to load the phylogenetic tree file.";
-    renderTreeStatus(els.treeViewContainer, unavailableMessage);
+    disableTreePanel("Failed to load the phylogenetic tree file.", unavailableMessage);
   }
 }
 
@@ -908,7 +918,6 @@ async function runJob() {
   state.files = [];
   state.msaTreeStatus = "";
   state.msaTreeTaxa = null;
-  state.treePaths = [];
   state.selectedTreePath = "";
   els.metricsDisclosure.open = false;
   els.outputFilesDisclosure.open = false;
