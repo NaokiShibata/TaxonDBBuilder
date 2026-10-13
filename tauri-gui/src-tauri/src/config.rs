@@ -869,8 +869,43 @@ fn post_prep_steps(post: &PostPrepToml, primer_file: &str, primer_set: &[String]
     steps
 }
 
-fn imported_post_prep(post: PostPrepToml) -> PostPrepInput {
-    let msa_mode = msa_tree_mode(&post);
+const DUPLICATE_SEQUENCE_POLICIES: [&str; 3] = ["keep", "representative", "exclude_conflicts"];
+const MSA_TREE_MODES: [&str; 3] = ["disabled", "combined", "per_taxid"];
+
+// Same normalization and rejection as taxondbbuilder/config.py, so an invalid value
+// fails at import instead of blanking a select and surfacing only at run time.
+fn normalized_duplicate_policy(raw: &Option<String>) -> Result<Option<String>, String> {
+    let Some(value) = raw
+        .as_ref()
+        .map(|value| value.trim().to_ascii_lowercase())
+    else {
+        return Ok(None);
+    };
+    if DUPLICATE_SEQUENCE_POLICIES.contains(&value.as_str()) {
+        Ok(Some(value))
+    } else {
+        Err(format!(
+            "post_prep.duplicate_sequence_policy must be one of: {}",
+            DUPLICATE_SEQUENCE_POLICIES.join(", ")
+        ))
+    }
+}
+
+fn validated_msa_tree_mode(post: &PostPrepToml) -> Result<String, String> {
+    let mode = msa_tree_mode(post).to_ascii_lowercase();
+    if MSA_TREE_MODES.contains(&mode.as_str()) {
+        Ok(mode)
+    } else {
+        Err(format!(
+            "post_prep.msa_tree_mode must be one of: {}",
+            MSA_TREE_MODES.join(", ")
+        ))
+    }
+}
+
+fn imported_post_prep(post: PostPrepToml) -> Result<PostPrepInput, String> {
+    let msa_mode = validated_msa_tree_mode(&post)?;
+    let duplicate_sequence_policy = normalized_duplicate_policy(&post.duplicate_sequence_policy)?;
     let primer_file = post.primer_file.trim().to_string();
     let primer_set = post
         .primer_set
@@ -880,7 +915,7 @@ fn imported_post_prep(post: PostPrepToml) -> PostPrepInput {
         .collect::<Vec<_>>();
     let steps = post_prep_steps(&post, &primer_file, &primer_set);
 
-    PostPrepInput {
+    Ok(PostPrepInput {
         enable: true,
         msa_tree_mode: msa_mode,
         primer_file,
@@ -890,7 +925,7 @@ fn imported_post_prep(post: PostPrepToml) -> PostPrepInput {
         sequence_length_max: post.sequence_length_max,
         quality_max_ambiguous_fraction: post.quality_max_ambiguous_fraction,
         quality_reject_invalid_iupac: post.quality_reject_invalid_iupac,
-        duplicate_sequence_policy: post.duplicate_sequence_policy,
+        duplicate_sequence_policy,
         primer_max_mismatch: post.primer_max_mismatch,
         primer_max_error_rate: post.primer_max_error_rate,
         primer_min_overlap_bp: post.primer_min_overlap_bp,
@@ -906,7 +941,7 @@ fn imported_post_prep(post: PostPrepToml) -> PostPrepInput {
         primer_recheck_min_identity: post.primer_recheck_min_identity,
         primer_recheck_min_query_cov: post.primer_recheck_min_query_cov,
         primer_sidecar_format: trimmed_option(&post.primer_sidecar_format),
-    }
+    })
 }
 
 pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, String> {
@@ -952,7 +987,7 @@ pub(crate) fn parse_db_toml_config(path: &Path) -> Result<ImportedDbTomlConfig, 
     imported.filters = imported_filters(config.filters);
 
     if let Some(post) = config.post_prep {
-        imported.post_prep = imported_post_prep(post);
+        imported.post_prep = imported_post_prep(post)?;
     }
 
     Ok(imported)
@@ -1075,6 +1110,77 @@ mod tests {
             .post_prep
             .steps
             .contains(&"length_filter".to_string()));
+    }
+
+    #[test]
+    fn import_rejects_an_unknown_duplicate_sequence_policy() {
+        let path = temp_dir("import-policy").join("db.toml");
+        fs::write(
+            &path,
+            "[post_prep]\nenable = true\nduplicate_sequence_policy = \"first\"\n",
+        )
+        .expect("write db.toml");
+
+        let error = parse_db_toml_config(&path).expect_err("reject unknown policy");
+        assert!(
+            error.contains(
+                "post_prep.duplicate_sequence_policy must be one of: keep, representative, exclude_conflicts"
+            ),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn import_normalizes_a_valid_duplicate_sequence_policy() {
+        let path = temp_dir("import-policy-ok").join("db.toml");
+        fs::write(
+            &path,
+            "[post_prep]\nenable = true\nduplicate_sequence_policy = \"  Exclude_Conflicts  \"\n",
+        )
+        .expect("write db.toml");
+
+        let imported = parse_db_toml_config(&path).expect("parse fixture");
+        assert_eq!(
+            imported.post_prep.duplicate_sequence_policy,
+            Some("exclude_conflicts".to_string())
+        );
+    }
+
+    #[test]
+    fn import_rejects_an_unknown_msa_tree_mode() {
+        let path = temp_dir("import-mode").join("db.toml");
+        fs::write(
+            &path,
+            "[post_prep]\nenable = true\nmsa_tree_mode = \"per_marker\"\n",
+        )
+        .expect("write db.toml");
+
+        let error = parse_db_toml_config(&path).expect_err("reject unknown mode");
+        assert!(
+            error.contains("post_prep.msa_tree_mode must be one of: disabled, combined, per_taxid"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn import_defaults_msa_tree_mode_from_enable() {
+        let dir = temp_dir("import-mode-default");
+        let off = dir.join("off.toml");
+        fs::write(&off, "[post_prep]\nenable = true\n").expect("write off.toml");
+        // The GUI needs one definite radio state, and "disabled" is the conservative
+        // one: selecting a mode would also add the msa_tree step to the request.
+        assert_eq!(
+            parse_db_toml_config(&off).expect("parse").post_prep.msa_tree_mode,
+            "disabled"
+        );
+
+        let on = dir.join("on.toml");
+        fs::write(&on, "[post_prep]\nenable = true\nmsa_tree_enable = true\n").expect("write on.toml");
+        // With the step enabled, the default matches taxondbbuilder's "combined".
+        assert_eq!(
+            parse_db_toml_config(&on).expect("parse").post_prep.msa_tree_mode,
+            "combined"
+        );
     }
 
     #[test]

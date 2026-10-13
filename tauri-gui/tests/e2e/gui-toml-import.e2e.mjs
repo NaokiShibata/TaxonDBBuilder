@@ -13,6 +13,8 @@
 //   nullable (Option): filters.lengthMin/lengthMax, ncbiOptions.delaySec,
 //                      postPrep.sequenceLengthMin/Max, qualityMaxAmbiguousFraction,
 //                      qualityRejectInvalidIupac, duplicateSequencePolicy
+// import_db_toml also rejects a duplicateSequencePolicy or msaTreeMode outside the
+// values taxondbbuilder accepts, so those two arrive only as valid or absent.
 // So `?? ""` sits exactly on the Option fields and `|| current` exactly on the
 // non-Option ones. Absent keys and wrong types cannot arrive; the `imported.x || {}`
 // guards in main.js are defensive only.
@@ -157,20 +159,28 @@ test("duplicateSequencePolicy null falls back to keep", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test("an unknown duplicateSequencePolicy blanks the select", async ({ page }) => {
-  // Rust does not validate this string; taxondbbuilder/config.py rejects it later with
-  // "post_prep.duplicate_sequence_policy must be one of: ...". The GUI shows an empty
-  // select instead of rejecting it, which is reported as an open judgement and left
-  // unchanged here.
-  const errors = await openWithImport(
-    page,
-    payload({ postPrep: { ...payload().postPrep, duplicateSequencePolicy: "first" } }),
+test("an invalid duplicateSequencePolicy is rejected at import, not blanked", async ({ page }) => {
+  // import_db_toml now mirrors taxondbbuilder/config.py and rejects the value, so a
+  // policy the select cannot show never reaches the form.
+  const errors = await openGuiApp(page, {
+    choose_db_toml_file: { value: "/srv/job/db.toml" },
+    import_db_toml: {
+      reject:
+        "post_prep.duplicate_sequence_policy must be one of: keep, representative, exclude_conflicts",
+    },
+  });
+  await page.click("#load-db-toml");
+  await expect(page.locator("#log-view")).toContainText(
+    "duplicate_sequence_policy must be one of: keep, representative, exclude_conflicts",
   );
+  expect(await value(page, "#duplicate-sequence-policy")).toBe("keep");
+  expect(await page.locator("#loaded-db-toml").textContent()).toBe("No file loaded");
   expect(errors).toEqual([]);
-  expect(await value(page, "#duplicate-sequence-policy")).toBe("");
 });
 
-test("an unknown msaTreeMode lands on disabled, the Rust default", async ({ page }) => {
+test("an msaTreeMode the radio group cannot show falls back to disabled", async ({ page }) => {
+  // Defensive only: import_db_toml rejects a mode outside disabled / combined /
+  // per_taxid, so this path needs a hand-built payload to reach.
   const errors = await openWithImport(
     page,
     payload({ postPrep: { ...payload().postPrep, msaTreeMode: "per_marker" } }),
