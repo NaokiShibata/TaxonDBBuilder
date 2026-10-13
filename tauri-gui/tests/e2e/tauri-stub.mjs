@@ -53,3 +53,16 @@ export async function installTauriStub(page, commands = {}) {
 export async function invocations(page) {
   return page.evaluate(() => window.__guiInvocations__.map((entry) => entry.cmd));
 }
+
+// Boot the real app with the given command replies and collect page errors.
+export async function openGuiApp(page, commands = {}) {
+  const errors = [];
+  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(`console: ${message.text()}`);
+  });
+  await installTauriStub(page, commands);
+  await page.goto(GUI_URL);
+  await page.waitForSelector("#primer-set");
+  return errors;
+}

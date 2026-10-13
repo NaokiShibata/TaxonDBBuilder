@@ -4,19 +4,7 @@
 // (absent key -> "" vs absent key -> keep current value).
 
 import { expect, test } from "@playwright/test";
-import { GUI_URL, installTauriStub } from "./tauri-stub.mjs";
-
-async function openApp(page, commands = {}) {
-  const errors = [];
-  page.on("pageerror", (error) => errors.push(`pageerror: ${error.message}`));
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(`console: ${message.text()}`);
-  });
-  await installTauriStub(page, commands);
-  await page.goto(GUI_URL);
-  await page.waitForSelector("#primer-set");
-  return errors;
-}
+import { openGuiApp } from "./tauri-stub.mjs";
 
 async function value(page, selector) {
   return page.locator(selector).inputValue();
@@ -27,7 +15,7 @@ async function checked(page, selector) {
 }
 
 test("MiFish-Unity is the only default-checked candidate and prefills primer_set", async ({ page }) => {
-  const errors = await openApp(page);
+  const errors = await openGuiApp(page);
   expect(await checked(page, ".primer-candidate[value='mifish_unity']")).toBe(true);
   expect(await page.locator(".primer-candidate:checked").count()).toBe(1);
   expect(await value(page, "#primer-set")).toBe("mifish_unity");
@@ -35,7 +23,7 @@ test("MiFish-Unity is the only default-checked candidate and prefills primer_set
 });
 
 test("primer_set follows the checked candidates", async ({ page }) => {
-  const errors = await openApp(page);
+  const errors = await openGuiApp(page);
   await page.check(".primer-candidate[value='mideca']");
   await page.check(".primer-candidate[value='uceta']");
   // Order follows DOM order of the candidate checkboxes (mifish_unity is last).
@@ -51,7 +39,7 @@ test("primer_set follows the checked candidates", async ({ page }) => {
 });
 
 test("Reset restores the default candidate selection and primer_set", async ({ page }) => {
-  const errors = await openApp(page);
+  const errors = await openGuiApp(page);
   await page.uncheck(".primer-candidate[value='mifish_unity']");
   await page.check(".primer-candidate[value='amph_16s']");
   expect(await value(page, "#primer-set")).toBe("amph_16s");
@@ -64,7 +52,7 @@ test("Reset restores the default candidate selection and primer_set", async ({ p
 });
 
 test("loadSavedConfig applies the saved GUI config at startup", async ({ page }) => {
-  const errors = await openApp(page, {
+  const errors = await openGuiApp(page, {
     load_gui_config: {
       value: {
         outputRoot: "/srv/out",
@@ -102,7 +90,7 @@ test("loadSavedConfig applies the saved GUI config at startup", async ({ page })
 });
 
 test("loadSavedConfig failure keeps defaults and logs a warning", async ({ page }) => {
-  const errors = await openApp(page, { load_gui_config: { reject: "no saved config" } });
+  const errors = await openGuiApp(page, { load_gui_config: { reject: "no saved config" } });
   expect(await value(page, "#output-root")).toBe("");
   expect(await value(page, "#email")).toBe("");
   expect(await value(page, "#primer-set")).toBe("mifish_unity");
@@ -111,7 +99,7 @@ test("loadSavedConfig failure keeps defaults and logs a warning", async ({ page 
 });
 
 test("importing db.toml fills every mapped field", async ({ page }) => {
-  const errors = await openApp(page, {
+  const errors = await openGuiApp(page, {
     choose_db_toml_file: { value: "/srv/job/db.toml" },
     import_db_toml: {
       value: {
@@ -192,7 +180,7 @@ test("importing db.toml fills every mapped field", async ({ page }) => {
 });
 
 test("empty db.toml payload: defaults, blanks, and kept values, exactly as coded", async ({ page }) => {
-  const errors = await openApp(page, {
+  const errors = await openGuiApp(page, {
     choose_db_toml_file: { value: "/srv/empty/db.toml" },
     import_db_toml: { value: { sourcePath: "/srv/empty/db.toml" } },
   });
@@ -235,7 +223,7 @@ test("empty db.toml payload: defaults, blanks, and kept values, exactly as coded
 });
 
 test("db.toml import failure logs an error and leaves the form and path alone", async ({ page }) => {
-  const errors = await openApp(page, {
+  const errors = await openGuiApp(page, {
     choose_db_toml_file: { value: "/srv/missing/db.toml" },
     import_db_toml: { reject: "db.toml not found" },
   });
@@ -249,7 +237,7 @@ test("db.toml import failure logs an error and leaves the form and path alone", 
 });
 
 test("run-events drive the monitor and unlock the results view", async ({ page }) => {
-  const errors = await openApp(page, {
+  const errors = await openGuiApp(page, {
     // The Rust side answers with a default GuiConfig on a fresh install, and
     // that empty config is what seeds the default marker selection.
     load_gui_config: { value: {} },
