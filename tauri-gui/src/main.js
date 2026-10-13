@@ -29,6 +29,7 @@ const els = {
   run: document.querySelector("#run"),
   cancel: document.querySelector("#cancel"),
   status: document.querySelector("#status"),
+  configNotice: document.querySelector("#config-notice"),
   phase: document.querySelector("#phase"),
   progress: document.querySelector("#progress"),
   progressDetail: document.querySelector("#progress-detail"),
@@ -893,7 +894,15 @@ async function loadSavedConfig() {
   } catch (error) {
     // A corrupt or unreadable gui_config.json is recoverable: fall through to the
     // empty config so the form still gets its default marker, and say so in the log.
-    monitorView.appendLog(`[warn] load config failed: ${error}`);
+    const detail = String(error);
+    // Rust names the quarantine file when it moved an unreadable config aside, which
+    // is what separates a corrupt file from a transient IPC failure here.
+    const backup = detail.match(/[\w./-]*gui_config\.json\.corrupt[\w.]*/)?.[0];
+    els.configNotice.textContent = backup
+      ? `Saved settings could not be read. The unreadable file was kept at ${backup}. Starting with defaults.`
+      : `Saved settings could not be read (${detail}). Starting with defaults.`;
+    els.configNotice.hidden = false;
+    monitorView.appendLog(`[warn] load config failed: ${detail}`);
   }
   const config = saved ?? {};
   applySavedRunFields(config);

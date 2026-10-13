@@ -198,6 +198,17 @@ select {
   gap: 10px;
 }
 
+/* Startup config failures only reach the Monitor log otherwise, and that view is
+   disabled until a run starts. */
+.config-notice {
+  margin: 0;
+  padding: 8px 12px;
+  border: 1px solid #e8b06b;
+  border-radius: 10px;
+  background: #fff7e8;
+  color: #7a4b12;
+}
+
 .card {
   border: 1px solid #d9e9f7;
   background: linear-gradient(

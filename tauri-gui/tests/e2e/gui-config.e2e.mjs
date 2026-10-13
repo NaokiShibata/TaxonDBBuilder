@@ -104,3 +104,43 @@ test("a rejected load logs a warning and still seeds the defaults", async ({ pag
   expect(await markerPills(page)).toBe(1);
   expect(errors).toEqual([]);
 });
+
+// The log lives in the Monitor view, which is disabled at startup, so a config
+// failure has to be visible in the Setup view as well.
+test("a normal startup shows no config notice", async ({ page }) => {
+  const errors = await openGuiApp(page, {
+    load_gui_config: { value: { marker: "16s", source: "ncbi" } },
+  });
+  await expect(page.locator("#config-notice")).toBeHidden();
+  expect(await markerPills(page)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("a quarantined config names the backup file in the setup view", async ({ page }) => {
+  const errors = await openGuiApp(page, {
+    load_gui_config: {
+      reject:
+        "failed to parse gui_config.json: expected value at line 1 column 40; " +
+        "kept the unreadable copy at /home/u/.config/com.taxondbbuilder.gui/gui_config.json.corrupt",
+    },
+  });
+  const notice = page.locator("#config-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("gui_config.json.corrupt");
+  await expect(notice).toContainText("default");
+  // Startup continues on the defaults.
+  expect(await markerPills(page)).toBe(1);
+  expect(errors).toEqual([]);
+});
+
+test("a transient ipc failure does not claim a backup was kept", async ({ page }) => {
+  const errors = await openGuiApp(page, {
+    load_gui_config: { reject: "load_gui_config command not available" },
+  });
+  const notice = page.locator("#config-notice");
+  await expect(notice).toBeVisible();
+  await expect(notice).toContainText("default");
+  expect(await notice.textContent()).not.toContain(".corrupt");
+  expect(await markerPills(page)).toBe(1);
+  expect(errors).toEqual([]);
+});
