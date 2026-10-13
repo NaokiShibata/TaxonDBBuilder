@@ -877,17 +877,20 @@ function applySavedOutputFields(saved) {
 }
 
 async function loadSavedConfig() {
+  let saved = null;
   try {
-    const saved = await invoke("load_gui_config");
-    if (!saved) return;
-    applySavedRunFields(saved);
-    applySavedNcbiFields(saved);
-    applySavedOutputFields(saved);
-    setOutputExportFormatSelection(["mifish_pipeline"]);
-    updateGuidanceState();
+    saved = await invoke("load_gui_config");
   } catch (error) {
+    // A corrupt or unreadable gui_config.json is recoverable: fall through to the
+    // empty config so the form still gets its default marker, and say so in the log.
     monitorView.appendLog(`[warn] load config failed: ${error}`);
   }
+  const config = saved ?? {};
+  applySavedRunFields(config);
+  applySavedNcbiFields(config);
+  applySavedOutputFields(config);
+  setOutputExportFormatSelection(["mifish_pipeline"]);
+  updateGuidanceState();
 }
 
 async function runJob() {

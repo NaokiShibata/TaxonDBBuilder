@@ -7,7 +7,8 @@
 //   - bad JSON / wrong type -> Err(String), which the JS invoke() rejects on
 //   - save_api_key == false -> api_key cleared before it ever reaches the GUI
 // So a null payload is NOT part of the contract; the reachable failure is reject.
-// Cases marked test.fail() below are defects we want fixed, not contracts.
+// The last two cases pin the recovery behaviour added in 3.3.4: neither a null payload nor
+// a reject may leave the form without its default marker.
 
 import { expect, test } from "@playwright/test";
 import { openGuiApp } from "./tauri-stub.mjs";
@@ -86,7 +87,7 @@ test("saveApiKey false clears the api key field", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test.fail("a null payload still leaves the form usable", async ({ page }) => {
+test("a null payload still leaves the form usable", async ({ page }) => {
   // Not reachable with the current Rust command, but `if (!saved) return` skips
   // marker seeding, so any null-ish answer disables Run for the whole session.
   const errors = await openGuiApp(page, { load_gui_config: { value: null } });
@@ -94,7 +95,7 @@ test.fail("a null payload still leaves the form usable", async ({ page }) => {
   expect(errors).toEqual([]);
 });
 
-test.fail("a rejected load logs a warning and still seeds the defaults", async ({ page }) => {
+test("a rejected load logs a warning and still seeds the defaults", async ({ page }) => {
   // Reachable: a hand-edited or truncated gui_config.json makes serde fail.
   const errors = await openGuiApp(page, {
     load_gui_config: { reject: "failed to parse gui_config.json: expected value at line 1" },
