@@ -68,7 +68,7 @@ test("tree skeleton keeps DFS order between sibling connector lines", () => {
     [
       "g|class=tree-node|listeners=mouseenter,mousemove,mouseleave",
       `circle|cx=${cx}|cy=${cy}|r=3.5|fill=#446b88|stroke=#fff|stroke-width=1|class=tree-node-point`,
-      `text|x=${x}|y=${y}|fill=#2e4f66|font-size=12|font-weight=400|class=tree-node-label|text=${name}`,
+      `text|x=${x}|y=${y}|fill=#2e4f66|font-family="Noto Sans JP", sans-serif|font-size=12|font-weight=400|class=tree-node-label|text=${name}`,
     ];
   assert.deepEqual(lines(), [
     "div",
@@ -81,7 +81,7 @@ test("tree skeleton keeps DFS order between sibling connector lines", () => {
     ...leaf(710, 20, 717, 24, "A"),
     `line|x1=365|y1=48|x2=710|y2=48|${branch}`,
     ...leaf(710, 48, 717, 52, "B"),
-    "text|x=371|y=28|fill=#7b4f2c|font-size=10|font-weight=600|class=tree-node-support|text=0.95",
+    'text|x=371|y=28|fill=#7b4f2c|font-family="Noto Sans JP", sans-serif|font-size=10|font-weight=600|paint-order=stroke|stroke=#fff|stroke-width=3|stroke-linejoin=round|class=tree-node-support|text=0.95',
     `line|x1=20|y1=76|x2=365|y2=76|${branch}`,
     ...leaf(365, 76, 372, 80, "C"),
     "div|role=tooltip",
@@ -113,7 +113,7 @@ test("a single-leaf tree draws no connector lines", () => {
     "title|text=Phylogenetic tree",
     "g|class=tree-node|listeners=mouseenter,mousemove,mouseleave",
     "circle|cx=20|cy=20|r=3.5|fill=#446b88|stroke=#fff|stroke-width=1|class=tree-node-point",
-    "text|x=27|y=24|fill=#2e4f66|font-size=12|font-weight=400|class=tree-node-label|text=A",
+    'text|x=27|y=24|fill=#2e4f66|font-family="Noto Sans JP", sans-serif|font-size=12|font-weight=400|class=tree-node-label|text=A',
     "div|role=tooltip",
   ]);
   assert.equal(withClass(lines(), "tree-node-branch").length, 0);

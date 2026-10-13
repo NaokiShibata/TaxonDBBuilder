@@ -334,3 +334,45 @@ test("the reason also shows when the tree file exists but cannot be read", async
   expect(await treeMessage(page)).toContain("sequence count exceeded the limit. (sequences: 42)");
   expect(errors).toEqual([]);
 });
+
+// Typography and the support-label halo used to live only in styles.css, so a saved
+// SVG lost them. The computed values must be identical with and without the sheet.
+test("the exported SVG keeps label and support styling without CSS", async ({ page }) => {
+  const errors = await runToResults(page, runCommands(readTreeAndMsa()));
+  await page.click("#tree-export");
+  const content = await page.evaluate(
+    () => window.__guiInvocations__.find((entry) => entry.cmd === "save_svg_file")?.args.content ?? "",
+  );
+  expect(content).not.toBe("");
+
+  const readStyle = (selector) => {
+    const style = getComputedStyle(document.querySelector(selector));
+    return {
+      font: style.fontFamily,
+      stroke: style.stroke,
+      strokeWidth: style.strokeWidth,
+      paintOrder: style.paintOrder,
+    };
+  };
+  const inApp = await page.evaluate(readStyle, "#tree-view-container .tree-node-support");
+  const labelInApp = await page.evaluate(
+    (selector) => getComputedStyle(document.querySelector(selector)).fontFamily,
+    "#tree-view-container .tree-node-label",
+  );
+
+  const standalone = await page.context().newPage();
+  await standalone.setContent(content);
+  const alone = await standalone.evaluate(readStyle, "svg .tree-node-support");
+  const labelAlone = await standalone.evaluate(
+    (selector) => getComputedStyle(document.querySelector(selector)).fontFamily,
+    "svg .tree-node-label",
+  );
+
+  expect(labelInApp).toContain("Noto Sans JP");
+  expect(inApp.stroke).toBe("rgb(255, 255, 255)");
+  expect(inApp.strokeWidth).toBe("3px");
+  expect(inApp.paintOrder).toBe("stroke");
+  expect(alone).toEqual(inApp);
+  expect(labelAlone).toBe(labelInApp);
+  expect(errors).toEqual([]);
+});

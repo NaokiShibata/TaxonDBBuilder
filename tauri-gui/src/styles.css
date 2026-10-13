@@ -988,10 +988,6 @@ progress {
   touch-action: none;
 }
 
-.tree-node-label {
-  font-family: "Noto Sans JP", sans-serif;
-}
-
 .msa-sequence,
 .msa-ruler {
   font-variant-ligatures: none;
@@ -1016,13 +1012,6 @@ progress {
 
 .tree-view-tooltip[hidden] {
   display: none;
-}
-
-.tree-node-support {
-  paint-order: stroke;
-  stroke: #fff;
-  stroke-width: 3px;
-  stroke-linejoin: round;
 }
 
 @media (max-width: 760px) {

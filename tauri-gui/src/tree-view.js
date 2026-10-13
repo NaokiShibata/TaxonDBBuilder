@@ -133,6 +133,7 @@ function nodeSupport(node) {
 }
 
 const MSA_FONT_FAMILY = '"Noto Sans Mono", "Liberation Mono", monospace';
+const NODE_LABEL_FONT_FAMILY = '"Noto Sans JP", sans-serif';
 
 function msaBaseColor(character) {
   if (/[Aa]/.test(character)) return "#3b8f5a";
@@ -380,8 +381,14 @@ function appendSupportLabel(svg, node, position) {
     x: position.x + 6,
     y: position.y - 6,
     fill: "#7b4f2c",
+    "font-family": NODE_LABEL_FONT_FAMILY,
     "font-size": 10,
     "font-weight": 600,
+    // The halo has to travel with the file: an exported SVG carries no stylesheet.
+    "paint-order": "stroke",
+    stroke: "#fff",
+    "stroke-width": 3,
+    "stroke-linejoin": "round",
     class: "tree-node-support",
   });
   supportLabel.textContent = support;
@@ -406,6 +413,7 @@ function appendLeafNode(svg, position, node, matched) {
     x: position.x + 7,
     y: position.y + 4,
     fill: palette.labelFill,
+    "font-family": NODE_LABEL_FONT_FAMILY,
     "font-size": 12,
     "font-weight": palette.fontWeight,
     class: palette.labelClass,
