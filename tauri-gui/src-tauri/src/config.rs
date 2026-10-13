@@ -458,6 +458,56 @@ pub(crate) fn ensure_gui_config_parent(app: &AppHandle) -> Result<PathBuf, Strin
     Ok(path)
 }
 
+fn config_sibling(path: &Path, suffix: &str) -> PathBuf {
+    let name = path
+        .file_name()
+        .map(|name| name.to_string_lossy().to_string())
+        .unwrap_or_else(|| CONFIG_FILE_NAME.to_string());
+    path.with_file_name(format!("{name}{suffix}"))
+}
+
+pub(crate) fn read_gui_config(path: &Path) -> Result<GuiConfig, String> {
+    if !path.exists() {
+        return Ok(GuiConfig::default());
+    }
+    let text =
+        fs::read_to_string(path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
+    let mut config: GuiConfig = match serde_json::from_str(&text) {
+        Ok(config) => config,
+        Err(e) => {
+            // start_run rewrites this path, so an unreadable file has to be moved
+            // aside before anything can overwrite it.
+            let backup = config_sibling(path, ".corrupt");
+            let note = match fs::rename(path, &backup) {
+                Ok(()) => format!("; kept the unreadable copy at {}", backup.display()),
+                Err(backup_error) => format!("; could not keep a copy: {backup_error}"),
+            };
+            return Err(format!("failed to parse {}: {e}{note}", path.display()));
+        }
+    };
+    if !config.save_api_key {
+        config.api_key.clear();
+    }
+    Ok(config)
+}
+
+pub(crate) fn write_gui_config(path: &Path, config: &GuiConfig) -> Result<(), String> {
+    let mut saved = config.clone();
+    if !saved.save_api_key {
+        saved.api_key.clear();
+    }
+    let json = serde_json::to_string_pretty(&saved)
+        .map_err(|e| format!("failed to serialize config: {e}"))?;
+    // Write-then-rename: an interrupted write must not leave a half-written file
+    // sitting on the path the next start tries to parse.
+    let temp = config_sibling(path, ".tmp");
+    fs::write(&temp, &json).map_err(|e| format!("failed to write {}: {e}", temp.display()))?;
+    fs::rename(&temp, path).map_err(|e| {
+        let _ = fs::remove_file(&temp);
+        format!("failed to write {}: {e}", path.display())
+    })
+}
+
 pub(crate) fn sanitize_file_name(raw: &str) -> String {
     let mut s = raw.trim().replace(' ', "_");
     s = s
@@ -718,13 +768,7 @@ fn merge_toml(base: &mut toml::Value, overlay: toml::Value) {
 }
 pub(crate) fn save_gui_config_internal(app: &AppHandle, config: &GuiConfig) -> Result<(), String> {
     let path = ensure_gui_config_parent(app)?;
-    let mut saved = config.clone();
-    if !saved.save_api_key {
-        saved.api_key.clear();
-    }
-    let json = serde_json::to_string_pretty(&saved)
-        .map_err(|e| format!("failed to serialize config: {e}"))?;
-    fs::write(&path, json).map_err(|e| format!("failed to write {}: {e}", path.display()))
+    write_gui_config(&path, config)
 }
 
 pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -950,6 +994,68 @@ fn marker_options_from_config(config: &toml::Value, config_path: &Path) -> Vec<S
 mod tests {
     use super::*;
     use std::time::{SystemTime, UNIX_EPOCH};
+
+    fn temp_dir(tag: &str) -> PathBuf {
+        let stamp = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .expect("clock")
+            .as_nanos();
+        let dir = std::env::temp_dir().join(format!("taxondb-{tag}-{stamp}"));
+        fs::create_dir_all(&dir).expect("temp dir");
+        dir
+    }
+
+    #[test]
+    fn missing_gui_config_yields_the_defaults() {
+        let path = temp_dir("gui-missing").join("gui_config.json");
+        let config = read_gui_config(&path).expect("defaults");
+        assert_eq!(config.marker, "12s");
+        assert_eq!(config.ncbi_per_query, DEFAULT_NCBI_PER_QUERY);
+    }
+
+    #[test]
+    fn corrupt_gui_config_is_kept_before_it_can_be_overwritten() {
+        let dir = temp_dir("gui-corrupt");
+        let path = dir.join("gui_config.json");
+        let broken = r#"{"email": "survey@example.com","#;
+        fs::write(&path, broken).expect("write corrupt config");
+
+        let error = read_gui_config(&path).expect_err("reject corrupt json");
+        assert!(error.contains("failed to parse"), "{error}");
+        assert!(error.contains("gui_config.json.corrupt"), "{error}");
+        assert_eq!(
+            fs::read_to_string(dir.join("gui_config.json.corrupt")).expect("backup kept"),
+            broken
+        );
+        assert!(!path.exists(), "the unreadable file must not stay in place");
+        // The next start sees no file, so it falls back to the defaults instead of
+        // repeating the same failure, and start_run can no longer clobber the content.
+        assert_eq!(read_gui_config(&path).expect("defaults after backup").email, "");
+    }
+
+    #[test]
+    fn gui_config_round_trip_leaves_no_temp_file() {
+        let dir = temp_dir("gui-write");
+        let path = dir.join("gui_config.json");
+        let config = GuiConfig {
+            email: "survey@example.com".to_string(),
+            api_key: "secret-key".to_string(),
+            save_api_key: false,
+            ..GuiConfig::default()
+        };
+
+        write_gui_config(&path, &config).expect("write config");
+        let read_back = read_gui_config(&path).expect("read config");
+        assert_eq!(read_back.email, "survey@example.com");
+        assert_eq!(read_back.api_key, "", "save_api_key false must not persist the key");
+        assert!(fs::read_to_string(&path)
+            .expect("config text")
+            .contains("survey@example.com"));
+        assert!(
+            !dir.join("gui_config.json.tmp").exists(),
+            "an interrupted write must not leave the config path half written"
+        );
+    }
 
     #[test]
     fn worker_count_falls_back_to_at_least_one_thread() {

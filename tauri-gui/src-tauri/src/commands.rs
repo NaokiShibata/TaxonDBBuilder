@@ -16,18 +16,7 @@ use tauri::{AppHandle, State};
 #[tauri::command]
 pub(crate) fn load_gui_config(app: AppHandle) -> Result<GuiConfig, String> {
     let path = ensure_gui_config_parent(&app)?;
-    if !path.exists() {
-        return Ok(GuiConfig::default());
-    }
-
-    let text =
-        fs::read_to_string(&path).map_err(|e| format!("failed to read {}: {e}", path.display()))?;
-    let mut cfg: GuiConfig = serde_json::from_str(&text)
-        .map_err(|e| format!("failed to parse {}: {e}", path.display()))?;
-    if !cfg.save_api_key {
-        cfg.api_key.clear();
-    }
-    Ok(cfg)
+    read_gui_config(&path)
 }
 
 #[tauri::command]
