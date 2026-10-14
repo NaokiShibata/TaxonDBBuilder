@@ -13,6 +13,8 @@ import re
 import time
 from collections.abc import Iterable
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from email.utils import parsedate_to_datetime
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
@@ -421,6 +423,12 @@ def _stream_download_to_file(
     return downloaded_bytes, content_length
 
 
+def _token_from_url(url: str) -> str | None:
+    """The BOLD query token in a download URL, decoded. It is a bearer value."""
+    match = re.search(r"/documents/([^/]+)/download", urlsplit(url).path)
+    return unquote(match.group(1)) if match else None
+
+
 def _endpoint_for_log(url: str) -> str:
     """host + path + query for a log line, with the BOLD query token reduced.
 
@@ -429,9 +437,11 @@ def _endpoint_for_log(url: str) -> str:
     """
     parts = urlsplit(url)
     path = parts.path
-    token = re.search(r"/documents/([^/]+)/download", path)
+    token = _token_from_url(url)
     if token:
-        path = path.replace(token.group(1), f"<redacted:{len(unquote(token.group(1)))}>")
+        # The URL carries the encoded form, so redact that spelling too.
+        path = path.replace(quote(token, safe=""), f"<redacted:{len(token)}>")
+        path = path.replace(token, f"<redacted:{len(token)}>")
     endpoint = f"{parts.netloc}{path}"
     return f"{endpoint}?{parts.query}" if parts.query else endpoint
 
@@ -450,14 +460,23 @@ def _header_value(error: HTTPError, name: str) -> str | None:
 
 
 def _retry_after_sec(error: HTTPError) -> float | None:
-    """Retry-After as delta-seconds. An HTTP-date is not worth parsing here."""
+    """Retry-After in seconds, from either spelling the header allows."""
     raw = _header_value(error, "Retry-After")
     if raw is None:
         return None
     try:
         return float(int(raw))
     except ValueError:
+        pass
+    try:
+        when = parsedate_to_datetime(raw)
+    except (TypeError, ValueError):
         return None
+    if when is None:
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    return max(0.0, (when - datetime.now(timezone.utc)).total_seconds())
 
 
 def _should_retry(exc: BaseException) -> bool:
@@ -498,8 +517,12 @@ def _body_excerpt(error: HTTPError) -> str:
 
 
 def _http_error_details(error: HTTPError, stage: str, url: str, attempts: int) -> str:
-    pieces = [_failure_details(stage, url, attempts)]
-    pieces.insert(1, f"status={error.code}")
+    pieces = [
+        f"stage={stage}",
+        f"status={error.code}",
+        f"attempts={attempts}",
+        f"endpoint={_endpoint_for_log(url)}",
+    ]
     for name in DIAGNOSTIC_HEADERS:
         value = _header_value(error, name)
         if value:
@@ -507,6 +530,12 @@ def _http_error_details(error: HTTPError, stage: str, url: str, attempts: int) -
             pieces.append(f"{key}={value}")
     excerpt = _body_excerpt(error)
     if excerpt:
+        # A response can quote the token back, and the excerpt is not structured.
+        token = _token_from_url(url)
+        if token:
+            excerpt = excerpt.replace(token, "<redacted>").replace(
+                quote(token, safe=""), "<redacted>"
+            )
         pieces.append(f'body="{excerpt}"')
     return " ".join(pieces)
 

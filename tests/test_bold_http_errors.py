@@ -28,6 +28,26 @@ def _http_error(
     return HTTPError(url, code, reason, hdrs, io.BytesIO(body))
 
 
+class _Ok:
+    """A one-shot successful response body."""
+
+    def __init__(self, payload: bytes):
+        from email.message import Message
+
+        self.payload = payload
+        self.headers = Message()
+
+    def read(self, size: int = -1) -> bytes:
+        payload, self.payload = self.payload, b""
+        return payload
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+
 CLOUDFLARE_BODY = (
     b"<html><head><title>Attention Required! | Cloudflare</title></head>"
     b"<body><h1>Sorry, you have been blocked</h1></body></html>"
@@ -189,6 +209,100 @@ def test_400_and_404_are_not_retried(tmp_path: Path, monkeypatch: pytest.MonkeyP
             bold._request_json("https://portal.boldsystems.org/api/query", _download_cfg(), stage="query")
         assert calls == 1
         assert sleeps == []
+
+
+def test_429_http_date_retry_after_is_honoured(monkeypatch: pytest.MonkeyPatch):
+    """Retry-After is either delta-seconds or an HTTP-date; both are instructions."""
+    from datetime import datetime, timedelta, timezone
+    from email.utils import format_datetime
+
+    when = datetime.now(timezone.utc) + timedelta(seconds=30)
+    calls = 0
+
+    def boom(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls > 1:
+            return _Ok(b'{"counts": {"specimens": [1]}}')
+        raise _http_error(
+            "https://portal.boldsystems.org/api/summary",
+            429,
+            "Too Many Requests",
+            {"Retry-After": format_datetime(when, usegmt=True)},
+            b"slow down",
+        )
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(bold, "urlopen", boom)
+    monkeypatch.setattr(bold.time, "sleep", sleeps.append)
+    assert bold._request_json("https://portal.boldsystems.org/api/summary", _download_cfg(retries=1, backoff_sec=1.5), stage="summary")
+    assert len(sleeps) == 1
+    assert 25.0 <= sleeps[0] <= 31.0
+
+
+def test_429_http_date_beyond_the_cap_is_not_retried(monkeypatch: pytest.MonkeyPatch):
+    from datetime import datetime, timedelta, timezone
+    from email.utils import format_datetime
+
+    when = datetime.now(timezone.utc) + timedelta(hours=2)
+    calls = 0
+
+    def boom(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise _http_error(
+            "https://portal.boldsystems.org/api/summary",
+            429,
+            "Too Many Requests",
+            {"Retry-After": format_datetime(when, usegmt=True)},
+            b"slow down",
+        )
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(bold, "urlopen", boom)
+    monkeypatch.setattr(bold.time, "sleep", sleeps.append)
+    with pytest.raises(bold.BoldApiError, match="BOLD HTTP error 429") as excinfo:
+        bold._request_json("https://portal.boldsystems.org/api/summary", _download_cfg(), stage="summary")
+    assert calls == 1
+    assert sleeps == []
+    assert "retry_after=" in excinfo.value.details
+
+
+def test_a_malformed_retry_after_falls_back_to_backoff(monkeypatch: pytest.MonkeyPatch):
+    calls = 0
+
+    def boom(*args, **kwargs):
+        nonlocal calls
+        calls += 1
+        raise _http_error(
+            "https://portal.boldsystems.org/api/summary", 429, "Too Many Requests", {"Retry-After": "soon"}, b"x"
+        )
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(bold, "urlopen", boom)
+    monkeypatch.setattr(bold.time, "sleep", sleeps.append)
+    with pytest.raises(bold.BoldApiError, match="BOLD HTTP error 429"):
+        bold._request_json("https://portal.boldsystems.org/api/summary", _download_cfg(retries=1, backoff_sec=1.5), stage="summary")
+    assert calls == 2
+    assert sleeps == [1.5]
+
+
+def test_a_token_echoed_in_the_error_body_is_still_redacted(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+):
+    """BOLD could echo the token back; the log must not carry it either way."""
+    url = f"{bold.DEFAULT_BASE_URL}/documents/{TOKEN}/download?format=tsv"
+
+    def boom(*args, **kwargs):
+        raise _http_error(url, 403, "Forbidden", {}, f"unknown query {TOKEN}".encode())
+
+    monkeypatch.setattr(bold, "urlopen", boom)
+    monkeypatch.setattr(bold.time, "sleep", lambda _seconds: None)
+    with pytest.raises(bold.BoldApiError) as excinfo:
+        bold.download_documents_to_path(TOKEN, _download_cfg(retries=0, backoff_sec=0), tmp_path / "d.tsv")
+
+    assert TOKEN not in excinfo.value.details
+    assert "<redacted>" in excinfo.value.details
 
 
 def test_connection_failures_are_still_retried(
