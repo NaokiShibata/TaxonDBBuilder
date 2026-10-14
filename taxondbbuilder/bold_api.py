@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 from .net_retry import retry_call
@@ -32,9 +32,28 @@ MAX_DOCUMENT_COUNT = 1_000_000
 DEFAULT_DOWNLOAD_FORMAT = "tsv"
 DEFAULT_DOWNLOAD_CHUNK_SIZE = 64 * 1024
 
+# 400/401/403/404 do not turn into 200 by asking again, so only these are retried.
+# The set matches the one taxondbbuilder.ncbi uses for efetch, plus 500.
+RETRYABLE_HTTP_STATUSES = frozenset({429, 500, 502, 503, 504})
+# A build waits inside one taxon; an hour-long Retry-After is a failure to
+# report, not a pause to sit through.
+MAX_RETRY_AFTER_SEC = 60.0
+MAX_ERROR_BODY_CHARS = 200
+# Only these response headers are safe to put in a log line.
+DIAGNOSTIC_HEADERS = ("Retry-After", "Server", "CF-RAY")
+
 
 class BoldApiError(RuntimeError):
-    pass
+    """One BOLD failure.
+
+    ``args`` stays short for the GUI; ``details`` carries the diagnosis for the
+    run log (stage, status, endpoint, attempts, response excerpt) with the query
+    token and response headers left out.
+    """
+
+    def __init__(self, message: str, *, details: str = "") -> None:
+        super().__init__(message)
+        self.details = details
 
 
 @dataclass(frozen=True)
@@ -129,7 +148,7 @@ def _parse_json_payload(text: str) -> Any:
     raise json.JSONDecodeError("Unable to parse JSON payload", text, 0)
 
 
-def _request_json(url: str, runtime_cfg: dict[str, Any]) -> Any:
+def _request_json(url: str, runtime_cfg: dict[str, Any], stage: str = "request") -> Any:
     retries = int(runtime_cfg["retries"])
     timeout_sec = float(runtime_cfg["timeout_sec"])
     backoff_sec = float(runtime_cfg["backoff_sec"])
@@ -138,8 +157,10 @@ def _request_json(url: str, runtime_cfg: dict[str, Any]) -> Any:
         "Accept-Encoding": "gzip",
         "User-Agent": str(runtime_cfg["user_agent"]),
     }
+    attempts = {"count": 0}
 
     def attempt() -> Any:
+        attempts["count"] += 1
         request = Request(url, headers=headers, method="GET")
         try:
             with urlopen(request, timeout=timeout_sec) as response:
@@ -152,14 +173,19 @@ def _request_json(url: str, runtime_cfg: dict[str, Any]) -> Any:
                 return _parse_json_payload(text)
         except json.JSONDecodeError as exc:
             # Not transient: propagate immediately, never retried.
-            raise BoldApiError(f"BOLD response JSON decode error: {exc}") from exc
+            raise BoldApiError(
+                f"BOLD response JSON decode error: {exc}",
+                details=_failure_details(stage, url, attempts["count"]),
+            ) from exc
 
     return retry_call(
         attempt,
         retries=retries,
         backoff_sec=backoff_sec,
         retry_on=(HTTPError, URLError),
-        wrap=_download_failure,
+        wrap=lambda exc: _http_failure(exc, stage=stage, url=url, attempts=attempts["count"]),
+        retry_if=_should_retry,
+        delay_for=lambda exc, index: _retry_delay(exc, index, backoff_sec),
     )
 
 
@@ -257,7 +283,7 @@ def _extract_successful_terms(preprocess_payload: Any) -> list[str]:
 
 def preprocess_query(query: str, runtime_cfg: dict[str, Any]) -> tuple[str, Any]:
     url = _build_url(runtime_cfg["base_url"], "/query/preprocessor", {"query": query})
-    payload = _request_json(url, runtime_cfg)
+    payload = _request_json(url, runtime_cfg, stage="preprocess")
     successful_terms = _extract_successful_terms(payload)
     normalized_query = ";".join(successful_terms) if successful_terms else query
     return normalized_query, payload
@@ -275,7 +301,7 @@ def fetch_specimen_count(
             "reduce_operation": "count",
         },
     )
-    payload = _request_json(url, runtime_cfg)
+    payload = _request_json(url, runtime_cfg, stage="summary")
     count_value = None
     if isinstance(payload, dict):
         counts = payload.get("counts")
@@ -301,7 +327,7 @@ def submit_query(
     url = _build_url(
         runtime_cfg["base_url"], "/query", {"query": normalized_query, "extent": extent}
     )
-    payload = _request_json(url, runtime_cfg)
+    payload = _request_json(url, runtime_cfg, stage="query")
     query_id = None
     if isinstance(payload, dict):
         for key in ("query_id", "queryId", "id", "token"):
@@ -395,13 +421,112 @@ def _stream_download_to_file(
     return downloaded_bytes, content_length
 
 
-def _download_failure(exc: Exception) -> BoldApiError:
+def _endpoint_for_log(url: str) -> str:
+    """host + path + query for a log line, with the BOLD query token reduced.
+
+    The download URL is the token, so it is replaced by its length; a token in a
+    log file would let anyone replay the query.
+    """
+    parts = urlsplit(url)
+    path = parts.path
+    token = re.search(r"/documents/([^/]+)/download", path)
+    if token:
+        path = path.replace(token.group(1), f"<redacted:{len(unquote(token.group(1)))}>")
+    endpoint = f"{parts.netloc}{path}"
+    return f"{endpoint}?{parts.query}" if parts.query else endpoint
+
+
+def _failure_details(stage: str, url: str, attempts: int) -> str:
+    return f"stage={stage} attempts={attempts} endpoint={_endpoint_for_log(url)}"
+
+
+def _header_value(error: HTTPError, name: str) -> str | None:
+    headers = getattr(error, "headers", None)
+    getter = getattr(headers, "get", None)
+    if getter is None:
+        return None
+    value = getter(name)
+    return str(value).strip() if value else None
+
+
+def _retry_after_sec(error: HTTPError) -> float | None:
+    """Retry-After as delta-seconds. An HTTP-date is not worth parsing here."""
+    raw = _header_value(error, "Retry-After")
+    if raw is None:
+        return None
+    try:
+        return float(int(raw))
+    except ValueError:
+        return None
+
+
+def _should_retry(exc: BaseException) -> bool:
+    if not isinstance(exc, HTTPError):
+        # URLError / OSError: a connection that never got an answer.
+        return True
+    if exc.code not in RETRYABLE_HTTP_STATUSES:
+        return False
+    if exc.code == 429:
+        wait = _retry_after_sec(exc)
+        if wait is not None and wait > MAX_RETRY_AFTER_SEC:
+            return False
+    return True
+
+
+def _retry_delay(exc: BaseException, attempt_index: int, backoff_sec: float) -> float:
+    if isinstance(exc, HTTPError) and exc.code == 429:
+        wait = _retry_after_sec(exc)
+        if wait is not None:
+            return wait
+    return backoff_sec * (attempt_index + 1)
+
+
+def _body_excerpt(error: HTTPError) -> str:
+    """A short, tag-free look at the error body (a Cloudflare block page is HTML)."""
+    try:
+        raw = error.read()
+    except (OSError, ValueError, AttributeError):
+        return ""
+    if not raw:
+        return ""
+    try:
+        raw = gzip.decompress(raw)
+    except OSError:
+        pass
+    text = re.sub(r"<[^>]+>", " ", raw.decode("utf-8", errors="replace"))
+    return re.sub(r"\s+", " ", text).strip()[:MAX_ERROR_BODY_CHARS]
+
+
+def _http_error_details(error: HTTPError, stage: str, url: str, attempts: int) -> str:
+    pieces = [_failure_details(stage, url, attempts)]
+    pieces.insert(1, f"status={error.code}")
+    for name in DIAGNOSTIC_HEADERS:
+        value = _header_value(error, name)
+        if value:
+            key = name.lower().replace("-", "_")
+            pieces.append(f"{key}={value}")
+    excerpt = _body_excerpt(error)
+    if excerpt:
+        pieces.append(f'body="{excerpt}"')
+    return " ".join(pieces)
+
+
+def _http_failure(exc: Exception, *, stage: str, url: str, attempts: int) -> BoldApiError:
     # HTTPError subclasses URLError, so it has to be tested first.
     if isinstance(exc, HTTPError):
-        return BoldApiError(f"BOLD HTTP error {exc.code}: {exc.reason}")
+        return BoldApiError(
+            f"BOLD HTTP error {exc.code}: {exc.reason}",
+            details=_http_error_details(exc, stage, url, attempts),
+        )
     if isinstance(exc, URLError):
-        return BoldApiError(f"BOLD network error: {exc.reason}")
-    return BoldApiError(f"BOLD download error: {exc}")
+        return BoldApiError(
+            f"BOLD network error: {exc.reason}",
+            details=_failure_details(stage, url, attempts),
+        )
+    return BoldApiError(
+        f"BOLD download error: {exc}",
+        details=_failure_details(stage, url, attempts),
+    )
 
 
 def download_documents_to_path(
@@ -425,8 +550,10 @@ def download_documents_to_path(
     dest_path.parent.mkdir(parents=True, exist_ok=True)
 
     part_path = dest_path.with_suffix(dest_path.suffix + ".part")
+    attempts = {"count": 0}
 
     def attempt() -> dict[str, Any]:
+        attempts["count"] += 1
         request = Request(url, headers=headers, method="GET")
         try:
             with urlopen(request, timeout=timeout_sec) as response:
@@ -449,7 +576,9 @@ def download_documents_to_path(
         retries=retries,
         backoff_sec=backoff_sec,
         retry_on=(HTTPError, URLError, OSError),
-        wrap=_download_failure,
+        wrap=lambda exc: _http_failure(exc, stage="download", url=url, attempts=attempts["count"]),
+        retry_if=_should_retry,
+        delay_for=lambda exc, index: _retry_delay(exc, index, backoff_sec),
     )
 
 

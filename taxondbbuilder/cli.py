@@ -516,6 +516,10 @@ def _run_bold_stage(
                 resume=ctx.resume,
             )
         except BoldApiError as exc:
+            # The GUI gets the short message through typer; the run log keeps the
+            # diagnosis (stage, status, endpoint, attempts, response excerpt).
+            if exc.details:
+                ctx.run_logger.info(f"# bold error: {exc.details}")
             raise typer.BadParameter(str(exc)) from exc
 
 
