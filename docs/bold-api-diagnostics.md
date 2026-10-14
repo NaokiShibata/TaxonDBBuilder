@@ -140,3 +140,133 @@ stage 5 ok: rows_read=50 (capped at 50) markers={'COI-5P': 50}
 - **`status=429`** → BOLD のレート制限。ログの `retry_after=` が待機秒数で、60 秒を超えると TaxonDBBuilder は待たずに失敗する。間隔を空けて再実行し、`--resume` でキャッシュを再利用する
 - **`status=500/502/503/504`** → BOLD の障害。TaxonDBBuilder は 4 回まで再試行済みなので、失敗していれば時間を置いて再実行する
 - **5 だけ失敗** → 通信ではなく解析側の問題。`--format` を変えて比較し、TSV ヘッダの変化を確認する
+
+## 4. 種ごとの 403 切り分け (アクセス復旧後に実施)
+
+目的は「Cloudflare がホスト全体を拒否しているのか、特定学名のクエリだけが拒否される
+のか」を判定すること。**学名ごとに別実行**にする (1 学名 = 最大 4 リクエスト、
+`--retries 0` なので失敗 1 回 = 1 リクエスト)。比較対象はキャッシュ実測で役割が違う 3 種:
+
+| 学名 | 選ぶ理由 | 期待する観測 |
+|---|---|---|
+| `Silurus asotus` | preprocessor が `tax:species:` に解決でき、99 件取れた対照群 | 段階 1〜3 が通り、`marker_code` に COI-5P が並ぶ (12S は 0 件) |
+| `Silurus biwaensis` | 2 件しかなく、転送量を気にせず段階 4・5 まで見られる | `specimens=2`、download と解析まで完走 |
+| `Tachysurus ichikawai` | 403 を最初に再現した学名 | ここだけ失敗するなら学名依存、全種同じならホスト全体 |
+
+```bash
+for t in "Silurus asotus" "Silurus biwaensis" "Tachysurus ichikawai"; do
+  .pixi/envs/dev/bin/python tools/bold_api_check.py --taxon "$t" \
+      --format tsv --max-rows 20 --out "/tmp/bold-check-${t// /_}" \
+      2>&1 | tee -a /tmp/bold-check-summary.txt
+done
+```
+
+**1 種目の途中で失敗したらループを止める** (`set -e` を付ける、または手動で中止)。
+段階 1 で 403 が出た時点で以降の種も同じである可能性が高く、リクエストを無駄にしない。
+
+判定表:
+
+| 観測 | 判定 | 次の行動 |
+|---|---|---|
+| 3 種とも段階 1 で `status=403` + `server=cloudflare` | ホスト全体のブロック (2026-10-14 の状態が続いている) | §2 の問い合わせ文に各 `cf_ray` を追記して送る |
+| `Silurus` 2 種は通り、`Tachysurus ichikawai` だけ 403 | 学名依存。クエリ本文が WAF に触れている | 段階 1 の `normalized_query` と URL エンコードを種で突き合わせる |
+| 段階 1〜3 は通るが段階 4 だけ 403 | トークン (URL 内 `%3D`) 依存 | §3 の `<redacted:N>` の長さを実測トークン長と比較 |
+| 全種とも通る | ブロックは解消 | `cf_ray` を記録して解除を記録。ビルドを 1 本通して `matched` を確認 |
+
+段階 1 の `normalized_query` は必ず控える。`tax:species:<学名>` ではなく
+`ids:processid:...;ids:sampleid:...;ids:insdcacs:...` が返ってきた場合、BOLD がその学名を
+分類群として解決できていない (2026-10-12 の `Silurus tomodai`、2026-10-14 の
+`Tachysurus nudiceps` で実測)。これは 403 とは無関係な、**0 件になる別経路**である。
+
+## 5. 調査結果 (2026-10-14、v3.3.5 / `investigate/bold-403-and-cache`)
+
+`tools/bold_cache_audit.py` が `test/.taxondbbuilder-cache/gb/.cache/bold/` を読み取りで
+集計した結果 (元ファイルは未変更)。
+
+### 5.1 キャッシュされた BOLD データに 12S は存在しない
+
+| キャッシュファイル | 行数 | 配列あり | marker_code |
+|---|---|---|---|
+| `query-8d219a9740d4127c.tsv` (Silurus asotus) | 117 | **117/117** | COI-5P 99, COII 3, COXIII 3, CYTB 3, atp6 2, ND1/2/3/4/4L/5-0/6 各 1 |
+| `query-24710dc221c988b0.tsv` (2026-09 run) | 127 | 127/127 | COI-5P 77, COII/COXIII/CYTB/ND1/ND2/ND3/ND4/ND4L/ND5-0/ND6 各 5 |
+| `query-a9adf226e126a1c6.tsv` (2026-08 run) | 590 | 590/590 | COI-5P 560, 上記の各ミトコンドリア遺伝子 3 |
+| `query-cbf1aee251a02516.tsv` (Silurus lithophilus) | 4 | 4/4 | COI-5P 4 |
+| `query-f2c779584d0fb775.tsv` (Silurus biwaensis) | 2 | 2/2 | COI-5P 2 |
+| 0 バイト 3 ファイル | 0 | — | summary が 0 件だった学名 (`Silurus tomodai` など) |
+
+**`marker_code` が空の行は 0 行、配列欠損の行も 0 行**。`12S` は 1 行も存在しない。
+よって `Silurus asotus` の `downloaded=117 matched=0` は、12s を要求したときの**正しい
+結果**であり、解析の欠陥ではない (除外理由は全行 `marker_code` 不一致)。
+
+### 5.2 ただし COXIII は設定ギャップで落ちている
+
+BOLD の実際のコードは `COXIII`。`markers_mitogenome.toml` の `coiii` は
+`aliases = ["coiii", "cox3"]` / `phrases = ["COIII", "COX3"]` のみで、`marker_codes` を
+持たない。照合は (a) `bold.marker_codes` は完全一致、(b) aliases / phrases は部分一致で、
+`COXIII` は `COIII` とも `COX3` とも一致しない。実データ例:
+`processid=CYTC5134-12`、`species=Silurus asotus`、配列 781 bp — ミトコンドリア全遺伝子
+実行でも取りこぼし (3 行)。
+
+### 5.3 preprocessor は学名を `ids:` 語に書き換えることがある
+
+BOLD 公式ドキュメントのとおり preprocessor は略式語を正式 triplet に変換する段階
+(`tax:Aves` → `tax:class:Aves`)。実測:
+
+| 学名 | preprocessor が返した語 | summary |
+|---|---|---|
+| Silurus asotus | `tax:species:Silurus asotus` | 99 件 |
+| Silurus biwaensis | `tax:species:Silurus biwaensis` | 2 件 |
+| Silurus lithophilus | `tax:species:Silurus lithophilus` | 4 件 |
+| **Silurus tomodai** | `ids:processid:...;ids:sampleid:...;ids:insdcacs:...` | **0 件** |
+| **Tachysurus nudiceps** | `ids:processid:...;ids:sampleid:...;ids:insdcacs:...` | **0 件** |
+
+学名が BOLD の分類群語彙で解決できないとき、preprocessor は同じ文字列を ID 検索語に
+割り当てる。`prepare_bold_query()` は返された語をそのまま `normalized_query` に採用し、
+`specimen_count != 0` の判定を通過すれば `/api/query` まで送信する。CRAN の公式クライアント
+BOLDconnectR は (1) `ids:` 語を含んだ時点でエラー、(2) 語ごとの件数が 0 ならそこで中止、
+(3) 0 件語を `/api/query` に送らない、の 3 つの防御を持つ。**TaxonDBBuilder は 3 つとも
+持たない** (`tests/test_bold_query_normalization.py` の strict xfail 3 件がこれを固定)。
+
+`tax:species:<学名>` を直接組めば `ids:` 化は防げるが、BOLD が genus ランクに解決してくれる
+利点も失う (例: `tax:Aves` は `tax:class:Aves` になる)。推奨は略式語のまま、返ってきた語の
+scope を検証する経路。
+
+### 5.4 source=both で BOLD が 403 になるときの現状
+
+`_run_source_stages()` は NCBI → BOLD の順で、BOLD の `BoldApiError` を
+`typer.BadParameter` に変換して終了コード 2 で抜ける。spool は `tempfile.TemporaryDirectory`
+の中にあるため **NCBI の解析済みレコードは例外時に捨てられる**が、`--dump-gb` の GenBank
+キャッシュと BOLD ダウンロードキャッシュはディスクに残り、`--resume` で再利用できる。
+FASTA・`source_merge.csv`・manifest は merge 以降なので 1 つも書かれない。
+
+## 6. 「ホスト全体ブロック」は言い過ぎだった (2026-10-14 追記)
+
+v3.3.5 の Known issues は「`portal.boldsystems.org` の全パスが Cloudflare にブロックされ」
+と書いているが、**保存済み実行ログはその結論と矛盾する**。`# bold progress:` 行は各段階の
+HTTP が 200 を返した後にしか出ないことを使うと、失敗した段階が復元できる:
+
+| 実行 (2026-10) | 学名 | preprocess | summary | query | download | 完走 |
+|---|---|---|---|---|---|---|
+| 12 / job1・job5・job6 | Silurus 4 種 | 200 | 200 | 200 | 200 | **した** (manifest あり) |
+| 14 / job2 (13:32) | + Tachysurus 3 種 | 200 | 200 | 200 | **失敗** | せず (manifest なし) |
+| 14 / job3 (13:35) | 同上 | 200 | 200 | 200 | **失敗** | せず (manifest なし) |
+
+10/14 の 2 実行は `Tachysurus ichikawai` の `phase=download` 行でログが終わり、`# bold query:`
+締めの行がない。`phase=download` は `submit_query()` がトークンを取得した後にしか出ない
+(`bold.py` の `# bold progress: ... phase=download` → `_fetch_bold_documents()`)。したがって
+**preprocessor・summary・query は 200 で、落ちたのは `/api/documents/<token>/download` だけ**。
+
+一方で 2026-10-14 の夕方以降、当方の診断実行 (`urllib`、既定 UA と TaxonDBBuilder UA の両方) は
+`/api/query/preprocessor` でも API ルートでも 403 を受けた。つまり:
+
+- ブロックは**時点によって変化する** (13:31〜13:35 は 4 段階中 3 段階が通った)
+- 10/14 のユーザー実行で再現したのは **download 段階に限定された 403**
+- download URL のトークンは `quote(query_id, safe="")` で `=` が `%3D` になる (§3 の仮説)。
+  **この仮説が初めて実データと整合した** — 他の 3 段階はトークンを含まず、トークンを含む
+  のは download だけ
+- ただし「download 限定」を確定的とは呼べない: 10/14 の実行は 2 回だけで、その前後の
+  ホスト全体の状態を同じクライアントから観測していない
+
+**復旧後に最初に確認すべきこと**: §4 の 3 種比較で、403 がどの段階で出るかを種ごとに記録する。
+`Silurus asotus` が段階 4 まで通るなら download 固有、段階 1 で止まるならホスト全体に悪化した
+と判定できる。判定表の 3 行目 (段階 4 だけ 403) が最有力のケースになった。
