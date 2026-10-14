@@ -6,7 +6,7 @@
 - GUI の品質改善に限定する。`tauri-gui/src/main.js` の責務分離、`main.js` を対象にした GUI 自動テスト基盤、系統樹の検索ハイライトが CSS に上書きされる問題の修正。
 - 設定読み込みと db.toml インポートの境界条件を契約ベースで固定し、Results 画面 (実行 → 進捗 → 完了 → 系統樹・MSA 描画 → 検索 / 保存率 / ズーム / SVG 出力) を実 `main.js` 経由の統合テストで検証する。
 - SVG エクスポートが単独ファイルで再現しない書式 (ラベルのフォントと support 数値の縁取り) を presentation attribute へ移した。
-- Python の挙動変更と新規機能追加は行わない。Rust は GUI 設定の永続化 (`gui_config.json` の退避とアトミック書き込み) と db.toml インポートの選択肢検証に限定して変更した。
+- Python の挙動変更と新規機能追加は行わない。Rust は GUI 設定の永続化 (`$HOME/.taxondb_gui/config.json` の退避とアトミック書き込み) と db.toml インポートの選択肢検証に限定して変更した。
 
 ### Changed
 - `tauri-gui/src/main.js` の設定適用とイベント処理をセクション単位に分割した。db.toml インポートは TOML テーブル別 (`applyImportedBase` / `applyImportedFilters` / `applyImportedPostPrep` / `applyImportedNcbiOptions` / `applyImportedOutputOptions`)、保存済み設定の復元はグループ別、`run-event` の無名ハンドラはイベント種別別の関数にした。`applyImportedDbToml` は cognitive 24 / cyclomatic 25 → 分割後の最大 7 / 8、`loadSavedConfig` は 18 / 19 → 2 / 3。フィールドの適用順序と `|| 現在値` / `?? ""` の使い分けは変えていない。
@@ -23,21 +23,22 @@
 - `gui-results.e2e.mjs` 16 件: 実行開始から Results 描画までの統合テスト。`.tree.nwk` からのツリー選択と TaxID ラベル、Newick と `.msa.fasta` の読み込み、検索・保存率・ズーム・SVG エクスポート、SVG マークアップが単独文書でも検索ハイライトとラベル書式・support の縁取りを維持すること、失敗系 (Newick 解析不能、ツリーファイル読み込み不能、MSA 欠落、SVG 保存失敗、ツリーファイル無し) と `cancel_run`。ツリー生成不可の表示は metrics のステータス別に 5 件追加し、`skipped_too_many_taxa` の件数接尾 (`sequences: N`)、他ステータスの reason 接尾、ステータス無し・ファイル有りのフォールバック文言を分けて固定した。
 - `gui-config.e2e.mjs` に 3 件追加 (通常起動で通知が非表示、退避時は退避ファイル名を表示、一時的な IPC 失敗では退避をうたわない)。`gui-toml-import.e2e.mjs` に 3 件追加 (mode が disabled のときに msa_tree 工程が増えない、明示 mode はそのまま渡り工程が増える、post_prep 無効時は mode に関わらず enable=false で渡る)。いずれも `start_run` に渡る `postPrep.steps` と `enable` を直接検証している。
 - `npx playwright test` は 60 件 (tree-view 12 + gui-form 9 + gui-config 10 + gui-toml-import 13 + gui-results 16)。
-- Rust の設定テスト 13 件 (`src-tauri/src/config.rs`)。`gui_config.json` が無い場合は既定値、壊れている場合は退避ファイルが残ること、書き込みと読み込みの往復で `.tmp` が残らないこと、`duplicate_sequence_policy` の拒否と正規化、`msa_tree_mode` の拒否と明示値の保持、msa_tree 有効 + mode 無しで `combined` になること。ファイル安全性の境界として、既存の `.corrupt` を上書きしないこと、古い `.tmp` は新しい書き込みで置換されること、rename 失敗時に元データが残って `.tmp` を残さないこと、読み込み失敗時は退避しないこと、書き込み失敗時に元設定が残ることを検証する。
-- 設定破損時の退避名は `gui_config.json.corrupt`、次に `gui_config.json.corrupt.1` の順で空いている名前を使う。
+- Rust の設定テスト 13 件 (`src-tauri/src/config.rs`)。設定ファイル (`$HOME/.taxondb_gui/config.json`) が無い場合は既定値、壊れている場合は退避ファイルが残ること、書き込みと読み込みの往復で `.tmp` が残らないこと、`duplicate_sequence_policy` の拒否と正規化、`msa_tree_mode` の拒否と明示値の保持、msa_tree 有効 + mode 無しで `combined` になること。ファイル安全性の境界として、既存の `.corrupt` を上書きしないこと、古い `.tmp` は新しい書き込みで置換されること、rename 失敗時に元データが残って `.tmp` を残さないこと、読み込み失敗時は退避しないこと、書き込み失敗時に元設定が残ることを検証する。
+- 設定破損時の退避名は `config.json.corrupt`、次に `config.json.corrupt.1` の順で空いている名前を使う。設定ファイル自体の置き場所は 3.3.4 でも変えていない (`$HOME/.taxondb_gui/`)。
 - `cargo test` は 13 → 26 件。
+- ビルド済み AppImage を分離した HOME / XDG 環境で起動した実機検証。設定ファイルが無い起動では `$HOME/.taxondb_gui/` が作られ `config.json` を開こうとすること (strace)、有効な設定では `outputPrefix` / `ncbiPerQuery` / `email` がフォームに反映されること、壊れた設定では元のバイト列を保ったまま `config.json.corrupt` に退避され、2 回目の破損で `config.json.corrupt.1` が別名で残ること (両方の退避が保持される)、破損時のみ Setup ビューに通知バナーが描画されること (正常起動では描画なし) を確認した。
 
 ### Fixed
 - db.toml インポートで `post_prep.duplicate_sequence_policy` と `post_prep.msa_tree_mode` の選択肢外の値を拒否するようにした。従来はそのまま GUI に流れ込み、セレクトが空になるだけでエラーは実行時 (`taxondbbuilder/config.py`) まで出なかった。Rust の `imported_post_prep` が `Result` を返し、Python と同じ正規化 (`strip().lower()`) と同じ拒否メッセージで弾く。有効値の正規化も Python に揃えたため、`REPRESENTATIVE` のような入力でも実行できる。
-- 設定ファイルが 2 回壊れたとき、2 回目の退避が 1 回目の退避コピーを無警告で上書きしていた (`fs::rename` は既存ファイルを置換する)。退避先を `gui_config.json.corrupt` → `.corrupt.1` → … と空いている名前にした。
+- 設定ファイルが 2 回壊れたとき、2 回目の退避が 1 回目の退避コピーを無警告で上書きしていた (`fs::rename` は既存ファイルを置換する)。退避先を `config.json.corrupt` → `.corrupt.1` → … と空いている名前にした。
 - 設定の読み込みに失敗したことが、利用者からは見えなかった。失敗時の警告は Monitor ビューのログに出るが、Monitor タブは起動直後無効なためである。Setup ビューの先頭に `role=status` の通知を追加し、既定値で起動していること、退避した場合はそのファイル名を表示するようにした。Rust のエラーメッセージに退避ファイル名が含まれるかで、破損ファイルの退避と一時的な IPC 失敗を区別している。
-- `gui_config.json` が壊れていたとき、次回の `start_run` が無警告で上書きしていた。Rust 側を `read_gui_config` / `write_gui_config` に分離し、読み込み失敗時は壊れたファイルを `gui_config.json.corrupt` として退避してから既定値を返し、書き込みは `.tmp` + rename のアトミック更新にした。クラッシュ時の中間状態 (`write` 途中の切り詰め) でも元の設定は残る。退避ファイル名はエラーメッセージに入る。
+- 設定ファイルが壊れていたとき、次回の `start_run` が無警告で上書きしていた。Rust 側を `read_gui_config` / `write_gui_config` に分離し、読み込み失敗時は壊れたファイルを `config.json.corrupt` として退避してから既定値を返し、書き込みは `.tmp` + rename のアトミック更新にした。クラッシュ時の中間状態 (`write` 途中の切り詰め) でも元の設定は残る。退避ファイル名はエラーメッセージに入る。
 - 系統樹のラベルと support 数値の書式が、エクスポートした SVG だけで失われていた問題を修正した。
 - 系統樹の検索ハイライトがノートの縁に反映されない問題を修正した (`v3.3.3` の Known issues に記録したもの)。`styles.css` の `.tree-node-point { stroke: #fff; stroke-width: 1 }` が `leafPalette` の presentation attribute より優先され、マッチしたノートの縁が常に白 1px になっていた。CSS 側を削除し、`tree-view.js` が設定する `stroke: #d76735` / `stroke-width: 2.5` が効くようにした。非マッチノートの見た目は変わらない (元から白 1px)。WebKitGTK 4.1 で computed style を再検証し、通常時 `rgb(255,255,255) 1px`、一致時 `rgb(215,103,53) 2.5px`、非一致時と検索解除後は通常どおりであることを確認した。エクスポートした SVG を外部 CSS 無しで単独表示しても一致ノートのハイライトが残る (presentation attribute 由来)。
-- `gui_config.json` が壊れていて `load_gui_config` が reject した場合、設定読み込みが途中終了し、マーカーが 1 つも選択されないまま Run が起動できない状態になっていた。警告ログを出したうえで空の設定として扱い、既定マーカーと HTML 既定値を適用するようにした。Rust 側は設定ファイルが無い場合に `GuiConfig::default()` を返すため、この経路は実機ではファイル破損でのみ発生する。
+- 設定ファイルが壊れていて `load_gui_config` が reject した場合、設定読み込みが途中終了し、マーカーが 1 つも選択されないまま Run が起動できない状態になっていた。警告ログを出したうえで空の設定として扱い、既定マーカーと HTML 既定値を適用するようにした。Rust 側は設定ファイルが無い場合に `GuiConfig::default()` を返すため、この経路は実機ではファイル破損でのみ発生する。
 
 ### Known issues
-- **AppImage 実機での JS 起動経路が未検証 (要調査)**。`tauri build` が生成した `TaxonDBBuilder_3.3.4_amd64.AppImage` (244,197,880 バイト、SHA256 `bfafa501…`) は起動してウィンドウを表示し、静的なフォームは描画するが、`load_gui_config` が呼ばれた形跡が無い。strace で `gui_config.json` の open/stat は 0 回、`$HOME/.config/com.taxondb.builder.gui` ディレクトリ自体が作成されず、設定失敗通知のバナーも描画されない。同じ `dist/` 成果物を WebKitGTK 2.52.6 に http 経由で読み込むと JS は正常に動作し (通知表示・マーカー既定値・イベントハンドラ付与を確認)、Chromium でも同じなので、Tauri のカスタムプロトコル下でモジュールスクリプトが実行されていない可能性が高い。XTEST のキー入力 (Tab) は WebView に到達するが、クリックではネイティブダイアログが出なかった。実機での db.toml インポート、実行開始、Results 描画、系統樹・MSA、SVG 保存ダイアログは未検証のまま。
+- **実機 (AppImage) でマウス操作を WebView に届けられない**。XTEST のクリックはウィンドウに届くが WebView 側のハンドラが起動せず、ネイティブファイルダイアログも開かない。キー入力 (Tab) は届く。そのため実機で検証できていないのは db.toml インポート、実行開始から Results 描画、系統樹・MSA、SVG 保存ダイアログの操作手順そのものであり、これらは Playwright の統合テスト (`gui-results.e2e.mjs` 16 件など) でカバーしている。
 - `post_prep.msa_tree_mode` の既定値は Rust が `disabled`、`taxondbbuilder/cli.py` が `combined` のまま。Rust は「msa_tree が有効で mode 無し」なら `combined` に解決するため実行結果は Python と一致し、`disabled` は msa_tree 無効時の既定にしか影響しない。ここを変えると GUI の post-prep step 選択に `msa_tree` が入るため、3.3.4 では変更していない。未知の値はインポート時点で拒否される。
 - db.toml の `ncbi.per_query` は u32 のため `0` だけを渡すと「不指定」と解釈され、GUI は現在の値を保持する。
 - SVG エクスポートには `<style>` を含めない方針は維持した。ノードラベル・support 数値・MSA 行の fill / stroke / font-family は presentation attribute に移ったため単独ファイルでも再現するが、MSA 行の `font-variant-ligatures: none` だけが `styles.css` 側に残る。monospace フォンでは合字がほぼ出ないため実害は小さいと判断した。
