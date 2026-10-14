@@ -140,3 +140,40 @@ stage 5 ok: rows_read=50 (capped at 50) markers={'COI-5P': 50}
 - **`status=429`** → BOLD のレート制限。ログの `retry_after=` が待機秒数で、60 秒を超えると TaxonDBBuilder は待たずに失敗する。間隔を空けて再実行し、`--resume` でキャッシュを再利用する
 - **`status=500/502/503/504`** → BOLD の障害。TaxonDBBuilder は 4 回まで再試行済みなので、失敗していれば時間を置いて再実行する
 - **5 だけ失敗** → 通信ではなく解析側の問題。`--format` を変えて比較し、TSV ヘッダの変化を確認する
+
+## 4. 種ごとの 403 切り分け (アクセス復旧後に実施)
+
+目的は「Cloudflare がホスト全体を拒否しているのか、特定学名のクエリだけが拒否される
+のか」を判定すること。**学名ごとに別実行**にする (1 学名 = 最大 4 リクエスト、
+`--retries 0` なので失敗 1 回 = 1 リクエスト)。比較対象はキャッシュ実測で役割が違う 3 種:
+
+| 学名 | 選ぶ理由 | 期待する観測 |
+|---|---|---|
+| `Silurus asotus` | preprocessor が `tax:species:` に解決でき、99 件取れた対照群 | 段階 1〜3 が通り、`marker_code` に COI-5P が並ぶ (12S は 0 件) |
+| `Silurus biwaensis` | 2 件しかなく、転送量を気にせず段階 4・5 まで見られる | `specimens=2`、download と解析まで完走 |
+| `Tachysurus ichikawai` | 403 を最初に再現した学名 | ここだけ失敗するなら学名依存、全種同じならホスト全体 |
+
+```bash
+for t in "Silurus asotus" "Silurus biwaensis" "Tachysurus ichikawai"; do
+  .pixi/envs/dev/bin/python tools/bold_api_check.py --taxon "$t" \
+      --format tsv --max-rows 20 --out "/tmp/bold-check-${t// /_}" \
+      2>&1 | tee -a /tmp/bold-check-summary.txt
+done
+```
+
+**1 種目の途中で失敗したらループを止める** (`set -e` を付ける、または手動で中止)。
+段階 1 で 403 が出た時点で以降の種も同じである可能性が高く、リクエストを無駄にしない。
+
+判定表:
+
+| 観測 | 判定 | 次の行動 |
+|---|---|---|
+| 3 種とも段階 1 で `status=403` + `server=cloudflare` | ホスト全体のブロック (2026-10-14 の状態が続いている) | §2 の問い合わせ文に各 `cf_ray` を追記して送る |
+| `Silurus` 2 種は通り、`Tachysurus ichikawai` だけ 403 | 学名依存。クエリ本文が WAF に触れている | 段階 1 の `normalized_query` と URL エンコードを種で突き合わせる |
+| 段階 1〜3 は通るが段階 4 だけ 403 | トークン (URL 内 `%3D`) 依存 | §3 の `<redacted:N>` の長さを実測トークン長と比較 |
+| 全種とも通る | ブロックは解消 | `cf_ray` を記録して解除を記録。ビルドを 1 本通して `matched` を確認 |
+
+段階 1 の `normalized_query` は必ず控える。`tax:species:<学名>` ではなく
+`ids:processid:...;ids:sampleid:...;ids:insdcacs:...` が返ってきた場合、BOLD がその学名を
+分類群として解決できていない (2026-10-12 の `Silurus tomodai`、2026-10-14 の
+`Tachysurus nudiceps` で実測)。これは 403 とは無関係な、**0 件になる別経路**である。
