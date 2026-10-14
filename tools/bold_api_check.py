@@ -4,6 +4,10 @@
 Use this once BOLD has cleared the client. It makes at most four requests per
 taxon (three inside prepare_bold_query, one download) and writes only under
 --out, so it is safe to run against the live API.
+
+--max-rows caps parsing only; the HTTP transfer happens first and the download
+endpoint has no record-limit parameter, so --max-specimens is what bounds the
+transfer by refusing to download a query that is too large.
 """
 
 from __future__ import annotations
@@ -29,7 +33,23 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--taxon", default="Tachysurus ichikawai")
     parser.add_argument("--format", choices=["tsv", "json"], default="tsv")
-    parser.add_argument("--max-rows", type=int, default=50, help="parse cap")
+    parser.add_argument(
+        "--max-rows",
+        type=int,
+        default=50,
+        help="parse cap (does not limit the download)",
+    )
+    parser.add_argument(
+        "--max-specimens",
+        type=int,
+        default=2000,
+        help="abort before the download if the query is larger than this",
+    )
+    parser.add_argument(
+        "--allow-unknown-count",
+        action="store_true",
+        help="download even when BOLD reported no specimen count",
+    )
     parser.add_argument(
         "--retries",
         type=int,
@@ -57,6 +77,25 @@ def main() -> int:
     if not prepared.query_id:
         print("no query_id (specimen_count == 0); download stage skipped")
         return 0
+
+    # The download endpoint takes no record limit, so a large query can only be
+    # refused outright; there is no way to ask BOLD for a subset.
+    if prepared.specimen_count is None:
+        if not args.allow_unknown_count:
+            print(
+                "abort: BOLD reported no specimen count, so the transfer size is "
+                "unknown and this tool will not start an unbounded download. "
+                "Re-run with --allow-unknown-count if you accept that."
+            )
+            return 2
+    elif prepared.specimen_count > args.max_specimens:
+        print(
+            f"abort: specimens={prepared.specimen_count} exceeds "
+            f"--max-specimens={args.max_specimens}. The download endpoint has no "
+            "record-limit parameter, so a subset cannot be fetched; narrow the "
+            "taxon or raise --max-specimens deliberately."
+        )
+        return 2
 
     dest = args.out / f"check.{args.format}"
     try:

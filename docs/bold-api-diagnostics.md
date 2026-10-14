@@ -57,7 +57,9 @@ Since at least 2026-10-14 04:58:59 UTC, every request to portal.boldsystems.org
 returns HTTP 403 Forbidden served by Cloudflare, with the "Attention Required! |
 Cloudflare / Sorry, you have been blocked" page instead of an API response.
 The block is not limited to one endpoint: a plain GET to /api is blocked the same
-way.
+way. In an earlier run the same day, the first three stages succeeded and only
+/api/documents/<query_id>/download returned 403, so the block does not always
+appear at the same stage.
 
 CF-RAY identifiers observed in the same session, all HTTP 403:
 
@@ -106,6 +108,13 @@ summary / query が 3、download が 1) で、ダウンロード成果物は `--
 診断中は `--retries 0` が既定 (失敗 1 回 = リクエスト 1 回)。JSON も確認する場合は
 `--format json` で**別実行**する (同じトークンでの二重ダウンロードを避けるため)。
 
+**転送量の上限**は `--max-specimens` (既定 2000) で決める。`--max-rows` は解析件数の
+上限で、HTTP 転送は先に完了するため転送量は制限しない。ダウンロードエンドポイントには
+件数を制限するパラメータがないため、`specimen_count` が `--max-specimens` を超える場合は
+**ダウンロードを開始せずに中止**する (終了コード 2)。BOLD が `specimen_count` を返さなかった
+場合も、転送量が読めないため既定では中止する。受け入れると判断した場合だけ
+`--allow-unknown-count` を付ける。
+
 期待される出力:
 
 ```
@@ -119,7 +128,7 @@ stage 5 ok: rows_read=50 (capped at 50) markers={'COI-5P': 50}
 | 段階 | 確認できること |
 |---|---|
 | 1 preprocessor | 検索語が BOLD の語彙で解決されるか (`normalized_query` が生クエリと違うはず) |
-| 2 summary | 件数が返るか (`specimens`。0 なら NCBI 名と BOLD 名の不一致) |
+| 2 summary | 件数が返るか (`specimens`。0 なら NCBI 名と BOLD 名の不一致)。ここで得た件数が転送上限の判定に使われる |
 | 3 query | トークンが取得できるか (`token_len`。ログには長さとホスト + パスしか出ない) |
 | 4 download | TSV / JSON が降りるか、gzip 展開と進捗が成立するか |
 | 5 解析 | ヘッダ行と `marker_code` が読めるか (TSV と JSON で行抽出経路が違う) |

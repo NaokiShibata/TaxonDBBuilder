@@ -10,7 +10,7 @@
 - **再試行ポリシーを整理した。** 403・400・401・404 を `retries` 回数だけ再試行していた。`net_retry.retry_call` に `retry_if` / `delay_for` を追加した (既定値が従来の挙動なので既存の呼び出し側は変わらない)。BOLD は 429・500・502・503・504 と接続失敗だけを再試行し、再試行しないステータスは 1 回で終了する。429 は `Retry-After` を秒数形式でも HTTP 日付形式でも尊重して待つが、その値が 60 秒を超える場合はビルド内で待たずに失敗する。解析不能な `Retry-After` は従来の線形バックオフに落ちる。
 
 ### Added
-- BOLD の公開 API を段階的に確認する `tools/bold_api_check.py` を追加した。preprocessor → summary → query → download → TSV / JSON 解析の各段階を、1 学名あたり最大 4 リクエスト (診断中は `--retries 0`) で確認する。手順と失敗段階別の切り分けは `docs/bold-api-diagnostics.md` に書いた。同じ文書に、BOLD 公式サポートへの問い合わせ文 (英文、未送信) と 2026-10-14 の再現記録 (UTC 時刻、CF-RAY、応答本文) を残した。
+- BOLD の公開 API を段階的に確認する `tools/bold_api_check.py` を追加した。preprocessor → summary → query → download → TSV / JSON 解析の各段階を、1 学名あたり最大 4 リクエスト (診断中は `--retries 0`) で確認する。転送量は `--max-specimens` (既定 2000) で抑える。`--max-rows` は解析件数の上限で HTTP 転送は制限しないこと、ダウンロードエンドポイントに件数制限のパラメータがないため、summary の `specimen_count` が上限を超える場合はダウンロードを開始せずに中止すること (終了コード 2)、`specimen_count` が取れない場合も既定では中止し `--allow-unknown-count` で明示的に受け入れることを、ツールと文書に書いた。本番の BOLD 取得には新しい件数制限を加えていない。手順と失敗段階別の切り分けは `docs/bold-api-diagnostics.md` に書いた。同じ文書に、BOLD 公式サポートへの問い合わせ文 (英文、未送信) と 2026-10-14 の再現記録 (UTC 時刻、CF-RAY、応答本文) を残した。
 
 ### Known issues
 - `Tachysurus ichikawai` の 403 は再現したが、原因は TaxonDBBuilder 側では確定できなかった。`portal.boldsystems.org` の全パス (API ルートを含む) が Cloudflare にブロックされ (`server: cloudflare`、本文は Cloudflare のブロックページ)、User-Agent を Python 既定値にしても、数秒後に再試行しても同じだった。エンドポイントとパラメータは BOLD の公開ドキュメント (`/api/query/preprocessor`、`/api/summary`、`/api/query`、`/api/documents/<token>/download`) と一致しているため、BOLD / Cloudflare 側のブロックと判断する。原因が確定するまで、今回の変更で 403 が解消するとは述べていない。
