@@ -177,3 +177,64 @@ done
 `ids:processid:...;ids:sampleid:...;ids:insdcacs:...` が返ってきた場合、BOLD がその学名を
 分類群として解決できていない (2026-10-12 の `Silurus tomodai`、2026-10-14 の
 `Tachysurus nudiceps` で実測)。これは 403 とは無関係な、**0 件になる別経路**である。
+
+## 5. 調査結果 (2026-10-14、v3.3.5 / `investigate/bold-403-and-cache`)
+
+`tools/bold_cache_audit.py` が `test/.taxondbbuilder-cache/gb/.cache/bold/` を読み取りで
+集計した結果 (元ファイルは未変更)。
+
+### 5.1 キャッシュされた BOLD データに 12S は存在しない
+
+| キャッシュファイル | 行数 | 配列あり | marker_code |
+|---|---|---|---|
+| `query-8d219a9740d4127c.tsv` (Silurus asotus) | 117 | **117/117** | COI-5P 99, COII 3, COXIII 3, CYTB 3, atp6 2, ND1/2/3/4/4L/5-0/6 各 1 |
+| `query-24710dc221c988b0.tsv` (2026-09 run) | 127 | 127/127 | COI-5P 77, COII/COXIII/CYTB/ND1/ND2/ND3/ND4/ND4L/ND5-0/ND6 各 5 |
+| `query-a9adf226e126a1c6.tsv` (2026-08 run) | 590 | 590/590 | COI-5P 560, 上記の各ミトコンドリア遺伝子 3 |
+| `query-cbf1aee251a02516.tsv` (Silurus lithophilus) | 4 | 4/4 | COI-5P 4 |
+| `query-f2c779584d0fb775.tsv` (Silurus biwaensis) | 2 | 2/2 | COI-5P 2 |
+| 0 バイト 3 ファイル | 0 | — | summary が 0 件だった学名 (`Silurus tomodai` など) |
+
+**`marker_code` が空の行は 0 行、配列欠損の行も 0 行**。`12S` は 1 行も存在しない。
+よって `Silurus asotus` の `downloaded=117 matched=0` は、12s を要求したときの**正しい
+結果**であり、解析の欠陥ではない (除外理由は全行 `marker_code` 不一致)。
+
+### 5.2 ただし COXIII は設定ギャップで落ちている
+
+BOLD の実際のコードは `COXIII`。`markers_mitogenome.toml` の `coiii` は
+`aliases = ["coiii", "cox3"]` / `phrases = ["COIII", "COX3"]` のみで、`marker_codes` を
+持たない。照合は (a) `bold.marker_codes` は完全一致、(b) aliases / phrases は部分一致で、
+`COXIII` は `COIII` とも `COX3` とも一致しない。実データ例:
+`processid=CYTC5134-12`、`species=Silurus asotus`、配列 781 bp — ミトコンドリア全遺伝子
+実行でも取りこぼし (3 行)。
+
+### 5.3 preprocessor は学名を `ids:` 語に書き換えることがある
+
+BOLD 公式ドキュメントのとおり preprocessor は略式語を正式 triplet に変換する段階
+(`tax:Aves` → `tax:class:Aves`)。実測:
+
+| 学名 | preprocessor が返した語 | summary |
+|---|---|---|
+| Silurus asotus | `tax:species:Silurus asotus` | 99 件 |
+| Silurus biwaensis | `tax:species:Silurus biwaensis` | 2 件 |
+| Silurus lithophilus | `tax:species:Silurus lithophilus` | 4 件 |
+| **Silurus tomodai** | `ids:processid:...;ids:sampleid:...;ids:insdcacs:...` | **0 件** |
+| **Tachysurus nudiceps** | `ids:processid:...;ids:sampleid:...;ids:insdcacs:...` | **0 件** |
+
+学名が BOLD の分類群語彙で解決できないとき、preprocessor は同じ文字列を ID 検索語に
+割り当てる。`prepare_bold_query()` は返された語をそのまま `normalized_query` に採用し、
+`specimen_count != 0` の判定を通過すれば `/api/query` まで送信する。CRAN の公式クライアント
+BOLDconnectR は (1) `ids:` 語を含んだ時点でエラー、(2) 語ごとの件数が 0 ならそこで中止、
+(3) 0 件語を `/api/query` に送らない、の 3 つの防御を持つ。**TaxonDBBuilder は 3 つとも
+持たない** (`tests/test_bold_query_normalization.py` の strict xfail 3 件がこれを固定)。
+
+`tax:species:<学名>` を直接組めば `ids:` 化は防げるが、BOLD が genus ランクに解決してくれる
+利点も失う (例: `tax:Aves` は `tax:class:Aves` になる)。推奨は略式語のまま、返ってきた語の
+scope を検証する経路。
+
+### 5.4 source=both で BOLD が 403 になるときの現状
+
+`_run_source_stages()` は NCBI → BOLD の順で、BOLD の `BoldApiError` を
+`typer.BadParameter` に変換して終了コード 2 で抜ける。spool は `tempfile.TemporaryDirectory`
+の中にあるため **NCBI の解析済みレコードは例外時に捨てられる**が、`--dump-gb` の GenBank
+キャッシュと BOLD ダウンロードキャッシュはディスクに残り、`--resume` で再利用できる。
+FASTA・`source_merge.csv`・manifest は merge 以降なので 1 つも書かれない。
