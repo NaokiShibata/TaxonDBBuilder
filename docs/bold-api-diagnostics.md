@@ -238,3 +238,35 @@ scope を検証する経路。
 の中にあるため **NCBI の解析済みレコードは例外時に捨てられる**が、`--dump-gb` の GenBank
 キャッシュと BOLD ダウンロードキャッシュはディスクに残り、`--resume` で再利用できる。
 FASTA・`source_merge.csv`・manifest は merge 以降なので 1 つも書かれない。
+
+## 6. 「ホスト全体ブロック」は言い過ぎだった (2026-10-14 追記)
+
+v3.3.5 の Known issues は「`portal.boldsystems.org` の全パスが Cloudflare にブロックされ」
+と書いているが、**保存済み実行ログはその結論と矛盾する**。`# bold progress:` 行は各段階の
+HTTP が 200 を返した後にしか出ないことを使うと、失敗した段階が復元できる:
+
+| 実行 (2026-10) | 学名 | preprocess | summary | query | download | 完走 |
+|---|---|---|---|---|---|---|
+| 12 / job1・job5・job6 | Silurus 4 種 | 200 | 200 | 200 | 200 | **した** (manifest あり) |
+| 14 / job2 (13:32) | + Tachysurus 3 種 | 200 | 200 | 200 | **失敗** | せず (manifest なし) |
+| 14 / job3 (13:35) | 同上 | 200 | 200 | 200 | **失敗** | せず (manifest なし) |
+
+10/14 の 2 実行は `Tachysurus ichikawai` の `phase=download` 行でログが終わり、`# bold query:`
+締めの行がない。`phase=download` は `submit_query()` がトークンを取得した後にしか出ない
+(`bold.py` の `# bold progress: ... phase=download` → `_fetch_bold_documents()`)。したがって
+**preprocessor・summary・query は 200 で、落ちたのは `/api/documents/<token>/download` だけ**。
+
+一方で 2026-10-14 の夕方以降、当方の診断実行 (`urllib`、既定 UA と TaxonDBBuilder UA の両方) は
+`/api/query/preprocessor` でも API ルートでも 403 を受けた。つまり:
+
+- ブロックは**時点によって変化する** (13:31〜13:35 は 4 段階中 3 段階が通った)
+- 10/14 のユーザー実行で再現したのは **download 段階に限定された 403**
+- download URL のトークンは `quote(query_id, safe="")` で `=` が `%3D` になる (§3 の仮説)。
+  **この仮説が初めて実データと整合した** — 他の 3 段階はトークンを含まず、トークンを含む
+  のは download だけ
+- ただし「download 限定」を確定的とは呼べない: 10/14 の実行は 2 回だけで、その前後の
+  ホスト全体の状態を同じクライアントから観測していない
+
+**復旧後に最初に確認すべきこと**: §4 の 3 種比較で、403 がどの段階で出るかを種ごとに記録する。
+`Silurus asotus` が段階 4 まで通るなら download 固有、段階 1 で止まるならホスト全体に悪化した
+と判定できる。判定表の 3 行目 (段階 4 だけ 403) が最有力のケースになった。
