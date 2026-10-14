@@ -29,6 +29,30 @@ from taxondbbuilder.bold_api import (  # noqa: E402
 )
 
 
+def _refuse_download(specimen_count: int | None, max_specimens: int, allow_unknown: bool) -> str | None:
+    """Why this query must not be downloaded, or None to go ahead.
+
+    The download endpoint takes no record limit, so a large query can only be
+    refused outright; there is no way to ask BOLD for a subset.
+    """
+    if specimen_count is None:
+        if allow_unknown:
+            return None
+        return (
+            "BOLD reported no specimen count, so the transfer size is unknown "
+            "and this tool will not start an unbounded download. Re-run with "
+            "--allow-unknown-count if you accept that."
+        )
+    if specimen_count > max_specimens:
+        return (
+            f"specimens={specimen_count} exceeds --max-specimens={max_specimens}. "
+            "The download endpoint has no record-limit parameter, so a subset "
+            "cannot be fetched; narrow the taxon or raise --max-specimens "
+            "deliberately."
+        )
+    return None
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--taxon", default="Tachysurus ichikawai")
@@ -78,23 +102,11 @@ def main() -> int:
         print("no query_id (specimen_count == 0); download stage skipped")
         return 0
 
-    # The download endpoint takes no record limit, so a large query can only be
-    # refused outright; there is no way to ask BOLD for a subset.
-    if prepared.specimen_count is None:
-        if not args.allow_unknown_count:
-            print(
-                "abort: BOLD reported no specimen count, so the transfer size is "
-                "unknown and this tool will not start an unbounded download. "
-                "Re-run with --allow-unknown-count if you accept that."
-            )
-            return 2
-    elif prepared.specimen_count > args.max_specimens:
-        print(
-            f"abort: specimens={prepared.specimen_count} exceeds "
-            f"--max-specimens={args.max_specimens}. The download endpoint has no "
-            "record-limit parameter, so a subset cannot be fetched; narrow the "
-            "taxon or raise --max-specimens deliberately."
-        )
+    refusal = _refuse_download(
+        prepared.specimen_count, args.max_specimens, args.allow_unknown_count
+    )
+    if refusal:
+        print(f"abort: {refusal}")
         return 2
 
     dest = args.out / f"check.{args.format}"
