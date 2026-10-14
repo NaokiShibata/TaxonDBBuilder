@@ -103,7 +103,6 @@ def test_a_positive_count_is_logged_as_itself(monkeypatch: pytest.MonkeyPatch, t
 def test_bold_query_line_reports_unknown_count(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     """The closing `# bold query:` line has the same three-state rule."""
     from taxondbbuilder.bold import process_bold_taxon_to_spool
-    from taxondbbuilder.bold_api import BoldApiError
 
     logger = _Logger()
     prepared = SimpleNamespace(
