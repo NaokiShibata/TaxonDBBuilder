@@ -148,6 +148,8 @@ def process_bold_taxon_to_spool(
     resume: bool = False,
 ) -> None:
     specimen_count = prepared_query.specimen_count
+    # Same three-state rule as the summary line: 0, a number, or unknown.
+    logged_count = "unknown" if specimen_count is None else specimen_count
     if specimen_count == 0:
         run_logger.info(
             "# bold query:"
@@ -256,7 +258,7 @@ def process_bold_taxon_to_spool(
             "# bold query:"
             f" taxon={resolved_taxon.scientific_name}"
             f" normalized={prepared_query.normalized_query}"
-            f" specimens={specimen_count}"
+            f" specimens={logged_count}"
             f" format={prepared_query.download_format}"
             f" bytes={download_meta.get('downloaded_bytes')}"
             f" downloaded={downloaded_rows}"

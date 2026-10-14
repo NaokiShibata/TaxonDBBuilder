@@ -485,14 +485,17 @@ def _run_bold_stage(
                 }
             )
 
-            specimen_count = prepared_query.specimen_count or 0
+            specimen_count = prepared_query.specimen_count
+            # A real zero (no specimens for this taxon) and an unreadable count
+            # (the summary call answered nothing parseable) are different facts.
+            logged_count = "unknown" if specimen_count is None else specimen_count
 
             ctx.run_logger.info(
                 f"# bold progress: taxon={scientific_name} "
-                f"phase=summary specimens={specimen_count}"
+                f"phase=summary specimens={logged_count}"
             )
 
-            if specimen_count > 0:
+            if (specimen_count or 0) > 0:
                 ctx.run_logger.info(
                     f"# bold progress: taxon={scientific_name} phase=query"
                 )
