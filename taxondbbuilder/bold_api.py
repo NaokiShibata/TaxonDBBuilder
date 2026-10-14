@@ -67,6 +67,10 @@ class PreparedBoldQuery:
     query_id: str | None
     runtime_cfg: dict[str, Any]
     download_format: str
+    # BOLD answered the taxon term with something other than a taxon term.
+    # Not a communication failure and not a zero count: a third state.
+    resolved: bool = True
+    unresolved_reason: str = ""
 
 
 def get_bold_runtime_config(raw_cfg: dict[str, Any] | None) -> dict[str, Any]:
@@ -283,6 +287,61 @@ def _extract_successful_terms(preprocess_payload: Any) -> list[str]:
     return [term for term in map(_successful_term_text, successful_terms) if term]
 
 
+# BOLD's own scope for taxonomy is `tax`; older fixtures spell it `taxon`.
+_TAXON_SCOPES = ("tax", "taxon")
+
+
+def _term_scope(term: Any) -> str:
+    """The scope of one raw preprocessor term, lowercased; '' when it has none."""
+    if isinstance(term, dict):
+        scope = term.get("scope")
+        if isinstance(scope, str):
+            return scope.strip().lower()
+        matched = term.get("matched")
+        if isinstance(matched, str) and ":" in matched:
+            return matched.split(":", 1)[0].strip().lower()
+        return ""
+    if isinstance(term, str) and ":" in term:
+        return term.split(":", 1)[0].strip().lower()
+    return ""
+
+
+def _has_taxon_term(preprocess_payload: Any) -> bool:
+    """Whether the preprocessor answered with at least one taxonomy term."""
+    return bool(_partition_taxon_terms(preprocess_payload)[0])
+
+
+def _partition_taxon_terms(
+    preprocess_payload: Any,
+) -> tuple[list[str], list[str]]:
+    """Split preprocessor terms into taxonomy terms and id-search terms.
+
+    A scientific name BOLD cannot resolve comes back as `ids:processid:<name>`,
+    `ids:sampleid:<name>` and `ids:insdcacs:<name>` - an id search for a name
+    that is not an id, which matches nothing. Treating that as a taxon search
+    reports an unresolved name as `specimens=0`.
+    """
+    raw_terms = (
+        preprocess_payload.get("successful_terms")
+        if isinstance(preprocess_payload, dict)
+        else None
+    )
+    if not isinstance(raw_terms, list):
+        return [], []
+    taxon_terms: list[str] = []
+    id_terms: list[str] = []
+    for raw in raw_terms:
+        text = _successful_term_text(raw)
+        if not text:
+            continue
+        scope = _term_scope(raw)
+        if scope in _TAXON_SCOPES:
+            taxon_terms.append(text)
+        elif scope == "ids":
+            id_terms.append(text)
+    return taxon_terms, id_terms
+
+
 def preprocess_query(query: str, runtime_cfg: dict[str, Any]) -> tuple[str, Any]:
     url = _build_url(runtime_cfg["base_url"], "/query/preprocessor", {"query": query})
     payload = _request_json(url, runtime_cfg, stage="preprocess")
@@ -347,7 +406,27 @@ def prepare_bold_query(
 ) -> PreparedBoldQuery:
     runtime_cfg = get_bold_runtime_config(bold_cfg)
     raw_query = build_taxon_query(scientific_name)
-    normalized_query, _ = preprocess_query(raw_query, runtime_cfg)
+    normalized_query, payload = preprocess_query(raw_query, runtime_cfg)
+    _, id_terms = _partition_taxon_terms(payload)
+    if not _has_taxon_term(payload) and id_terms:
+        # The name was not resolved as taxonomy. Sending the id terms would
+        # answer 0 specimens for a problem that is not "no specimens", so stop
+        # here: no summary, no query, no download.
+        return PreparedBoldQuery(
+            scientific_name=scientific_name,
+            raw_query=raw_query,
+            normalized_query="",
+            specimen_count=None,
+            query_id=None,
+            runtime_cfg=runtime_cfg,
+            download_format=str(
+                runtime_cfg.get("download_format") or DEFAULT_DOWNLOAD_FORMAT
+            )
+            .strip()
+            .lower(),
+            resolved=False,
+            unresolved_reason=";".join(id_terms),
+        )
     specimen_count = fetch_specimen_count(normalized_query, runtime_cfg)
     if specimen_count is not None and specimen_count > MAX_DOCUMENT_COUNT:
         raise BoldApiError(

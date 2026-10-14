@@ -13,6 +13,7 @@ run logs in test/20261012 and test/20261014. Two facts drive these tests:
 
 from __future__ import annotations
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -71,50 +72,225 @@ def test_unrecognised_taxon_is_rewritten_to_id_terms_by_the_preprocessor():
     ]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="prepare_bold_query accepts ids: terms as the taxon query; "
-    "BOLDconnectR rejects them and the result is a silent 0-specimen search",
-)
-def test_id_terms_must_not_be_accepted_as_a_taxon_query(
+def test_id_terms_leave_the_taxon_unresolved_and_are_never_sent(
     monkeypatch: pytest.MonkeyPatch,
 ):
+    """An ids:-only answer is 'not taxonomy', not 'zero specimens'.
+
+    BOLDconnectR stops on an ids: term for the same reason: a name searched as
+    an id matches nothing, and reporting that as specimens=0 blames the data.
+    """
+    seen: list[str] = []
+
+    def _request(url: str, runtime_cfg: dict, stage: str = "request") -> Any:
+        seen.append(url)
+        if "/query/preprocessor" in url:
+            return {"successful_terms": TOMODAI_TERMS}
+        raise AssertionError(f"summary/query must not be reached: {url}")
+
+    monkeypatch.setattr(bold_api, "_request_json", _request)
+    prepared = prepare_bold_query("Silurus tomodai", {})
+
+    assert prepared.resolved is False
+    assert prepared.specimen_count is None  # never counted, so not 0
+    assert prepared.query_id is None
+    assert prepared.normalized_query == ""
+    assert "ids:processid:Silurus tomodai" in prepared.unresolved_reason
+    assert len(seen) == 1  # preprocessor only
+
+
+def test_unresolved_is_recorded_in_the_manifest_and_the_log(
+    monkeypatch: pytest.MonkeyPatch, tmp_path
+):
+    """Skipping BOLD for one taxon must leave a trace, not a silent gap."""
+    from taxondbbuilder import cli
+    from taxondbbuilder.bold_api import PreparedBoldQuery
+
+    logger = _Log()
+    prepared = PreparedBoldQuery(
+        scientific_name="Silurus tomodai",
+        raw_query="tax:Silurus tomodai",
+        normalized_query="",
+        specimen_count=None,
+        query_id=None,
+        runtime_cfg={},
+        download_format="tsv",
+        resolved=False,
+        unresolved_reason="ids:processid:Silurus tomodai",
+    )
+    ctx = SimpleNamespace(
+        uses_bold=True,
+        resolved_taxa=[SimpleNamespace(scientific_name="Silurus tomodai", taxid=1)],
+        cfg={},
+        bold_queries=[],
+        acc_to_seqs={},
+        run_logger=logger,
+        marker_keys=[],
+        marker_map={},
+        output_cfg={},
+        source=None,
+        progress=None,
+        lock=None,
+        sink=None,
+        source_merge_rows=[],
+        dump_gb=None,
+        resume=False,
+    )
+    monkeypatch.setattr(cli, "prepare_bold_query", lambda *_a, **_k: prepared)
+    reached: list[str] = []
+    monkeypatch.setattr(
+        cli,
+        "process_bold_taxon_to_spool",
+        lambda resolved, prep, *rest, **_kw: reached.append(prep.scientific_name),
+    )
+    with tmp_path.joinpath("spool.tsv").open("w", encoding="utf-8") as spool_f:
+        cli._run_bold_stage(ctx, spool_f, tmp_path)
+
+    assert ctx.bold_queries[0]["resolved"] is False
+    assert ctx.bold_queries[0]["specimen_count"] is None
+    summary = [line for line in logger.lines if "phase=summary" in line]
+    assert summary and "specimens=unknown taxon_unresolved" in summary[0]
+    assert "specimens=0" not in summary[0]
+    assert not any("phase=query" in line for line in logger.lines)
+    # The taxon still reaches the spool stage, which logs the reason and stops.
+    assert reached == ["Silurus tomodai"]
+
+
+def test_the_spool_stage_logs_the_reason_and_writes_nothing(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+):
+    import io
+    import threading
+
+    from taxondbbuilder.bold import process_bold_taxon_to_spool
+    from taxondbbuilder.bold_api import PreparedBoldQuery
+
+    logger = _Log()
+    prepared = PreparedBoldQuery(
+        scientific_name="Silurus tomodai",
+        raw_query="tax:Silurus tomodai",
+        normalized_query="",
+        specimen_count=None,
+        query_id=None,
+        runtime_cfg={},
+        download_format="tsv",
+        resolved=False,
+        unresolved_reason="ids:processid:Silurus tomodai;ids:sampleid:Silurus tomodai",
+    )
+    fetched: list[str] = []
+    monkeypatch.setattr(
+        "taxondbbuilder.bold._fetch_bold_documents",
+        lambda *_a, **_k: fetched.append("fetched"),
+    )
+
+    class _Progress:
+        def add_task(self, *_a, **_k):
+            return 1
+
+        def update(self, *_a, **_k):
+            return None
+
+        def remove_task(self, *_a):
+            return None
+
+    class _Sink:
+        def bump(self, *_a):
+            return None
+
+    process_bold_taxon_to_spool(
+        SimpleNamespace(scientific_name="Silurus tomodai", taxid=1),
+        prepared,
+        [],
+        {},
+        {},
+        None,
+        _Progress(),
+        io.StringIO(),
+        threading.Lock(),
+        _Sink(),
+        [],
+        set(),
+        tmp_path,
+        logger,
+        cache_dir=tmp_path,
+        resume=False,
+    )
+
+    closing = [line for line in logger.lines if line.startswith("# bold query:")]
+    assert closing and "taxon_unresolved" in closing[0]
+    assert "reason=ids:processid:Silurus tomodai" in closing[0]
+    assert "specimens=0" not in closing[0]
+    assert fetched == []
+
+
+def test_a_http_error_is_never_reported_as_an_unresolved_taxon(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """A 403 is a communication failure; it must not become taxon_unresolved."""
+
+    def _request(url: str, runtime_cfg: dict, stage: str = "request") -> Any:
+        raise bold_api.BoldApiError(
+            "BOLD HTTP error 403: Forbidden",
+            details="stage=preprocess status=403 attempts=1",
+        )
+
+    monkeypatch.setattr(bold_api, "_request_json", _request)
+    with pytest.raises(bold_api.BoldApiError) as caught:
+        prepare_bold_query("Silurus tomodai", {})
+    assert caught.value.details.startswith("stage=preprocess status=403")
+
+
+def test_a_taxon_term_beside_an_id_term_still_resolves(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """Only an ids:-only answer is unresolved; a real taxon term wins."""
     monkeypatch.setattr(
         bold_api,
         "_request_json",
         router(
             {
-                "/query/preprocessor": {"successful_terms": TOMODAI_TERMS},
-                "/summary": {"counts": {"specimens": 0}},
+                "/query/preprocessor": {
+                    "successful_terms": ASOTUS_TERMS + [TOMODAI_TERMS[0]]
+                },
+                "/summary": {"counts": {"specimens": 99}},
+                "/query": {"query_id": "tok"},
             }
         ),
     )
-    with pytest.raises(bold_api.BoldApiError):
-        prepare_bold_query("Silurus tomodai", {})
+    prepared = prepare_bold_query("Silurus asotus", {})
+    assert prepared.resolved is True
+    assert prepared.specimen_count == 99
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="a query the preprocessor resolved to ids: terms is still submitted; "
-    "BOLDconnectR stops instead of sending a taxon search that can only return nothing",
-)
-def test_id_terms_are_not_submitted_as_a_query(monkeypatch: pytest.MonkeyPatch):
-    submitted: list[str] = []
+def test_a_non_taxonomy_term_is_left_alone(monkeypatch: pytest.MonkeyPatch):
+    """geo:/bin: terms are neither taxonomy nor ids; they must not trip the check."""
+    monkeypatch.setattr(
+        bold_api,
+        "_request_json",
+        router(
+            {
+                "/query/preprocessor": {
+                    "successful_terms": [
+                        {"scope": "tax", "field": "species", "value": "Silurus asotus"},
+                        {"scope": "geo", "field": "country/ocean", "value": "Japan"},
+                    ]
+                },
+                "/summary": {"counts": {"specimens": 3}},
+                "/query": {"query_id": "tok"},
+            }
+        ),
+    )
+    prepared = prepare_bold_query("Silurus asotus", {})
+    assert prepared.resolved is True
+    assert prepared.normalized_query == "tax:species:Silurus asotus;geo:country/ocean:Japan"
 
-    def _request(url: str, runtime_cfg: dict, stage: str = "request") -> Any:
-        if "/query/preprocessor" in url:
-            return {"successful_terms": TOMODAI_TERMS}
-        if "/summary" in url:
-            return {"counts": {"specimens": 0}}
-        if "/query" in url:
-            submitted.append(url)
-            return {"query_id": "tok"}
-        raise AssertionError(url)
 
-    monkeypatch.setattr(bold_api, "_request_json", _request)
-    prepared = prepare_bold_query("Silurus tomodai", {})
-    # Whatever the count says, an ids:-only taxon query should never be sent.
-    assert not prepared.normalized_query.startswith("ids:")
+class _Log:
+    def __init__(self) -> None:
+        self.lines: list[str] = []
+
+    def info(self, message: str) -> None:
+        self.lines.append(message)
 
 
 # --- marker resolution against the codes BOLD actually emits -----------------

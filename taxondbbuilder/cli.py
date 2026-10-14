@@ -482,13 +482,22 @@ def _run_bold_stage(
                     "normalized_query": prepared_query.normalized_query,
                     "specimen_count": prepared_query.specimen_count,
                     "download_format": prepared_query.download_format,
+                    # Absent from pre-3.3.6 manifests; false means BOLD never
+                    # counted this taxon because it did not resolve as taxonomy.
+                    "resolved": getattr(prepared_query, "resolved", True),
                 }
             )
 
             specimen_count = prepared_query.specimen_count
             # A real zero (no specimens for this taxon) and an unreadable count
             # (the summary call answered nothing parseable) are different facts.
-            logged_count = "unknown" if specimen_count is None else specimen_count
+            # An unresolved taxon is a third fact: nothing was ever counted.
+            if not getattr(prepared_query, "resolved", True):
+                logged_count = "unknown taxon_unresolved"
+            elif specimen_count is None:
+                logged_count = "unknown"
+            else:
+                logged_count = specimen_count
 
             ctx.run_logger.info(
                 f"# bold progress: taxon={scientific_name} "
