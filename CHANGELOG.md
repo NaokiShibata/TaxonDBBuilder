@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.3.5 (planned)
+
+### Scope
+- BOLD API の通信失敗に対する診断と再試行方針に限定する。バージョン宣言は変更していない。
+
+### Fixed
+- BOLD の HTTP 失敗が `BOLD HTTP error 403: Forbidden` しか残さず、どの API 段階で、どのエンドポイントが、何回失敗したのか切り出せなかった。`BoldApiError` に `details` を追加し、段階 (`preprocess` / `summary` / `query` / `download`)、HTTP ステータス、試行回数、ホスト + パス、`Retry-After` / `Server` / `CF-RAY`、エラー本文から HTML を落とした 200 文字の抜粋を記録するようにした。ダウンロード URL はクエリートークンそのものなので、ログには `<redacted:長さ>` として出し、トークン・Cookie・レスポンスヘッダ本体は出さない。GUI 側のエラー表示は従来どおりの短いメッセージで、詳細は `# bold error:` 行として実行ログ (GUI のモニタログにも転送される) に出る。
+- 403・400・401・404 を `retries` 回数だけ再試行していた。`net_retry.retry_call` に `retry_if` / `delay_for` を追加した (既定値が従来の挙動なので既存の呼び出し側は変わらない)。BOLD は 429・500・502・503・504 と接続失敗だけを再試行し、再試行しないステータスは 1 回で終了する。429 は `Retry-After` を待って再試行するが、その値が 60 秒を超える場合はビルド内で待たずに失敗する。
+
+### Known issues
+- `Tachysurus ichikawai` の 403 は再現したが、原因は TaxonDBBuilder 側では確定できなかった。`portal.boldsystems.org` の全パス (API ルートを含む) が Cloudflare にブロックされ (`server: cloudflare`、本文は Cloudflare のブロックページ)、User-Agent を Python 既定値にしても、数秒後に再試行しても同じだった。エンドポイントとパラメータは BOLD の公開ドキュメント (`/api/query/preprocessor`、`/api/summary`、`/api/query`、`/api/documents/<token>/download`) と一致しているため、BOLD / Cloudflare 側のブロックと判断する。
+- ダウンロード URL のトークンは `quote(query_id, safe="")` で `=` まで `%3D` にしている。公開されている実在 URL は `==` を生のまま使っており、トークン内の `%3D` が WAF に引っかかる可能性は排除できないが、ホスト全体がブロックされている環境では検証できなかった。
+
 ## 3.3.4 (2026-10-14)
 
 ### Scope
