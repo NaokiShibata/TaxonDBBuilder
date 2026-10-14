@@ -1,9 +1,9 @@
 # Changelog
 
-## 3.3.5 (planned)
+## 3.3.5 (2026-10-14)
 
 ### Scope
-- BOLD HTTP エラーの診断情報と再試行ポリシーの改善に限定する。BOLD 403 の解消ではない。バージョン宣言は変更していない。
+- BOLD HTTP エラーの診断情報と再試行ポリシーの改善に限定する。BOLD 403 の解消ではない。バージョン宣言は 8 箇所すべて 3.3.5 に更新し、一致を検証するテストを加えた。
 
 ### Changed
 - **BOLD HTTP エラーの診断情報を改善した。** 従来 `BOLD HTTP error 403: Forbidden` しか残らず、どの API 段階で、どのエンドポイントが、何回失敗したのか切り出せなかった。`BoldApiError` に `details` を追加し、段階 (`preprocess` / `summary` / `query` / `download`)、HTTP ステータス、試行回数、ホスト + パス、`Retry-After` / `Server` / `CF-RAY`、エラー本文から HTML を落とした 200 文字の抜粋を記録するようにした。ダウンロード URL はクエリートークンそのものなので、ログには `<redacted:長さ>` として出し、トークン・Cookie・レスポンスヘッダ本体は出さない (応答がトークンを echoed してきた場合も抜粋から除去する)。GUI 側のエラー表示は従来どおりの短いメッセージで、詳細は `# bold error:` 行として実行ログ (GUI のモニタログにも転送される) に出る。
@@ -11,6 +11,9 @@
 
 ### Added
 - BOLD の公開 API を段階的に確認する `tools/bold_api_check.py` を追加した。preprocessor → summary → query → download → TSV / JSON 解析の各段階を、1 学名あたり最大 4 リクエスト (診断中は `--retries 0`) で確認する。転送量は `--max-specimens` (既定 2000) で抑える。`--max-rows` は解析件数の上限で HTTP 転送は制限しないこと、ダウンロードエンドポイントに件数制限のパラメータがないため、summary の `specimen_count` が上限を超える場合はダウンロードを開始せずに中止すること (終了コード 2)、`specimen_count` が取れない場合も既定では中止し `--allow-unknown-count` で明示的に受け入れることを、ツールと文書に書いた。本番の BOLD 取得には新しい件数制限を加えていない。手順と失敗段階別の切り分けは `docs/bold-api-diagnostics.md` に書いた。同じ文書に、BOLD 公式サポートへの問い合わせ文 (英文、未送信) と 2026-10-14 の再現記録 (UTC 時刻、CF-RAY、応答本文) を残した。
+
+### Fixed
+- BOLD の specimen 数が不明な場合、実行ログに `specimens=unknown` と残るようにした。従来は summary 段階が `prepared_query.specimen_count or 0` で 0 に潰していたため、summary が解析不能な応答を返した場合と、その学名に標本が実際に 0 件の場合が区別できなかった。締めの `# bold query:` 行は Python の `None` をそのまま出していた。両行とも「実数の 0 は 0、件数は件数、解析不能は unknown」の 1 規則に揃えた。取得可否の判定式は変えていないので、0 件時の動作は変わらない。
 
 ### Known issues
 - `Tachysurus ichikawai` の 403 は再現したが、原因は TaxonDBBuilder 側では確定できなかった。`portal.boldsystems.org` の全パス (API ルートを含む) が Cloudflare にブロックされ (`server: cloudflare`、本文は Cloudflare のブロックページ)、User-Agent を Python 既定値にしても、数秒後に再試行しても同じだった。エンドポイントとパラメータは BOLD の公開ドキュメント (`/api/query/preprocessor`、`/api/summary`、`/api/query`、`/api/documents/<token>/download`) と一致しているため、BOLD / Cloudflare 側のブロックと判断する。原因が確定するまで、今回の変更で 403 が解消するとは述べていない。
