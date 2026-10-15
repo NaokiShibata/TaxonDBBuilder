@@ -78,6 +78,12 @@ pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --so
 pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --source ncbi --dump-gb Results/gb --resume
 ```
 
+v3.3.8以降のNCBIキャッシュは、初回の検索履歴と取得ページのSHA-256を保存します。
+`--resume`では同じ検索履歴を使い、完成済みキャッシュは通信なしで再利用します。
+未完了キャッシュの検索履歴が失効した場合、履歴を持たない旧形式のキャッシュの場合、またはページが破損した場合は停止します。
+この場合は既存キャッシュを保持したまま、新しい`--dump-gb`ディレクトリを指定して取得し直してください。
+`use_history=false`で作成した未完了キャッシュも、新規取得が必要です。
+
 BOLD のみ取得する場合
 
 ```bash
@@ -91,6 +97,9 @@ pixi run python3 -m taxondbbuilder build -c configs/db.toml -t "Rhinogobius" -m 
 ```
 
 ### BOLD通信障害時の部分成功
+
+要求したMSA・系統樹作成が失敗した場合は通常失敗となり、終了コード3にはなりません。
+
 
 `source=both`の既定は`--on-bold-failure fail-fast`で、BOLD取得に失敗すると従来どおり中止します。
 BOLDのHTTPエラーやタイムアウト時に、取得済みNCBIデータだけを出力する場合は明示的に指定します。
