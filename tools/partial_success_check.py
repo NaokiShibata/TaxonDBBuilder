@@ -11,13 +11,17 @@ import subprocess
 
 from frozen_bold_check import local_api
 
+VERSION = (Path(__file__).resolve().parents[1] / "VERSION").read_text().strip()
 
-def run_case(sidecar, directory, config, env, name, source, policy=None, resume=False):
+
+def run_case(sidecar, directory, config, env, name, source, policy=None, resume=False, post_prep=False):
     output = directory / (name + ".fasta")
     args = [str(sidecar), "build", "-c", str(config), "-t", "999", "-m", "coi",
             "--source", source, "--out", str(output), "--dump-gb", str(directory / "gb"), "--workers", "1"]
     if policy:
         args.extend(["--on-bold-failure", policy])
+    if post_prep:
+        args.extend(["--post-prep", "--post-prep-step", "msa_tree"])
     if resume:
         args.append("--resume")
     result = subprocess.run(args, env=env, capture_output=True, text=True, timeout=120)
@@ -27,7 +31,7 @@ def run_case(sidecar, directory, config, env, name, source, policy=None, resume=
 
 def check_manifest(output, completed):
     manifest = json.loads(Path(str(output) + ".manifest.json").read_text())
-    assert manifest["taxondbbuilder_version"] == "3.3.7", manifest["taxondbbuilder_version"]
+    assert manifest["taxondbbuilder_version"] == VERSION, manifest["taxondbbuilder_version"]
     assert manifest["sources"]["completed"] == completed
     for entry in manifest["outputs"]:
         file = Path(entry["path"])
@@ -70,10 +74,16 @@ def verify(sidecar, directory):
         check_manifest(full_output, ["ncbi", "bold"])
         assert not any("ncbi" in hit and "efetch" in hit["ncbi"] and "db=taxonomy" not in hit["ncbi"] for hit in hits[start:])
         assert "P0" in Path(str(full_output) + ".source_merge.csv").read_text()
+        config.write_text(config.read_text() + '\n[post_prep]\nmsa_tree_enable = true\nmsa_tree_min_taxa = 1\nmsa_tree_model = "invalid-model"\n')
+        handler.download_status = 403
+        post_failed, post_output = run_case(sidecar, directory, config, env, "post-failed", "both", "continue-ncbi", post_prep=True)
+        assert post_failed.returncode not in (0, 3), post_failed.stdout + post_failed.stderr
+        assert "post-processing failed" in post_failed.stdout + post_failed.stderr
+        assert not list(directory.glob("post-failed*.fasta*"))
         report = {"sidecar": str(sidecar), "sidecar_sha256": hashlib.sha256(sidecar.read_bytes()).hexdigest(),
-                  "version": "3.3.7", "exit_codes": {"ncbi": baseline.returncode, "fail_fast": failed.returncode,
+                  "version": VERSION, "exit_codes": {"ncbi": baseline.returncode, "fail_fast": failed.returncode,
                   "partial": partial.returncode, "resumed_both": complete.returncode},
-                  "ncbi_outputs_equal": True, "manifest_hashes_valid": True, "resume_cache_reused": True,
+                  "postprep_failure_rejected": True, "ncbi_outputs_equal": True, "manifest_hashes_valid": True, "resume_cache_reused": True,
                   "partial_output": str(output), "requests": hits, "external_requests": 0}
         (directory / "report.json").write_text(json.dumps(report, indent=2) + "\n")
         return report

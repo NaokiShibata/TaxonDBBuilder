@@ -709,6 +709,11 @@ def _run_msa_tree_post_prep(ctx: _BuildContext) -> None:
         taxid_by_header=taxid_by_header,
     )
     ctx.msa_tree_stats = stats
+    results = stats.get("tree_outputs", [stats])
+    failures = [result["status"] for result in results
+                if result["status"] not in {"ok", "skipped_too_few_taxa", "skipped_too_many_taxa"}]
+    if failures or stats["status"] == "taxid_metadata_missing":
+        raise typer.BadParameter(f"Requested msa_tree post-processing failed: {stats['status']} ({', '.join(failures)})")
     ctx.run_logger.info(
         "# post_prep msa_tree:"
         f" mode={stats.get('mode', ctx.post_msa_tree_options['mode'])}"

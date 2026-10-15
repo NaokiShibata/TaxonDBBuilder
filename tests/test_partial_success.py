@@ -205,6 +205,22 @@ def test_G_invalid_json_is_not_partial(local_apis):
     assert not partial(output).exists()
 
 
+@pytest.mark.parametrize("failure", [None, 403])
+def test_phylogeny_failure_does_not_publish_success(local_apis, monkeypatch, failure):
+    import taxondbbuilder.postprep.phylo as phylo
+
+    config = local_apis["config"]
+    config.write_text(config.read_text().replace(
+        "[post_prep]\n", "[post_prep]\nmsa_tree_enable = true\nmsa_tree_min_taxa = 1\n"))
+    local_apis["failure"] = failure
+    monkeypatch.setattr(phylo, "run_msa", lambda records: (None, "msa_failed"))
+    result, output = local_apis["invoke"](extra=("--post-prep", "--post-prep-step", "msa_tree"))
+    assert result.exit_code not in (0, 3)
+    assert "msa_failed" in result.output
+    assert not output.exists() and not partial(output).exists()
+    assert not list(output.parent.glob("*.manifest.json"))
+
+
 def test_H_empty_ncbi(local_apis):
     local_apis.update(empty=True, failure=403)
     result, output = local_apis["invoke"]()

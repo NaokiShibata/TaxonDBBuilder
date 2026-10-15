@@ -345,3 +345,18 @@ def test_run_tree_catches_library_failure(monkeypatch: pytest.MonkeyPatch) -> No
     monkeypatch.setattr(phylo.piqtree, "build_tree", fail_build_tree)
 
     assert run_tree([("taxon", "ACGT")], "GTR+G") == (None, "tree_failed")
+
+
+@pytest.mark.parametrize("status", ["msa_failed", "tree_failed", "partial_failed", "taxid_metadata_missing"])
+def test_requested_phylogeny_failure_is_not_success(monkeypatch, tmp_path, status):
+    from types import SimpleNamespace
+    import typer
+    from taxondbbuilder.cli import _run_msa_tree_post_prep
+    import taxondbbuilder.postprep.phylo as phylo
+
+    monkeypatch.setattr(phylo, "apply_post_prep_msa_tree", lambda *a, **kw: dict(status=status, taxa_count=3))
+    ctx = SimpleNamespace(post_prep_steps_run=["msa_tree"], source_merge_rows=[],
+                          out_path=tmp_path / "input.fasta", post_msa_tree_options={"mode": "combined"},
+                          run_logger=SimpleNamespace(info=lambda *a: None))
+    with pytest.raises(typer.BadParameter, match=status):
+        _run_msa_tree_post_prep(ctx)
