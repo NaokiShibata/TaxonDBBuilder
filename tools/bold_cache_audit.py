@@ -101,40 +101,69 @@ EXPECTED_GENES = {
 }
 
 
-def compare_cache(paths, marker_map, baseline_source):
-    """Compare a saved local baseline module without modifying cache files."""
+def _load_baseline_resolver(baseline_source):
+    """Load a trusted local source, allowing its relative package imports."""
     baseline = types.ModuleType("taxondbbuilder._audit_baseline")
     baseline.__package__ = "taxondbbuilder"
     sys.modules[baseline.__name__] = baseline
     exec(compile(baseline_source.read_text(), str(baseline_source), "exec"), baseline.__dict__)
-    before_state = {str(p): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest()) for p in paths}
-    matrix = Counter()
-    recognized = {"before": Counter(), "after": Counter()}
-    keys = list(marker_map)
-    changed = Counter()
+    return baseline.resolve_marker_from_record
+
+
+def _cache_snapshot(paths):
+    return {
+        str(path): (path.stat().st_mtime_ns, hashlib.sha256(path.read_bytes()).hexdigest())
+        for path in paths
+    }
+
+
+def _cached_marker_counts(paths):
+    """Read every row and reject codes whose expected gene is unreviewed."""
+    counts = Counter()
     for path in paths:
         with path.open(encoding="utf-8-sig", newline="") as fh:
             for row in csv.DictReader(fh, delimiter="\t"):
                 code = _first_scalar(row, ["marker_code", "marker", "markercode"]) or ""
-                expected = EXPECTED_GENES[code]  # Fail on unreviewed codes.
-                old = baseline.resolve_marker_from_record(code, keys, marker_map)
-                new = resolve_marker_from_record(code, keys, marker_map)
-                old_key, new_key = (old[0] if old else None), (new[0] if new else None)
-                matrix[(code, expected, old_key, new_key)] += 1
-                for label, key in (("before", old_key), ("after", new_key)):
-                    if key:
-                        recognized[label][key] += 1
-                changed["corrected"] += old_key != expected and new_key == expected
-                changed["newly_excluded"] += old_key is not None and new_key is None
-                changed["previously_recognized_now_unknown"] += old_key is not None and new_key is None
-                for label, resolver in (("before", baseline.resolve_marker_from_record), ("after", resolve_marker_from_record)):
-                    candidates = sum(resolver(code, [key], marker_map) is not None for key in keys)
-                    changed[f"multiple_candidates_{label}"] += candidates > 1
-    after_state = {str(p): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest()) for p in paths}
-    assert before_state == after_state, "cache content/mtime changed"
-    return {"matrix": [dict(code=c, expected=e, before=b, after=a, count=n) for (c,e,b,a),n in sorted(matrix.items())],
-            "recognized_by_key": recognized, "changes": changed, "cache_unchanged": True,
-            "files": before_state}
+                if code not in EXPECTED_GENES:
+                    raise KeyError(code)
+                counts[code] += 1
+    return counts
+
+
+def _compare_marker_counts(counts, marker_map, baseline_resolver):
+    matrix = []
+    recognized = {"before": Counter(), "after": Counter()}
+    changed = Counter()
+    keys = list(marker_map)
+    resolvers = {"before": baseline_resolver, "after": resolve_marker_from_record}
+    for code, count in sorted(counts.items()):
+        expected = EXPECTED_GENES[code]
+        predictions = {}
+        for label, resolver in resolvers.items():
+            match = resolver(code, keys, marker_map)
+            key = match[0] if match else None
+            predictions[label] = key
+            if key:
+                recognized[label][key] += count
+            candidates = sum(resolver(code, [key], marker_map) is not None for key in keys)
+            changed[f"multiple_candidates_{label}"] += count * (candidates > 1)
+        old, new = predictions["before"], predictions["after"]
+        matrix.append(dict(code=code, expected=expected, before=old, after=new, count=count))
+        changed["corrected"] += count * (old != expected and new == expected)
+        excluded = count * (old is not None and new is None)
+        changed["newly_excluded"] += excluded
+        changed["previously_recognized_now_unknown"] += excluded
+    return {"matrix": matrix, "recognized_by_key": recognized, "changes": changed}
+
+
+def compare_cache(paths, marker_map, baseline_source):
+    """Compare a saved local baseline module without modifying cache files."""
+    baseline_resolver = _load_baseline_resolver(baseline_source)
+    before_state = _cache_snapshot(paths)
+    counts = _cached_marker_counts(paths)
+    result = _compare_marker_counts(counts, marker_map, baseline_resolver)
+    assert before_state == _cache_snapshot(paths), "cache content/mtime changed"
+    return {**result, "cache_unchanged": True, "files": before_state}
 
 
 def main() -> int:
