@@ -33,6 +33,11 @@ class BuildSource(str, Enum):
     BOTH = "both"
 
 
+class BoldFailurePolicy(str, Enum):
+    FAIL_FAST = "fail-fast"
+    CONTINUE_NCBI = "continue-ncbi"
+
+
 class ExportFormat(str, Enum):
     QIIME2 = "qiime2"
     DADA2_SPECIES = "dada2_species"

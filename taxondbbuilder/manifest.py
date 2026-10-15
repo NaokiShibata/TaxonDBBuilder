@@ -47,6 +47,8 @@ def write_run_manifest(
     ncbi_queries: list[str],
     bold_queries: list[dict[str, Any]],
     output_paths: list[Path],
+    sources: dict[str, Any] | None = None,
+    published_dir: Path | None = None,
 ) -> Path:
     manifest_path = fasta_path.with_suffix(fasta_path.suffix + ".manifest.json")
     unique_paths = sorted(
@@ -61,6 +63,7 @@ def write_run_manifest(
             "platform": platform.platform(),
         },
         "source": source,
+        "sources": sources or {"requested": [source], "completed": [source], "failed": []},
         "taxon_inputs": taxon_inputs,
         "resolved_taxa": [asdict(item) for item in resolved_taxa],
         "markers": markers,
@@ -71,7 +74,7 @@ def write_run_manifest(
         },
         "outputs": [
             {
-                "path": str(path),
+                "path": str(published_dir / path.name if published_dir else path),
                 "size": path.stat().st_size,
                 "sha256": _sha256(path),
             }

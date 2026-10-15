@@ -63,6 +63,19 @@ class BoldApiError(RuntimeError):
         self.details = details
 
 
+class BoldTransportError(BoldApiError):
+    """An external BOLD retrieval failure eligible for explicit fallback."""
+
+    def __init__(self, message, *, details, stage, status=None, reason="network_error"):
+        super().__init__(message, details=details)
+        self.stage = stage
+        self.status = status
+        self.reason = reason
+
+    def manifest_failure(self):
+        return {"source": "bold", "stage": self.stage, "status": self.status, "reason": self.reason}
+
+
 @dataclass(frozen=True)
 class PreparedBoldQuery:
     scientific_name: str
@@ -193,7 +206,7 @@ def _request_json(url: str, runtime_cfg: dict[str, Any], stage: str = "request")
         attempt,
         retries=retries,
         backoff_sec=backoff_sec,
-        retry_on=(HTTPError, URLError),
+        retry_on=(HTTPError, URLError, TimeoutError, ConnectionError),
         wrap=lambda exc: _http_failure(exc, stage=stage, url=url, attempts=attempts["count"]),
         retry_if=_should_retry,
         delay_for=lambda exc, index: _retry_delay(exc, index, backoff_sec),
@@ -638,16 +651,18 @@ def _http_error_details(error: HTTPError, stage: str, url: str, attempts: int) -
 
 
 def _http_failure(exc: Exception, *, stage: str, url: str, attempts: int) -> BoldApiError:
-    # HTTPError subclasses URLError, so it has to be tested first.
+    # Filesystem OSErrors remain ordinary failures, even in the download stage.
     if isinstance(exc, HTTPError):
-        return BoldApiError(
+        return BoldTransportError(
             f"BOLD HTTP error {exc.code}: {exc.reason}",
             details=_http_error_details(exc, stage, url, attempts),
+            stage=stage, status=exc.code, reason="http_error",
         )
-    if isinstance(exc, URLError):
-        return BoldApiError(
-            f"BOLD network error: {exc.reason}",
-            details=_failure_details(stage, url, attempts),
+    if isinstance(exc, (URLError, TimeoutError, ConnectionError)):
+        return BoldTransportError(
+            f"BOLD network error: {getattr(exc, 'reason', exc)}",
+            details=_failure_details(stage, url, attempts), stage=stage,
+            reason="timeout" if isinstance(exc, TimeoutError) else "network_error",
         )
     return BoldApiError(
         f"BOLD download error: {exc}",

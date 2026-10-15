@@ -52,6 +52,7 @@ from .models import (
     POST_PREP_STEP_ORDER,
     PRIMER_TRIM_MODE_ONE_OR_BOTH,
     BuildSource,
+    BoldFailurePolicy,
     ExportFormat,
     ExtractionSink,
     PostPrepStep,
@@ -72,6 +73,7 @@ from .ncbi import (
 )
 from .bold_api import (
     BoldApiError,
+    BoldTransportError,
     prepare_bold_query,
 )
 from .postprep.duplicates import (
@@ -82,6 +84,8 @@ from .postprep.length_filter import apply_post_prep_length_filter
 from .postprep.quality import apply_post_prep_quality_filter
 from .postprep.primer_trim import apply_post_prep_primer_trim
 from .record_index import HeaderCollisionError
+
+from .partial_success import run_bold_with_policy, staged_outputs, sources_manifest, published_path
 
 app = typer.Typer(
     add_completion=False,
@@ -132,6 +136,9 @@ class _BuildContext:
     post_primer_set_names: list[str]
     post_primer_trim_options: dict[str, Any]
     post_msa_tree_options: dict[str, Any]
+    on_bold_failure: BoldFailurePolicy = BoldFailurePolicy.FAIL_FAST
+    partial_failure: dict[str, Any] | None = None
+    publish_dir: Path | None = None
     run_logger: Any = None
     lock: Lock = field(default_factory=Lock)
     counters: dict[str, int] = field(
@@ -532,6 +539,8 @@ def _run_bold_stage(
             # diagnosis (stage, status, endpoint, attempts, response excerpt).
             if exc.details:
                 ctx.run_logger.info(f"# bold error: {exc.details}")
+            if isinstance(exc, BoldTransportError):
+                raise
             raise typer.BadParameter(str(exc)) from exc
 
 
@@ -540,6 +549,8 @@ def _merge_source_records(
 ) -> None:
     ncbi_records = load_records_from_spool(ncbi_spool_path)
     bold_records = load_records_from_spool(bold_spool_path)
+    if ctx.partial_failure and not ncbi_records:
+        raise typer.BadParameter("BOLD failed and no valid NCBI sequences are available.")
     ncbi_records.sort(key=canonical_record_sort_key)
     bold_records.sort(key=canonical_record_sort_key)
     with ctx.out_path.open("w", encoding="utf-8") as out_f:
@@ -580,7 +591,7 @@ def _run_source_stages(ctx: _BuildContext, spool_dir: Path) -> None:
         ctx.progress,
     ):
         _run_ncbi_stage(ctx, ncbi_spool_f)
-        _run_bold_stage(ctx, bold_spool_f, spool_dir)
+        run_bold_with_policy(ctx, _run_bold_stage, bold_spool_f, spool_dir)
     _merge_source_records(ctx, ncbi_spool_path, bold_spool_path)
 
 
@@ -785,6 +796,8 @@ def _log_build_counters(ctx: _BuildContext) -> None:
 
 
 def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
+    if ctx.partial_failure and ctx.counters["kept_records"] == 0:
+        raise typer.BadParameter("No valid NCBI sequences remain after post-processing.")
     acc_species_map_path, stats = _log_acc_organism_map(ctx)
     export_results = _log_interoperability_exports(ctx)
     manifest_path = write_run_manifest(
@@ -801,13 +814,15 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         if ctx.uses_ncbi
         else [],
         bold_queries=ctx.bold_queries,
+        sources=sources_manifest(ctx),
+        published_dir=ctx.publish_dir,
         output_paths=_build_output_paths(
             ctx, source_merge_path, acc_species_map_path, export_results
         ),
     )
-    ctx.run_logger.info(f"# manifest: {manifest_path}")
+    ctx.run_logger.info(f"# manifest: {published_path(ctx, manifest_path)}")
     _log_build_counters(ctx)
-    ctx.run_logger.info(f"# output: {ctx.out_path}")
+    ctx.run_logger.info(f"# output: {published_path(ctx, ctx.out_path)}")
     ctx.run_logger.info(f"# finished: {datetime.now().isoformat()}")
     render_result_table(
         ctx.counters["total_records"],
@@ -816,20 +831,20 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
         ctx.counters["kept_records"],
         ctx.counters["skipped_same"],
         ctx.counters["duplicated_diff"],
-        ctx.out_path,
-        ctx.log_path,
+        published_path(ctx, ctx.out_path),
+        published_path(ctx, ctx.log_path),
         ctx.msa_tree_stats,
     )
     if ctx.dup_accessions:
         console.print(
             "[yellow]WARNING:[/yellow] duplicate accessions with different sequences were kept. See log for details."
         )
-    console.print(f"ACC-organism mapping CSV: {acc_species_map_path}")
-    console.print(f"Source merge CSV: {source_merge_path}")
-    console.print(f"Run manifest: {manifest_path}")
+    console.print(f"ACC-organism mapping CSV: {published_path(ctx, acc_species_map_path)}")
+    console.print(f"Source merge CSV: {published_path(ctx, source_merge_path)}")
+    console.print(f"Run manifest: {published_path(ctx, manifest_path)}")
     for result in export_results:
         for path in result["paths"]:
-            console.print(f"{result['format']} export: {path}")
+            console.print(f"{result['format']} export: {published_path(ctx, path)}")
     if stats["unmapped_records"] > 0:
         console.print(
             "[yellow]WARNING:[/yellow] Some final FASTA records could not be mapped to source ACC/organism. "
@@ -840,6 +855,14 @@ def _show_build_result(ctx: _BuildContext, source_merge_path: Path) -> None:
 def _run_build_pipeline(**context_fields: Any) -> None:
     ctx = _BuildContext(**context_fields)
 
+    with staged_outputs(ctx):
+        _run_build_with_log(ctx)
+    if ctx.partial_failure:
+        console.print(f"Partial success: BOLD failed at stage={ctx.partial_failure['stage']}; NCBI only output: {ctx.out_path}")
+        raise typer.Exit(code=3)
+
+
+def _run_build_with_log(ctx):
     with tee_console_output(ctx.log_path) as log_stream:
         run_logger = setup_run_logger(log_stream)
         ctx.run_logger = run_logger
@@ -1332,6 +1355,10 @@ def build(
         "--source",
         help="Sequence source: ncbi, bold, or both.",
     ),
+    on_bold_failure: BoldFailurePolicy = typer.Option(
+        BoldFailurePolicy.FAIL_FAST, "--on-bold-failure",
+        help="BOLD transport failure policy; continue-ncbi requires --source both.",
+    ),
     out: Path | None = typer.Option(
         None, "--out", "-o", help="Output file or directory."
     ),
@@ -1395,6 +1422,8 @@ def build(
       taxondbbuilder.py build -c configs/db.toml -t 117570 -m 12s --from-gb Results/gb
       taxondbbuilder.py build -c configs/db.toml -t 117570 -m coi --source ncbi
     """
+    if on_bold_failure == BoldFailurePolicy.CONTINUE_NCBI and source != BuildSource.BOTH:
+        raise typer.BadParameter("--on-bold-failure continue-ncbi requires --source both.")
     settings = _resolve_build_configuration(config, source, post_prep)
     marker_settings = _resolve_build_markers(
         marker,
@@ -1428,6 +1457,7 @@ def build(
         **settings,
         config=config,
         source=source,
+        on_bold_failure=on_bold_failure,
         taxon=taxon,
         **marker_settings,
         **post_settings,
