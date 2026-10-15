@@ -129,6 +129,29 @@ def _suppress_ncbi_linked_bold_record(
     return True
 
 
+def _log_unresolved_taxon(resolved_taxon: ResolvedTaxon, prepared_query: Any, run_logger) -> bool:
+    """Record that BOLD never resolved this name; True when the caller should stop.
+
+    Distinct from the 0-records case: nothing was ever counted, because the
+    preprocessor answered with id terms instead of a taxon term.
+    """
+    if getattr(prepared_query, "resolved", True):
+        return False
+    run_logger.info(
+        "# bold query:"
+        f" taxon={resolved_taxon.scientific_name}"
+        f" raw={prepared_query.raw_query}"
+        " taxon_unresolved"
+        f" reason={prepared_query.unresolved_reason or 'no taxon term'}"
+        " downloaded=0 matched=0"
+    )
+    console.print(
+        f"[yellow]BOLD {resolved_taxon.scientific_name}: taxon unresolved on BOLD "
+        f"(searched as ids, not taxonomy) - BOLD skipped for this taxon[/yellow]"
+    )
+    return True
+
+
 def process_bold_taxon_to_spool(
     resolved_taxon: ResolvedTaxon,
     prepared_query: Any,
@@ -150,21 +173,7 @@ def process_bold_taxon_to_spool(
     specimen_count = prepared_query.specimen_count
     # Same three-state rule as the summary line: 0, a number, or unknown.
     logged_count = "unknown" if specimen_count is None else specimen_count
-    if not getattr(prepared_query, "resolved", True):
-        # Distinct from the 0-records case below: BOLD never counted anything,
-        # because it did not recognise this name as taxonomy.
-        run_logger.info(
-            "# bold query:"
-            f" taxon={resolved_taxon.scientific_name}"
-            f" raw={prepared_query.raw_query}"
-            " taxon_unresolved"
-            f" reason={prepared_query.unresolved_reason or 'no taxon term'}"
-            " downloaded=0 matched=0"
-        )
-        console.print(
-            f"[yellow]BOLD {resolved_taxon.scientific_name}: taxon unresolved on "
-            f"BOLD (searched as ids, not taxonomy) - BOLD skipped for this taxon[/yellow]"
-        )
+    if _log_unresolved_taxon(resolved_taxon, prepared_query, run_logger):
         return
 
     if specimen_count == 0:
