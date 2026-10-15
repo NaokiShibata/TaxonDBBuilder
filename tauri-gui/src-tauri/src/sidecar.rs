@@ -69,9 +69,10 @@ pub(crate) fn terminate_process_tree(child: &mut Child) -> Result<(), String> {
         .map_err(|error| format!("failed to terminate sidecar process tree: {error}"))
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub(crate) struct BuildParams {
     pub(crate) config_path: PathBuf,
+    pub(crate) api_key: String,
     pub(crate) taxids: Vec<String>,
     pub(crate) markers: Vec<String>,
     pub(crate) source: String,
@@ -219,6 +220,17 @@ fn take_child(child_slot: &Arc<Mutex<Option<Child>>>) -> Result<Child, String> {
         .ok_or_else(|| "sidecar process disappeared".to_string())
 }
 
+fn build_sidecar_command(path: &Path, params: &BuildParams) -> Command {
+    let mut command = Command::new(path);
+    command.args(build_params_to_args(params))
+        .stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped());
+    if !params.api_key.trim().is_empty() {
+        command.env("NCBI_API_KEY", params.api_key.trim());
+    }
+    configure_process_group(&mut command);
+    command
+}
+
 pub(crate) fn run_build_via_sidecar(
     app: &AppHandle,
     parser: &mut ProgressParser,
@@ -228,13 +240,7 @@ pub(crate) fn run_build_via_sidecar(
     child_slot: &Arc<Mutex<Option<Child>>>,
 ) -> Result<i32, String> {
     let sidecar_path = resolve_sidecar_path(app)?;
-    let mut command = Command::new(&sidecar_path);
-    command
-        .args(build_params_to_args(params))
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    configure_process_group(&mut command);
+    let mut command = build_sidecar_command(&sidecar_path, params);
 
     let mut child = command.spawn().map_err(|error| {
         format!(
@@ -336,12 +342,18 @@ mod tests {
     #[test]
     fn forwards_explicit_partial_policy() {
         let params = BuildParams {
+            api_key: String::new(),
             config_path: "config.toml".into(), taxids: vec!["999".into()],
             markers: vec!["12s".into()], source: "both".into(), on_bold_failure: "continue-ncbi".into(),
             output_file: "result.fasta".into(), dump_gb_dir: "gb".into(), from_gb_dir: None,
             resume: false, workers: 1, output_prefix: "example".into(), post_prep: false,
             post_prep_steps: vec![], post_prep_primer_sets: vec![],
         };
+        let mut params = params;
+        params.api_key = "session-secret".to_string();
+        let command = build_sidecar_command(Path::new("sidecar"), &params);
+        assert!(command.get_envs().any(|(key, value)| key == "NCBI_API_KEY" && value == Some(std::ffi::OsStr::new("session-secret"))));
+        assert!(!command.get_args().any(|arg| arg == "session-secret"));
         let args = build_params_to_args(&params);
         assert!(args.windows(2).any(|pair| pair == ["--on-bold-failure", "continue-ncbi"]));
     }
@@ -349,6 +361,7 @@ mod tests {
     #[test]
     fn build_args_preserve_every_selected_taxid() {
         let params = BuildParams {
+            api_key: String::new(),
             config_path: PathBuf::from("config.toml"),
             taxids: vec!["111".to_string(), "222".to_string(), "333".to_string()],
             markers: vec!["12s".to_string()],
@@ -399,6 +412,7 @@ mod tests {
         .expect("copy GenBank fixture");
 
         let params = BuildParams {
+            api_key: String::new(),
             config_path: repo_path("tests/fixtures/minimal_config.toml"),
             taxids: vec!["999".to_string()],
             markers: vec!["12s".to_string()],

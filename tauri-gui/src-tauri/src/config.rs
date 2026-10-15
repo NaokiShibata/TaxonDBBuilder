@@ -598,7 +598,7 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
     let config = DbToml {
         ncbi: source_uses_ncbi(&source).then(|| NcbiToml {
             email: req.email.trim().to_string(),
-            api_key: req.api_key.trim().to_string(),
+            api_key: String::new(),
             db: nonempty_or(&req.ncbi_options.db, DEFAULT_NCBI_DB),
             rettype: nonempty_or(&req.ncbi_options.rettype, DEFAULT_NCBI_RETTYPE),
             retmode: nonempty_or(&req.ncbi_options.retmode, DEFAULT_NCBI_RETMODE),
@@ -715,6 +715,10 @@ pub(crate) fn write_job_config(req: &RunRequest, config_dir: &Path) -> Result<Pa
         if let Some(table) = value.as_table_mut() {
             table.remove("post_prep");
         }
+    }
+    // Credentials belong to the sidecar environment, never to result artifacts.
+    if let Some(ncbi) = value.get_mut("ncbi").and_then(toml::Value::as_table_mut) {
+        ncbi.remove("api_key");
     }
     let text = toml::to_string_pretty(&value)
         .map_err(|e| format!("failed to serialize job config: {e}"))?;
@@ -1399,7 +1403,7 @@ mod tests {
             output_prefix: String::new(),
             output_root: dir.to_string_lossy().to_string(),
             email: "test@example.com".to_string(),
-            api_key: String::new(),
+            api_key: "session-secret".to_string(),
             save_api_key: false,
             base_config_path: String::new(),
             filters: FiltersInput::default(),
@@ -1418,6 +1422,7 @@ mod tests {
         };
 
         let path = write_job_config(&request, &dir).expect("write config");
+        assert!(!fs::read_to_string(&path).unwrap().contains("session-secret"));
         let config: DbToml = toml::from_str(&fs::read_to_string(&path).expect("read config"))
             .expect("parse generated config");
         assert_eq!(config.ncbi.expect("ncbi").email, "test@example.com");
@@ -1446,6 +1451,8 @@ mod tests {
             "[markers]\nfile = \"custom_markers.toml\"\n\n[filters]\nfilter = [\"mitochondrion\", \"custom_filter\"]\nproperties = \"custom_property\"\nadvanced = true\n",
         )
         .expect("write base config");
+        let base_with_secret = format!("[ncbi]\napi_key = \"base-secret\"\n{}", fs::read_to_string(&base_path).unwrap());
+        fs::write(&base_path, base_with_secret).unwrap();
         request.base_config_path = base_path.to_string_lossy().to_string();
         let imported = parse_db_toml_config(&base_path).expect("import base config");
         assert_eq!(imported.marker_options, vec!["custom"]);
@@ -1453,6 +1460,7 @@ mod tests {
         let merged: toml::Value =
             toml::from_str(&fs::read_to_string(merged_path).expect("read merged config"))
                 .expect("parse merged config");
+        assert!(merged["ncbi"].get("api_key").is_none());
         assert_eq!(
             merged["filters"]["filter"]
                 .as_array()

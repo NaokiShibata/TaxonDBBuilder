@@ -200,7 +200,9 @@ primer_set = ["mifish_u","mifish_ev2","mifish_u2","mifish_l"]
 
 </details>
 
-設定情報は`~/.taxondb_gui/config.json`に自動保存されます。API keyは`save api_key`をオフにすると保存されません。
+設定情報は`~/.taxondb_gui/config.json`に自動保存されます。API keyは`save api_key`をオフにするとGUI設定に保存されません。
+v3.3.8以降、ジョブの実行用設定には保存せず、sidecarの環境変数で渡します。
+旧バージョンで生成したジョブ設定にはAPIキーが残っている可能性があるため、結果を共有する前に確認してください。
 
 読み込んだ`db.toml`のGUI未対応項目と独自マーカー定義は、実行用設定にも保持されます。
 Resume用キャッシュは出力ルートの`.taxondbbuilder-cache/gb`でジョブ間共有されます。

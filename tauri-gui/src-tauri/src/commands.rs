@@ -313,6 +313,7 @@ pub(crate) fn start_run(
     let results_dir_for_thread = results_dir.clone();
     let job_dir_for_thread = job_dir.clone();
     let config_path_for_thread = config_path.clone();
+    let api_key_for_thread = req.api_key.clone();
     let gb_dir_for_thread = gb_dir.clone();
     let marker_for_thread = req.markers.clone();
     let taxids_for_thread = req.taxids.clone();
@@ -345,6 +346,7 @@ pub(crate) fn start_run(
 
         let config_path_for_files = config_path_for_thread.clone();
         let build_params = BuildParams {
+            api_key: api_key_for_thread,
             config_path: config_path_for_thread,
             taxids: taxids_for_thread,
             markers: marker_for_thread,
