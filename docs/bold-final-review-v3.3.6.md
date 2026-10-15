@@ -94,11 +94,13 @@ BOLD内の標本誤同定や応答と行の分類情報の不一致まで証明�
 ## テストと品質確認
 
 修正前に新しいテストの14ケースが失敗した。
-最終Pythonテストは370件成功し、従来337件の対象も維持した。
+前回レビュー時のPythonテストは370件成功し、従来337件の対象も維持した。
 指定されたマーカー10ケース、キーと定義の逆順、共有別名の曖昧性、遺伝子名の境界、既存の柔軟表記、分類群応答8種類と欠損応答、同義語の曖昧な扱い、キャッシュ比較の非変更性を検証した。
 旧テストが固定していたCOII誤分類と、種入力をTestus属へ広げるfixtureは正しい期待値へ変更した。
 
-Nodeテスト4件、Rustテスト26件、Playwright 60件、Vite buildは成功した。
+前回Nodeテストは4ファイルを4件として報告していた。
+リリース直前に同じコマンドをsandbox外で再実行し、実際の33ケースが成功することを確認した。
+Rustテスト26件、Playwright 60件、Vite buildは成功した。
 Playwrightはsandbox内でローカルポートのlistenがEPERMとなったため、同じテストをsandbox外で実行した。
 Golden照合は全Pythonテストに含まれ、Goldenファイルの差分は0件だった。
 BOLD GoldenのCOI-5Pとunknownは今回の修正で認識結果が変わらない。
@@ -123,3 +125,75 @@ cognitive最大30、cyclomatic最大19で、閾値の指定はしていない。
 実APIでのpreprocessorによる同義語対応、階級変換、検索条件の実際の解釈、返却行の分類一貫性、403の復旧とdownload成功は今回未検証である。
 HTTP 403の伝播と診断、HTTP別再試行、未解決時の検索停止と記録、source=bothのfail-fastは既存テストで維持した。
 mainへのマージ、push、タグ作成、Release公開は行わない。
+
+## リリース直前の品質改善
+
+基準コミットは`e0e4f58`。
+マーカー判定の候補収集、照合パス、曖昧性判定をそれぞれの関数へ分離し、完全一致優先のアルゴリズムを維持した。
+監査は信頼する基準ソースの読み込み、入力コードの検証、ファイル状態の記録、コード別比較と集計に分離した。
+同じmarker_codeは出現件数を重みとして集計し、重複行を含むテストで件数を確認した。
+未知のコードを拒否した場合も入力ファイルの内容とmtimeを変更しないテストを追加した。
+
+| cccc 1.8.0のcognitive complexity | 変更前 | 変更後 |
+|---|---:|---:|
+| resolve_marker_from_record | 25 | 4 |
+| 候補収集 | 同関数内 | 11 |
+| 完全一致または境界付き部分一致のパス評価 | 同関数内 | 5 |
+| 曖昧性判定 | 同関数内 | 1 |
+| compare_cache | 30 | 0 |
+| 入力コード検証と件数集計 | 同関数内 | 7 |
+| コード別比較とレポート生成 | 同関数内 | 14 |
+| 本体とGUIの最大 | 25 | 23 |
+| toolsも含めた最大 | 30 | 23 |
+
+以下の閾値付き実行は終了コード0で、41ファイル843関数、解析エラー0件だった。
+cyclomatic最大は19である。
+
+```sh
+cccc taxondbbuilder tools tauri-gui/src tauri-gui/src-tauri/src \
+  taxondbbuilder.py taxondb_bold.py --max-cognitive 23
+```
+
+Nodeのテストファイルとnpm testの定義はv3.3.5から変更されていない。
+sandbox内の通常の`node --test`ではファイル単位の4件のみが報告されるが、sandbox外で同じ`npm test`を実行すると33ケースが成功した。
+隔離を無効化したsandbox内の`node --test --test-isolation=none --test-reporter=tap`でも33ケースが成功した。
+v3.3.5のsrc、tests、package.jsonを一時ディレクトリへ展開し、同じsandbox外の`npm test`で33件成功することも確認した。
+前回の4件という報告はケース数として不適切だったため、33件に訂正する。
+テスト対象の削除やnpm scriptの変更は行っていない。
+
+AppImage用sidecarをPyInstaller 6.21.0で再ビルドした。
+`dist/taxondbbuilder`と`tauri-gui/src-tauri/bin/taxondbbuilder-x86_64-unknown-linux-gnu`はバイト単位で同じである。
+検証対象のSHA-256は`fd8c1d76d5c5966e05ca93bf295f2a6c8cf354417ceaa3116a37fed9edfa5078`。
+`tools/frozen_bold_check.py`はローカル偽BOLDから5行のTSVを返し、ビルド済みバイナリの実際のFASTAとsource_merge.csvを照合する。
+NCBIの学名解決もローカルHTTPSプロキシと子プロセスだけが信頼する一時証明書で代替する。
+プロキシは外部へ中継せず、指定したNCBIホスト以外のCONNECTを拒否する。
+
+| 偽BOLD marker_code | 一括選択のmarker_key | 単独選択時 |
+|---|---|---|
+| COI-5P | coi | coi選択で出力 |
+| COII | coii | coi選択で除外 |
+| COXIII | coiii | coi、nd4選択で除外 |
+| ND4 | nd4 | nd4選択で出力 |
+| ND4L | nd4l | nd4選択で除外 |
+
+3回のCLI実行はすべて終了コード0で、一括選択5配列、coi選択1配列、nd4選択1配列が出力された。
+ローカル通信は計15件で、外部リクエストは0件だった。
+全BOLDリクエストのUser-AgentはTaxonDBBuilder/3.3.6だった。
+機械可読な結果は[frozen sidecar検証JSON](frozen-bold-v3.3.6.json)にある。
+既存の出力ディレクトリを上書きしないため、再実行時は未作成のパスを指定する。
+
+```sh
+.pixi/envs/dev/bin/python tools/frozen_bold_check.py \
+  tauri-gui/src-tauri/bin/taxondbbuilder-x86_64-unknown-linux-gnu \
+  --output-dir /tmp/taxondbbuilder-frozen-bold-check
+```
+
+最終品質確認ではpytest 371件、Node 33件、Rust 26件、Playwright 60件が成功し、Vite buildも成功した。
+Goldenファイルの差分は0件、バージョン8箇所とUser-Agentは3.3.6で一致している。
+pyflakesは既存警告による終了コード1のままだが、変更ファイルをe0e4f58と比較し、新規警告がないことを確認した。
+840件の監査JSONは既存の保存結果と全項目で一致し、20件修正、新規除外0件、認識不能化0件、複数候補29→0件を維持した。
+SHA-256とmtimeも全7ファイルで以前の保存値と一致している。
+
+この結果からmainへの統合は可能と判断する。
+実BOLD APIの同義語対応や403復旧、実ダウンロードは引き続き未検証である。
+今回もマージ、push、タグ作成、Release公開は行っていない。

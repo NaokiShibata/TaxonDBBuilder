@@ -7,6 +7,7 @@
 - バージョン宣言は 8 箇所すべて 3.3.6 に更新した (一致テストで検証)。
 
 ### Fixed
+- BOLDマーカー判定とキャッシュ監査を責務ごとに分割し、判定結果を変えずにcognitive complexityを削減した。`resolve_marker_from_record()`は25→4、`compare_cache()`は30→0、本体と監査ツール、GUIを含む最大値は30→23となった。
 - BOLDマーカーの完全一致を全定義で優先し、部分一致を遺伝子名の境界に制限した。COII→coiとND4L→nd4の誤判定を修正し、複数遺伝子に一致する場合は未確定として除外する。宣言順序に依存せず、COXIII、COI-5P-like、16S ribosome、ND5-0の照合を維持する。840件のキャッシュでは20件を修正し、新規除外は0件だった。
 - BOLDの分類群応答で要求名の同一性と種レベルの階級を確認するようにした。種から属への拡張、別名への変更、分類群を含まない応答は理由付きの未解決として検索を止める。同一属への正規化と空白、大文字小文字の揺れは許可する。同義語の関係を証明できない別名は曖昧として保持し、不正な学名とは断定しない。taxとidsが混在する場合はidsを検索条件から除く。詳細と検証結果は`docs/bold-final-review-v3.3.6.md`に記録した。
 - **学名が BOLD の分類群として解決できなかった場合を、0 件とは別の状態として扱うようにした。** preprocessor は解決できない学名を `ids:processid:<学名>;ids:sampleid:<学名>;ids:insdcacs:<学名>` に変換する (2026-10-12 の `Silurus tomodai`、2026-10-14 の `Tachysurus nudiceps` で実測)。これは ID 検索なので 0 件になり、従来は「その学名に標本が無い」と同じ `specimens=0` と報告していた。`prepare_bold_query()` は `ids:` 語だけ返った場合を含め、分類群の同一性を確認できない応答を未解決 (`resolved=false`) とし、**summary・query・download へは送信しない**。実行ログには `taxon_unresolved reason=<preprocessor が返した語>` を残し、manifest の `queries.bold[]` に `resolved: false` を追記する (`specimen_count` は `null` のまま。既存キーの意味は変えていないので後方互換)。真に 0 件の学名は従来どおりのメッセージを出す。HTTP エラーは未解決として扱わない — `BoldApiError` は従来どおりそのまま上昇する。

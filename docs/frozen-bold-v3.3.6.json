@@ -1,0 +1,101 @@
+{
+  "sidecar": "/home/naoki/ghq/github.com/NaokiShibata/TaxonDBBuilder/tauri-gui/src-tauri/bin/taxondbbuilder-x86_64-unknown-linux-gnu",
+  "sidecar_sha256": "fd8c1d76d5c5966e05ca93bf295f2a6c8cf354417ceaa3116a37fed9edfa5078",
+  "cases": [
+    {
+      "selected": [
+        "coi",
+        "coii",
+        "coiii",
+        "nd4",
+        "nd4l"
+      ],
+      "markers": {
+        "P0": "coi",
+        "P1": "coii",
+        "P2": "coiii",
+        "P3": "nd4",
+        "P4": "nd4l"
+      },
+      "exit": 0
+    },
+    {
+      "selected": [
+        "coi"
+      ],
+      "markers": {
+        "P0": "coi"
+      },
+      "exit": 0
+    },
+    {
+      "selected": [
+        "nd4"
+      ],
+      "markers": {
+        "P3": "nd4"
+      },
+      "exit": 0
+    }
+  ],
+  "requests": [
+    {
+      "ncbi": "GET /entrez/eutils/efetch.fcgi?db=taxonomy&id=999&retmode=xml&tool=biopython&email=test%40example.invalid HTTP/1.1"
+    },
+    {
+      "bold": "/api/query/preprocessor?query=tax%3ATestus+alpha",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/summary?query=tax%3Aspecies%3ATestus+alpha&fields=specimens&reduce_operation=count",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/query?query=tax%3Aspecies%3ATestus+alpha&extent=full",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/documents/local-token/download?format=tsv",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "ncbi": "GET /entrez/eutils/efetch.fcgi?db=taxonomy&id=999&retmode=xml&tool=biopython&email=test%40example.invalid HTTP/1.1"
+    },
+    {
+      "bold": "/api/query/preprocessor?query=tax%3ATestus+alpha",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/summary?query=tax%3Aspecies%3ATestus+alpha&fields=specimens&reduce_operation=count",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/query?query=tax%3Aspecies%3ATestus+alpha&extent=full",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/documents/local-token/download?format=tsv",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "ncbi": "GET /entrez/eutils/efetch.fcgi?db=taxonomy&id=999&retmode=xml&tool=biopython&email=test%40example.invalid HTTP/1.1"
+    },
+    {
+      "bold": "/api/query/preprocessor?query=tax%3ATestus+alpha",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/summary?query=tax%3Aspecies%3ATestus+alpha&fields=specimens&reduce_operation=count",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/query?query=tax%3Aspecies%3ATestus+alpha&extent=full",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    },
+    {
+      "bold": "/api/documents/local-token/download?format=tsv",
+      "user_agent": "TaxonDBBuilder/3.3.6 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    }
+  ],
+  "external_requests": 0
+}
