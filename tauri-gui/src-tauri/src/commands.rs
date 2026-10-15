@@ -13,6 +13,15 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use tauri::{AppHandle, State};
 
+fn completion_status(cancelled: bool, code: i32) -> &'static str {
+    match (cancelled, code) {
+        (true, _) => "Cancelled",
+        (false, 0) => "Finished",
+        (false, 3) => "PartialSuccess",
+        _ => "Failed",
+    }
+}
+
 #[tauri::command]
 pub(crate) fn load_gui_config(app: AppHandle) -> Result<GuiConfig, String> {
     let path = ensure_gui_config_parent(&app)?;
@@ -216,6 +225,7 @@ pub(crate) fn start_run(
         return Err("output_root is required".to_string());
     }
     let build_source = normalize_build_source(&req.source);
+    validate_bold_failure_policy(&build_source, &req.on_bold_failure)?;
     if source_uses_ncbi(&build_source) && req.email.trim().is_empty() {
         return Err("email is required for ncbi/both".to_string());
     }
@@ -233,6 +243,7 @@ pub(crate) fn start_run(
 
     let gui_config = GuiConfig {
         source: build_source.clone(),
+        on_bold_failure: req.on_bold_failure.clone(),
         email: req.email.clone(),
         api_key: req.api_key.clone(),
         save_api_key: req.save_api_key,
@@ -307,6 +318,7 @@ pub(crate) fn start_run(
     let taxids_for_thread = req.taxids.clone();
     let resume_for_thread = req.resume && source_uses_ncbi(&build_source);
     let source_for_thread = build_source.clone();
+    let bold_failure_for_thread = req.on_bold_failure.clone();
     let taxid_total = req.taxids.len();
     let workers_for_thread = workers;
     let output_prefix_for_thread = req.output_prefix.clone();
@@ -337,6 +349,7 @@ pub(crate) fn start_run(
             taxids: taxids_for_thread,
             markers: marker_for_thread,
             source: source_for_thread,
+            on_bold_failure: bold_failure_for_thread,
             output_file: output_file_for_thread.clone(),
             dump_gb_dir: gb_dir_for_thread,
             from_gb_dir: None,
@@ -355,7 +368,12 @@ pub(crate) fn start_run(
             cancelled.as_ref(),
             &child_arc,
         ) {
-            Ok(()) => 0,
+            Ok(code) => {
+                if !matches!(code, 0 | 3) && !cancelled.load(Ordering::Relaxed) {
+                    emit_event(&app_for_thread, error_event(format!("taxondbbuilder sidecar exited with code {code}")));
+                }
+                code
+            },
             Err(err) => {
                 if !cancelled.load(Ordering::Relaxed) {
                     emit_event(&app_for_thread, error_event(err));
@@ -370,11 +388,7 @@ pub(crate) fn start_run(
             &[log_path_for_thread.clone(), config_path_for_files],
         );
 
-        match (was_cancelled, exit_code) {
-            (true, _) => emit_event(&app_for_thread, status_event("Cancelled")),
-            (false, 0) => emit_event(&app_for_thread, status_event("Finished")),
-            _ => emit_event(&app_for_thread, status_event("Failed")),
-        }
+        emit_event(&app_for_thread, status_event(completion_status(was_cancelled, exit_code)));
 
         if !was_cancelled {
             emit_event(&app_for_thread, result_event(&job_dir_for_thread, files));
@@ -407,5 +421,18 @@ mod taxid_tests {
         for invalid in ["", "Silurus", "ナマズ", "１２３", "1e3", "1.5", "-1", "12abc", " 12", "12,34"] {
             assert!(validate_taxids(&["30991".into(), invalid.into()]).is_err(), "{invalid}");
         }
+    }
+}
+
+#[cfg(test)]
+mod completion_tests {
+    use super::completion_status;
+    #[test]
+    fn complete_partial_failure_and_cancel_are_distinct() {
+        assert_eq!(completion_status(false, 0), "Finished");
+        assert_eq!(completion_status(false, 3), "PartialSuccess");
+        assert_eq!(completion_status(false, 2), "Failed");
+        assert_eq!(completion_status(true, 0), "Cancelled");
+        assert_eq!(completion_status(true, 3), "Cancelled");
     }
 }

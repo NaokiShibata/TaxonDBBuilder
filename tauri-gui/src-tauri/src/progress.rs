@@ -103,6 +103,13 @@ impl ProgressParser {
     }
 
     pub(crate) fn consume_line(&mut self, line: &str) -> bool {
+        if line.contains("# bold rollback: discarded=true") {
+            self.metrics.bold_specimen_count_by_taxon.clear();
+            self.metrics.bold_downloaded_by_taxon.clear();
+            self.metrics.bold_matched_by_taxon.clear();
+            self.bold_progress_by_taxon.clear();
+            return true;
+        }
         let line = strip_log_prefix(line);
 
         let mut changed = false;
@@ -727,5 +734,22 @@ mod tests {
         );
 
         fs::remove_file(log_path).expect("remove temporary log");
+    }
+}
+
+#[cfg(test)]
+mod rollback_tests {
+    use super::ProgressParser;
+    #[test]
+    fn discarding_bold_clears_its_progress_and_statistics() {
+        let mut parser = ProgressParser::for_source(1, 0, true, true);
+        parser.consume_line("# bold progress: taxon=Testus alpha phase=summary specimens=1");
+        parser.consume_line("# bold progress: taxon=Testus alpha phase=filter downloaded=1 matched=1");
+        assert!(!parser.metrics.bold_matched_by_taxon.is_empty());
+        assert!(parser.consume_line("# bold rollback: discarded=true"));
+        assert!(parser.metrics.bold_specimen_count_by_taxon.is_empty());
+        assert!(parser.metrics.bold_downloaded_by_taxon.is_empty());
+        assert!(parser.metrics.bold_matched_by_taxon.is_empty());
+        assert!(parser.bold_progress_by_taxon.is_empty());
     }
 }

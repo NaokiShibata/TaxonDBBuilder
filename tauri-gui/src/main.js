@@ -92,6 +92,9 @@ const els = {
   qualityRejectInvalidIupacInput: document.querySelector("#quality-reject-invalid-iupac"),
   duplicateSequencePolicyInput: document.querySelector("#duplicate-sequence-policy"),
   sourceInput: document.querySelector("#source"),
+  onBoldFailureInput: document.querySelector("#on-bold-failure"),
+  boldFailureField: document.querySelector("#bold-failure-field"),
+  partialResultState: document.querySelector("#partial-result-state"),
   ncbiDbInput: document.querySelector("#ncbi-db"),
   ncbiRettypeInput: document.querySelector("#ncbi-rettype"),
   ncbiRetmodeInput: document.querySelector("#ncbi-retmode"),
@@ -288,6 +291,9 @@ function sourceUsesNcbi() {
 function syncSourceMode({ resetDuplicateForBoth = false } = {}) {
   const source = currentBuildSource();
   const usesNcbi = sourceUsesNcbi();
+  els.boldFailureField.hidden = source !== "both";
+  els.onBoldFailureInput.disabled = source !== "both";
+  if (source !== "both") els.onBoldFailureInput.value = "fail-fast";
 
   if (els.emailInput) {
     els.emailInput.required = usesNcbi;
@@ -511,6 +517,7 @@ function applyImportedBase(imported) {
   state.baseConfigPath = imported.sourcePath || "";
   setMarkerOptions(imported.markerOptions);
   els.sourceInput.value = imported.source || "ncbi";
+  els.onBoldFailureInput.value = "fail-fast";
   els.emailInput.value = imported.email || "";
 
   const apiKey = imported.apiKey || "";
@@ -743,6 +750,7 @@ function collectRequest() {
     taxids: [...state.taxids],
     markers: [...state.markers],
     source: currentBuildSource(),
+    onBoldFailure: els.onBoldFailureInput.value,
     outputPrefix: els.outputPrefixInput.value.trim(),
     outputRoot: els.outputRootInput.value.trim(),
     email: els.emailInput.value.trim(),
@@ -801,7 +809,10 @@ function handleRunLog(payload) {
 }
 
 function handleRunStatus(payload) {
-  if (payload.status) els.status.textContent = payload.status;
+  if (!payload.status) return;
+  const partial = payload.status === "PartialSuccess";
+  els.status.textContent = partial ? "部分成功（NCBIのみ）" : payload.status;
+  els.partialResultState.textContent = partial ? "部分成功（NCBIのみ）" : "";
 }
 
 function handleRunProgress(payload) {
@@ -866,6 +877,7 @@ function applySavedRunFields(saved) {
   }
   if (!saved.source) return;
   els.sourceInput.value = saved.source;
+  els.onBoldFailureInput.value = saved.onBoldFailure || "fail-fast";
   syncSourceMode();
 }
 

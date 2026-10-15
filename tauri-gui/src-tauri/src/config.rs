@@ -17,6 +17,17 @@ pub(crate) const DEFAULT_OUTPUT_HEADER_FORMAT: &str =
 pub(crate) const DEFAULT_OUTPUT_MIFISH_HEADER_FORMAT: &str = "{db}|{acc_id}|{organism}";
 pub(crate) const DEFAULT_MSA_TREE_MODE: &str = "disabled";
 
+pub(crate) fn default_bold_failure_policy() -> String {
+    "fail-fast".to_string()
+}
+
+pub(crate) fn validate_bold_failure_policy(source: &str, policy: &str) -> Result<(), String> {
+    match (source, policy) {
+        (_, "fail-fast") | ("both", "continue-ncbi") => Ok(()),
+        _ => Err("continue-ncbi requires --source both; expected fail-fast or continue-ncbi".to_string()),
+    }
+}
+
 pub(crate) fn resolve_worker_count(requested: u32) -> u32 {
     let requested = requested.max(1);
     let available = std::thread::available_parallelism()
@@ -32,6 +43,8 @@ pub(crate) static PRIMERS_TEMPLATE: &str = include_str!("../../../configs/primer
 #[serde(default)]
 pub(crate) struct GuiConfig {
     pub(crate) source: String,
+    #[serde(default = "default_bold_failure_policy")]
+    pub(crate) on_bold_failure: String,
     pub(crate) email: String,
     pub(crate) api_key: String,
     pub(crate) save_api_key: bool,
@@ -54,6 +67,7 @@ impl Default for GuiConfig {
     fn default() -> Self {
         Self {
             source: DEFAULT_BUILD_SOURCE.to_string(),
+            on_bold_failure: default_bold_failure_policy(),
             email: String::new(),
             api_key: String::new(),
             save_api_key: false,
@@ -376,6 +390,8 @@ pub(crate) struct RunRequest {
     pub(crate) markers: Vec<String>,
     #[serde(default = "default_build_source")]
     pub(crate) source: String,
+    #[serde(default = "default_bold_failure_policy")]
+    pub(crate) on_bold_failure: String,
     pub(crate) output_prefix: String,
     pub(crate) output_root: String,
     pub(crate) email: String,
@@ -1379,6 +1395,7 @@ mod tests {
             taxids: vec!["999".to_string()],
             markers: vec!["12s".to_string()],
             source: "ncbi".to_string(),
+            on_bold_failure: default_bold_failure_policy(),
             output_prefix: String::new(),
             output_root: dir.to_string_lossy().to_string(),
             email: "test@example.com".to_string(),
@@ -1458,5 +1475,22 @@ mod tests {
                 .expect("parse disabled config");
         assert!(disabled.get("post_prep").is_none());
         fs::remove_dir_all(dir).expect("remove test directory");
+    }
+}
+
+#[cfg(test)]
+mod bold_failure_tests {
+    use super::*;
+    #[test]
+    fn old_config_defaults_to_fail_fast() {
+        let old: GuiConfig = serde_json::from_str("{}").unwrap();
+        assert_eq!(old.on_bold_failure, "fail-fast");
+        let saved = GuiConfig { source: "both".into(), on_bold_failure: "continue-ncbi".into(), ..GuiConfig::default() };
+        let value = serde_json::to_string(&saved).unwrap();
+        assert_eq!(serde_json::from_str::<GuiConfig>(&value).unwrap().on_bold_failure, "continue-ncbi");
+        assert!(validate_bold_failure_policy("both", "continue-ncbi").is_ok());
+        assert!(validate_bold_failure_policy("ncbi", "continue-ncbi").is_err());
+        assert!(validate_bold_failure_policy("bold", "continue-ncbi").is_err());
+        assert!(validate_bold_failure_policy("both", "bad-value").is_err());
     }
 }

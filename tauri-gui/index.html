@@ -145,6 +145,13 @@
                     <option value="bold">bold</option>
                     <option value="both">both</option>
                   </select>
+                  <div id="bold-failure-field" hidden>
+                    <label for="on-bold-failure">BOLD障害時の動作</label>
+                    <select id="on-bold-failure" disabled>
+                      <option value="fail-fast">BOLD失敗時は処理を中止</option>
+                      <option value="continue-ncbi">BOLD失敗時はNCBIのみで継続</option>
+                    </select>
+                  </div>
                   <p class="source-workers">
                     Threads: 8 (automatic fallback if unavailable)
                   </p>
@@ -705,6 +712,7 @@
         </section>
 
         <section id="view-results" class="view">
+          <p id="partial-result-state" role="status"></p>
           <details
             id="output-files-disclosure"
             class="card disclosure output-files"

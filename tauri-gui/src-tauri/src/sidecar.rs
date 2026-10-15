@@ -75,6 +75,7 @@ pub(crate) struct BuildParams {
     pub(crate) taxids: Vec<String>,
     pub(crate) markers: Vec<String>,
     pub(crate) source: String,
+    pub(crate) on_bold_failure: String,
     pub(crate) output_file: PathBuf,
     pub(crate) dump_gb_dir: PathBuf,
     pub(crate) from_gb_dir: Option<PathBuf>,
@@ -106,6 +107,7 @@ pub(crate) fn build_params_to_args(params: &BuildParams) -> Vec<String> {
     }
 
     args.extend(["--source".to_string(), params.source.clone()]);
+    args.extend(["--on-bold-failure".to_string(), params.on_bold_failure.clone()]);
     args.extend([
         "--out".to_string(),
         params.output_file.display().to_string(),
@@ -224,7 +226,7 @@ pub(crate) fn run_build_via_sidecar(
     log_path: &Path,
     cancelled: &AtomicBool,
     child_slot: &Arc<Mutex<Option<Child>>>,
-) -> Result<(), String> {
+) -> Result<i32, String> {
     let sidecar_path = resolve_sidecar_path(app)?;
     let mut command = Command::new(&sidecar_path);
     command
@@ -303,13 +305,11 @@ pub(crate) fn run_build_via_sidecar(
     tail_log_once(app, parser, log_path, &mut log_offset, &mut log_pending)?;
     let _ = take_child(child_slot)?;
 
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!(
-            "taxondbbuilder sidecar exited with status {status}"
-        ))
-    }
+    Ok(sidecar_exit_code(status))
+}
+
+fn sidecar_exit_code(status: std::process::ExitStatus) -> i32 {
+    status.code().unwrap_or(1)
 }
 
 #[cfg(test)]
@@ -326,12 +326,34 @@ mod tests {
     }
 
     #[test]
+    fn preserves_partial_and_failure_exit_codes() {
+        for code in [0, 2, 3, 7] {
+            let status = Command::new("sh").args(["-c", &format!("exit {code}")]).status().unwrap();
+            assert_eq!(sidecar_exit_code(status), code);
+        }
+    }
+
+    #[test]
+    fn forwards_explicit_partial_policy() {
+        let params = BuildParams {
+            config_path: "config.toml".into(), taxids: vec!["999".into()],
+            markers: vec!["12s".into()], source: "both".into(), on_bold_failure: "continue-ncbi".into(),
+            output_file: "result.fasta".into(), dump_gb_dir: "gb".into(), from_gb_dir: None,
+            resume: false, workers: 1, output_prefix: "example".into(), post_prep: false,
+            post_prep_steps: vec![], post_prep_primer_sets: vec![],
+        };
+        let args = build_params_to_args(&params);
+        assert!(args.windows(2).any(|pair| pair == ["--on-bold-failure", "continue-ncbi"]));
+    }
+
+    #[test]
     fn build_args_preserve_every_selected_taxid() {
         let params = BuildParams {
             config_path: PathBuf::from("config.toml"),
             taxids: vec!["111".to_string(), "222".to_string(), "333".to_string()],
             markers: vec!["12s".to_string()],
             source: "ncbi".to_string(),
+            on_bold_failure: "fail-fast".to_string(),
             output_file: PathBuf::from("output.fasta"),
             dump_gb_dir: PathBuf::from("gb"),
             from_gb_dir: None,
@@ -381,6 +403,7 @@ mod tests {
             taxids: vec!["999".to_string()],
             markers: vec!["12s".to_string()],
             source: "ncbi".to_string(),
+            on_bold_failure: "fail-fast".to_string(),
             output_file: output.clone(),
             dump_gb_dir: dump_dir,
             from_gb_dir: Some(gb_dir),
