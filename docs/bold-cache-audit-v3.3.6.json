@@ -1,0 +1,154 @@
+{
+  "matrix": [
+    {
+      "code": "COI-5P",
+      "expected": "coi",
+      "before": "coi",
+      "after": "coi",
+      "count": 742
+    },
+    {
+      "code": "COII",
+      "expected": "coii",
+      "before": "coi",
+      "after": "coii",
+      "count": 11
+    },
+    {
+      "code": "COXIII",
+      "expected": "coiii",
+      "before": "coiii",
+      "after": "coiii",
+      "count": 11
+    },
+    {
+      "code": "CYTB",
+      "expected": "cytb",
+      "before": "cytb",
+      "after": "cytb",
+      "count": 11
+    },
+    {
+      "code": "ND1",
+      "expected": "nd1",
+      "before": "nd1",
+      "after": "nd1",
+      "count": 9
+    },
+    {
+      "code": "ND2",
+      "expected": "nd2",
+      "before": "nd2",
+      "after": "nd2",
+      "count": 9
+    },
+    {
+      "code": "ND3",
+      "expected": "nd3",
+      "before": "nd3",
+      "after": "nd3",
+      "count": 9
+    },
+    {
+      "code": "ND4",
+      "expected": "nd4",
+      "before": "nd4",
+      "after": "nd4",
+      "count": 9
+    },
+    {
+      "code": "ND4L",
+      "expected": "nd4l",
+      "before": "nd4",
+      "after": "nd4l",
+      "count": 9
+    },
+    {
+      "code": "ND5-0",
+      "expected": "nd5",
+      "before": "nd5",
+      "after": "nd5",
+      "count": 9
+    },
+    {
+      "code": "ND6",
+      "expected": "nd6",
+      "before": "nd6",
+      "after": "nd6",
+      "count": 9
+    },
+    {
+      "code": "atp6",
+      "expected": "atp6",
+      "before": "atp6",
+      "after": "atp6",
+      "count": 2
+    }
+  ],
+  "recognized_by_key": {
+    "before": {
+      "coi": 753,
+      "coiii": 11,
+      "cytb": 11,
+      "nd1": 9,
+      "nd2": 9,
+      "nd3": 9,
+      "nd4": 18,
+      "nd5": 9,
+      "nd6": 9,
+      "atp6": 2
+    },
+    "after": {
+      "coi": 742,
+      "coii": 11,
+      "coiii": 11,
+      "cytb": 11,
+      "nd1": 9,
+      "nd2": 9,
+      "nd3": 9,
+      "nd4": 9,
+      "nd4l": 9,
+      "nd5": 9,
+      "nd6": 9,
+      "atp6": 2
+    }
+  },
+  "changes": {
+    "corrected": 20,
+    "newly_excluded": 0,
+    "previously_recognized_now_unknown": 0,
+    "multiple_candidates_before": 29,
+    "multiple_candidates_after": 0
+  },
+  "cache_unchanged": true,
+  "files": {
+    "test/.taxondbbuilder-cache/gb/.cache/bold/query-1994bdc011446153.tsv": [
+      1789938256746462214,
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    ],
+    "test/.taxondbbuilder-cache/gb/.cache/bold/query-24710dc221c988b0.tsv": [
+      1786542204871455404,
+      "529ef88df17d26eefc97537668bf90a7d01caff82e8e2247e14f902f932fb1b7"
+    ],
+    "test/.taxondbbuilder-cache/gb/.cache/bold/query-27e796cbe490085c.tsv": [
+      1791952321666727829,
+      "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    ],
+    "test/.taxondbbuilder-cache/gb/.cache/bold/query-8d219a9740d4127c.tsv": [
+      1789938243055435049,
+      "ff0c0a5b7ff43787ef8adf2d1870e902e5b880c37292cfc6e4abdee36467ad38"
+    ],
+    "test/.taxondbbuilder-cache/gb/.cache/bold/query-a9adf226e126a1c6.tsv": [
+      1786542202129306694,
+      "6e69d4f1a01b98bb4b6d2f0b1850aac04a69b7ce22cf2082ab25b33bf142af03"
+    ],
+    "test/.taxondbbuilder-cache/gb/.cache/bold/query-cbf1aee251a02516.tsv": [
+      1789938245655440097,
+      "4a085f3adfcb25b7cdbc05415a39ed1a600aa80b0758bec37325c308be6b0ffc"
+    ],
+    "test/.taxondbbuilder-cache/gb/.cache/bold/query-f2c779584d0fb775.tsv": [
+      1789938244387515677,
+      "4d17cafb9698191aa968ebfc5e3c76f1132345e64fa9a3462293ecbd1945cd3d"
+    ]
+  }
+}

@@ -261,6 +261,7 @@ def test_a_taxon_term_beside_an_id_term_still_resolves(
     prepared = prepare_bold_query("Silurus asotus", {})
     assert prepared.resolved is True
     assert prepared.specimen_count == 99
+    assert prepared.normalized_query == "tax:species:Silurus asotus"
 
 
 def test_a_non_taxonomy_term_is_left_alone(monkeypatch: pytest.MonkeyPatch):
@@ -360,18 +361,25 @@ def test_coxiii_does_not_add_a_new_way_to_hit_coiii():
     assert bold_api.resolve_marker_from_record("COXIII", ["coii"], SHIPPED) is None
 
 
-def test_coii_is_misidentified_as_coi_in_a_full_mitogenome_run():
-    """Pre-existing looseness, unchanged by the COXIII fix (reported, not fixed).
+@pytest.mark.parametrize("text,keys,expected", [
+    ("COI-5P", ["coi", "coii"], "coi"), ("COI", ["coi", "coii"], "coi"),
+    ("COII", ["coi", "coii"], "coii"), ("COII", ["coi"], None),
+    ("COX2", ["coi", "coii"], "coii"), ("COIII", ["coi", "coii", "coiii"], "coiii"),
+    ("COXIII", ["coi", "coii", "coiii"], "coiii"), ("COXIII", ["12s"], None),
+    ("ND4", ["nd4", "nd4l"], "nd4"), ("ND4L", ["nd4", "nd4l"], "nd4l"),
+    ("ND4L", ["nd4"], None),
+    ("COI-5P-like", ["coi", "coii"], "coi"), ("16S ribosome", ["16s"], "16s"),
+    ("cytochrome c oxidase subunit III", ["coi", "coii", "coiii"], "coiii"),
+])
+def test_marker_identity_is_independent_of_declaration_order(text, keys, expected):
+    for ordered in (keys, keys[::-1]):
+        result = bold_api.resolve_marker_from_record(text, ordered, dict(reversed(list(SHIPPED.items()))))
+        assert (result[0] if result else None) == expected
 
-    Aliases and phrases match by substring, and `COI` is a substring of `COII`.
-    Resolution returns the first key that matches, and the shipped config
-    declares coi before coii - so a mitogenome-wide run labels COII rows coi.
-    An exact match is not preferred over a substring match.
-    """
-    assert list(SHIPPED).index("coi") < list(SHIPPED).index("coii")
-    assert bold_api.resolve_marker_from_record("COII", list(SHIPPED), SHIPPED)[0] == "coi"
-    # Asked for coii alone, the exact match wins, so the defect needs a wide run.
-    assert bold_api.resolve_marker_from_record("COII", ["coii"], SHIPPED)[0] == "coii"
+
+def test_shared_alias_is_ambiguous():
+    markers = {"a": {"aliases": ["shared"]}, "b": {"aliases": ["shared"]}}
+    assert bold_api.resolve_marker_from_record("shared", list(markers), markers) is None
 
 
 def test_a_12s_run_still_excludes_coxiii():
@@ -401,9 +409,7 @@ def test_a_full_cached_download_matches_every_row_now():
     keys = list(SHIPPED)
     matched = [normalize_bold_row(_row(code), keys, SHIPPED) for code in CACHED_ASOTUS_MARKERS]
     assert all(m is not None for m in matched)
-    # COII lands on coi at the shipped declaration order; see
-    # test_coii_is_misidentified_as_coi_in_a_full_mitogenome_run.
-    assert [m["marker_key"] for m in matched[:3]] == ["coi", "coi", "coiii"]
+    assert [m["marker_key"] for m in matched[:3]] == ["coi", "coii", "coiii"]
 
 
 # --- the matched=0 case is a data fact, not a parse bug -----------------------
@@ -426,3 +432,51 @@ def test_a_12s_row_would_match_if_bold_had_one():
     matched = normalize_bold_row(_row("12S"), ["12s"], SHIPPED)
     assert matched is not None
     assert matched["marker_key"] == "12s"
+
+@pytest.mark.parametrize("name,terms,resolved", [
+    ("Silurus asotus", ASOTUS_TERMS, True),
+    ("  silurus   ASOTUS ", ASOTUS_TERMS, True),
+    ("Silurus asotus", [{"scope": "tax", "field": "genus", "value": "Silurus"}], False),
+    ("Silurus", [{"scope": "tax", "field": "genus", "value": "Silurus"}], True),
+    ("Silurus asotus", [{"scope": "tax", "field": "species", "value": "Silurus biwaensis"}], False),
+    ("Silurus asotus", TOMODAI_TERMS, False),
+    ("Silurus asotus", [{"scope": "geo", "field": "country", "value": "Japan"}], False),
+    ("Silurus asotus", [], False), ("Silurus asotus", ["unparseable"], False),
+])
+def test_query_scope_must_confirm_the_requested_name(monkeypatch, name, terms, resolved):
+    calls = []
+    def request(url, *_a, **_kw):
+        calls.append(url)
+        if "/preprocessor" in url:
+            return {"successful_terms": terms}
+        assert resolved, "unsafe scope reached summary/query"
+        return {"counts": {"specimens": 0}}
+    monkeypatch.setattr(bold_api, "_request_json", request)
+    prepared = prepare_bold_query(name, {})
+    assert prepared.resolved is resolved
+    if not resolved:
+        assert len(calls) == 1
+        assert prepared.unresolved_reason
+        assert prepared.query_id is None
+
+@pytest.mark.parametrize("payload", [None, {}, [], {"successful_terms": None}])
+def test_missing_preprocessor_taxonomy_is_unresolved(monkeypatch, payload):
+    def request(url, *_a, **_kw):
+        assert "/preprocessor" in url
+        return payload
+    monkeypatch.setattr(bold_api, "_request_json", request)
+    assert not prepare_bold_query("Silurus asotus", {}).resolved
+
+
+def test_renamed_taxon_is_ambiguous_without_synonym_evidence(monkeypatch):
+    monkeypatch.setattr(bold_api, "_request_json", router({
+        "/query/preprocessor": {"successful_terms": ["tax:species:Silurus synonymus"]}
+    }))
+    result = prepare_bold_query("Silurus asotus", {})
+    assert not result.resolved
+    assert result.unresolved_reason == "ambiguous_taxon_scope:tax:species:Silurus synonymus"
+
+
+@pytest.mark.parametrize("text", ["ND14", "XND1", "ND1L", "ND1 / ND2"])
+def test_marker_tokens_do_not_guess_a_gene(text):
+    assert bold_api.resolve_marker_from_record(text, ["nd1", "nd2"], SHIPPED) is None

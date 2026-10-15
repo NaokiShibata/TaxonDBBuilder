@@ -262,7 +262,7 @@ def test_bold_query_preparation_and_validation(monkeypatch: pytest.MonkeyPatch):
         [
             {
                 "successful_terms": [
-                    {"scope": "taxon", "field": "name", "value": "Testus"},
+                    {"scope": "taxon", "field": "species", "value": "Testus alpha"},
                     "marker",
                 ]
             },
@@ -274,7 +274,7 @@ def test_bold_query_preparation_and_validation(monkeypatch: pytest.MonkeyPatch):
         bold, "_request_json", lambda *_args, **_kwargs: next(responses)
     )
     prepared = bold.prepare_bold_query("Testus alpha", {"backoff_sec": 0})
-    assert prepared.normalized_query == "taxon:name:Testus;marker"
+    assert prepared.normalized_query == "taxon:species:Testus alpha;marker"
     assert prepared.specimen_count == 2
     assert prepared.query_id == "query 1"
     assert prepared.download_format == "tsv"
@@ -298,7 +298,7 @@ def test_bold_query_preparation_and_validation(monkeypatch: pytest.MonkeyPatch):
     assert bold.prepare_bold_query("Testus alpha", {"backoff_sec": 0}).query_id is None
 
     monkeypatch.setattr(
-        bold, "_request_json", lambda *_args, **_kwargs: {"count": 2_000_000}
+        bold, "_request_json", lambda *_args, **_kwargs: {"successful_terms": ["tax:species:Testus alpha"], "count": 2_000_000}
     )
     with pytest.raises(bold.BoldApiError, match="exceeds maximum"):
         bold.prepare_bold_query("Testus alpha", {"backoff_sec": 0})

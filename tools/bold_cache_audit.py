@@ -10,6 +10,9 @@ from __future__ import annotations
 
 import argparse
 import csv
+import hashlib
+import json
+import types
 import sys
 import tomllib
 from collections import Counter
@@ -90,16 +93,65 @@ def _show_examples(rows, seq_col, marker_keys, marker_map) -> None:
         )
 
 
+# Independently assigned gene identities for every code in the 840-row cache.
+EXPECTED_GENES = {
+    "COI-5P": "coi", "COII": "coii", "COXIII": "coiii", "CYTB": "cytb",
+    "atp6": "atp6", "ND1": "nd1", "ND2": "nd2", "ND3": "nd3",
+    "ND4": "nd4", "ND4L": "nd4l", "ND5-0": "nd5", "ND6": "nd6",
+}
+
+
+def compare_cache(paths, marker_map, baseline_source):
+    """Compare a saved local baseline module without modifying cache files."""
+    baseline = types.ModuleType("taxondbbuilder._audit_baseline")
+    baseline.__package__ = "taxondbbuilder"
+    sys.modules[baseline.__name__] = baseline
+    exec(compile(baseline_source.read_text(), str(baseline_source), "exec"), baseline.__dict__)
+    before_state = {str(p): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest()) for p in paths}
+    matrix = Counter()
+    recognized = {"before": Counter(), "after": Counter()}
+    keys = list(marker_map)
+    changed = Counter()
+    for path in paths:
+        with path.open(encoding="utf-8-sig", newline="") as fh:
+            for row in csv.DictReader(fh, delimiter="\t"):
+                code = _first_scalar(row, ["marker_code", "marker", "markercode"]) or ""
+                expected = EXPECTED_GENES[code]  # Fail on unreviewed codes.
+                old = baseline.resolve_marker_from_record(code, keys, marker_map)
+                new = resolve_marker_from_record(code, keys, marker_map)
+                old_key, new_key = (old[0] if old else None), (new[0] if new else None)
+                matrix[(code, expected, old_key, new_key)] += 1
+                for label, key in (("before", old_key), ("after", new_key)):
+                    if key:
+                        recognized[label][key] += 1
+                changed["corrected"] += old_key != expected and new_key == expected
+                changed["newly_excluded"] += old_key is not None and new_key is None
+                changed["previously_recognized_now_unknown"] += old_key is not None and new_key is None
+                for label, resolver in (("before", baseline.resolve_marker_from_record), ("after", resolve_marker_from_record)):
+                    candidates = sum(resolver(code, [key], marker_map) is not None for key in keys)
+                    changed[f"multiple_candidates_{label}"] += candidates > 1
+    after_state = {str(p): (p.stat().st_mtime_ns, hashlib.sha256(p.read_bytes()).hexdigest()) for p in paths}
+    assert before_state == after_state, "cache content/mtime changed"
+    return {"matrix": [dict(code=c, expected=e, before=b, after=a, count=n) for (c,e,b,a),n in sorted(matrix.items())],
+            "recognized_by_key": recognized, "changes": changed, "cache_unchanged": True,
+            "files": before_state}
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("cache_dir", type=Path)
     ap.add_argument("--markers", type=Path, required=True)
+    ap.add_argument("--baseline-source", type=Path)
     args = ap.parse_args()
 
     marker_map = tomllib.load(args.markers.open("rb")).get("markers", {})
     marker_keys = list(marker_map)
 
-    for path in sorted(args.cache_dir.glob("query-*.tsv")):
+    paths = sorted(args.cache_dir.glob("query-*.tsv"))
+    if args.baseline_source:
+        print(json.dumps(compare_cache(paths, marker_map, args.baseline_source), indent=2))
+        return 0
+    for path in paths:
         report(path, marker_keys, marker_map)
     return 0
 

@@ -412,11 +412,17 @@ def prepare_bold_query(
     runtime_cfg = get_bold_runtime_config(bold_cfg)
     raw_query = build_taxon_query(scientific_name)
     normalized_query, payload = preprocess_query(raw_query, runtime_cfg)
-    _, id_terms = _partition_taxon_terms(payload)
-    if not _has_taxon_term(payload) and id_terms:
-        # The name was not resolved as taxonomy. Sending the id terms would
-        # answer 0 specimens for a problem that is not "no specimens", so stop
-        # here: no summary, no query, no download.
+    taxon_terms, id_terms = _partition_taxon_terms(payload)
+    requested = " ".join(scientific_name.casefold().split())
+    confirmed = bool(taxon_terms) and all(
+        len(parts := term.split(":", 2)) == 3
+        and " ".join(parts[2].casefold().split()) == requested
+        and (len(requested.split()) < 2 or parts[1].casefold() in {"species", "subspecies"})
+        for term in taxon_terms
+    )
+    if not confirmed:
+        # A renamed taxon may be a synonym, but this response supplies no
+        # evidence linking it to the requested NCBI taxon. Keep it unresolved.
         return PreparedBoldQuery(
             scientific_name=scientific_name,
             raw_query=raw_query,
@@ -430,8 +436,15 @@ def prepare_bold_query(
             .strip()
             .lower(),
             resolved=False,
-            unresolved_reason=";".join(id_terms),
+            unresolved_reason=(
+                ";".join(id_terms) if not taxon_terms and id_terms
+                else "ambiguous_taxon_scope:" + ";".join(taxon_terms)
+            ),
         )
+    normalized_query = ";".join(
+        term for term in _extract_successful_terms(payload)
+        if _term_scope(term) != "ids"
+    )
     specimen_count = fetch_specimen_count(normalized_query, runtime_cfg)
     if specimen_count is not None and specimen_count > MAX_DOCUMENT_COUNT:
         raise BoldApiError(
@@ -799,12 +812,10 @@ def _marker_matches(marker_text: str, candidate: str, exact_only: bool) -> bool:
         return True
     if exact_only:
         return False
-    return (
-        left.startswith(right)
-        or right.startswith(left)
-        or right in left
-        or left in right
-    )
+    # Keep descriptive suffixes, but never match inside another gene token.
+    tokens = re.findall(r"[a-z0-9]+", candidate.lower())
+    pattern = r"(?<![a-z0-9])" + r"[^a-z0-9]*".join(map(re.escape, tokens)) + r"(?![a-z0-9])"
+    return bool(re.search(pattern, marker_text.lower()))
 
 
 def _marker_candidates(
@@ -828,16 +839,24 @@ def resolve_marker_from_record(
     if not marker_text:
         return None
 
+    offered = []
     for strategy in ("marker_codes", "aliases", "phrases", "key"):
         for marker_key in marker_keys:
             candidates, exact_only = _marker_candidates(
                 marker_key, marker_map.get(marker_key, {}), strategy
             )
-            for candidate in candidates:
-                if not isinstance(candidate, str) or not candidate.strip():
-                    continue
-                if _marker_matches(marker_text, candidate, exact_only=exact_only):
-                    return marker_key, marker_text
+            offered.extend(
+                (marker_key, candidate, exact_only) for candidate in candidates
+                if isinstance(candidate, str) and candidate.strip()
+            )
+    for exact in (True, False):
+        matches = {
+            key for key, candidate, exact_only in offered
+            if (exact or not exact_only)
+            and _marker_matches(marker_text, candidate, exact_only=exact)
+        }
+        if matches:
+            return (next(iter(matches)), marker_text) if len(matches) == 1 else None
     return None
 
 
