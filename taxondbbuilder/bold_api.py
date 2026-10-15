@@ -831,14 +831,8 @@ def _marker_candidates(
     return [marker_key], False
 
 
-def resolve_marker_from_record(
-    marker_text: str | None,
-    marker_keys: list[str],
-    marker_map: dict[str, dict[str, Any]],
-) -> tuple[str, str] | None:
-    if not marker_text:
-        return None
-
+def _record_marker_candidates(marker_keys, marker_map):
+    """Collect valid names and retain each strategy's exact-only restriction."""
     offered = []
     for strategy in ("marker_codes", "aliases", "phrases", "key"):
         for marker_key in marker_keys:
@@ -849,14 +843,35 @@ def resolve_marker_from_record(
                 (marker_key, candidate, exact_only) for candidate in candidates
                 if isinstance(candidate, str) and candidate.strip()
             )
+    return offered
+
+
+def _matching_marker_keys(marker_text, offered, *, exact):
+    """Evaluate one pass across all definitions, independent of their order."""
+    return {
+        key for key, candidate, exact_only in offered
+        if (exact or not exact_only)
+        and _marker_matches(marker_text, candidate, exact_only=exact)
+    }
+
+
+def _unambiguous_marker_match(matches, marker_text):
+    """Never choose arbitrarily between genes sharing a name."""
+    return (next(iter(matches)), marker_text) if len(matches) == 1 else None
+
+
+def resolve_marker_from_record(
+    marker_text: str | None,
+    marker_keys: list[str],
+    marker_map: dict[str, dict[str, Any]],
+) -> tuple[str, str] | None:
+    if not marker_text:
+        return None
+    offered = _record_marker_candidates(marker_keys, marker_map)
     for exact in (True, False):
-        matches = {
-            key for key, candidate, exact_only in offered
-            if (exact or not exact_only)
-            and _marker_matches(marker_text, candidate, exact_only=exact)
-        }
+        matches = _matching_marker_keys(marker_text, offered, exact=exact)
         if matches:
-            return (next(iter(matches)), marker_text) if len(matches) == 1 else None
+            return _unambiguous_marker_match(matches, marker_text)
     return None
 
 
