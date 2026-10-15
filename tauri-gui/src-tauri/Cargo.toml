@@ -1,6 +1,6 @@
 [package]
 name = "taxondbbuilder-gui"
-version = "3.3.6"
+version = "3.3.7"
 description = "TaxonDBBuilder GUI (Tauri)"
 authors = ["TaxonDBBuilder contributors"]
 license = "MIT"
