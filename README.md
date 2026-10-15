@@ -90,6 +90,40 @@ NCBI と BOLD を統合する場合
 pixi run python3 -m taxondbbuilder build -c configs/db.toml -t "Rhinogobius" -m coi --source both
 ```
 
+### BOLD通信障害時の部分成功
+
+`source=both`の既定は`--on-bold-failure fail-fast`で、BOLD取得に失敗すると従来どおり中止します。
+BOLDのHTTPエラーやタイムアウト時に、取得済みNCBIデータだけを出力する場合は明示的に指定します。
+
+```bash
+pixi run python3 -m taxondbbuilder build -c configs/db.toml -t "Rhinogobius" -m coi \
+  --source both --on-bold-failure continue-ncbi --out Results/example.fasta \
+  --dump-gb Results/gb
+```
+
+`continue-ncbi`は`source=both`でのみ使えます。
+途中までBOLDの取得に成功していても、その後に通信障害が起きればBOLDのレコードと集計値をすべて破棄します。
+有効なNCBI配列が残った場合は`example__partial-nobold.fasta`と対応するCSV、manifest、後処理結果、追加exportを生成します。
+通常のboth成果物も、既存の部分成果物も上書きしません。
+出力先に同名ファイルがある場合は、別の`--out`を指定してください。
+
+終了コードは完全成功が0、成果物まで完成した部分成功が3です。
+NCBIの取得失敗、設定不備、不正なJSON、内部エラー、ファイル書き込み失敗、キャンセルは部分成功にしません。
+NCBIの有効配列が0件の場合や、後処理が失敗した場合も終了コード3にはなりません。
+出力途中で失敗した場合はmanifestを公開せず、途中まで公開したファイルを撤去します。
+
+manifestの`sources`には要求したsource、完了したsource、BOLD障害の段階とHTTPステータスを記録します。
+部分成功時の`source_merge.csv`にはNCBI由来の行だけを収録します。
+BOLDの学名未解決や検索0件は通信障害とは区別し、部分成功への切り替え理由にはしません。
+再実行時は同じ`--dump-gb`と`--resume`を指定するとキャッシュを再利用し、BOLDが取得できれば通常のboth成果物を作成します。
+
+GUIではsource=bothを選ぶと「BOLD障害時の動作」を選択できます。
+既定は「BOLD失敗時は処理を中止」です。
+「BOLD失敗時はNCBIのみで継続」を選んだ実行で部分成果物が完成すると「部分成功（NCBIのみ）」と表示し、Resultsから実際の部分成果物を開けます。
+
+このオプションはBOLDのHTTP 403を回避するものではありません。
+実BOLD APIの取得成功は未検証で、通信障害の検証にはローカルの偽APIを使っています。
+
 ## Source の選択
 
 `build` では次の source を選べます。

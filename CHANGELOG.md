@@ -1,5 +1,19 @@
 # Changelog
 
+## 3.3.7 (planned)
+
+### Added
+- `--on-bold-failure fail-fast|continue-ncbi`を追加した。既定のfail-fastは維持し、continue-ncbiはsource=bothでのみ許可する。
+- BOLDのHTTPエラーやタイムアウト時に、途中まで取得したBOLDのレコード、カウンター、重複判定状態、対応表、取得統計を破棄し、NCBIだけの成果物を作成する。成果物まで完成した場合だけ終了コード3を返す。
+- 部分成果物は`__partial-nobold`付きの名前で区別し、同名ファイルを上書きせず、manifestを最後に公開する。manifestのsourcesにrequested、completed、failedを追加し、各出力のサイズとSHA-256を記録する。
+- GUIにBOLD障害時の選択を追加し、sidecarの終了コードを維持する。部分成功は「部分成功（NCBIのみ）」として表示し、Resultsから部分成果物を開ける。古いGUI設定はfail-fastを既定とする。
+
+### Scope
+- JSON不正、設定不備、内部エラー、ファイル書き込み失敗、NCBI失敗、キャンセル、有効なNCBI配列0件を部分成功として扱わない。
+- BOLDのURL、通信方式、403回避策、マーカー判定、分類群解決、NCBI取得方式は変更しない。既存の再試行回数とHTTP別ポリシーを維持し、通信タイムアウトも同じポリシーで処理する。
+- 偽NCBI/BOLDでA〜Jを検証し、frozen sidecarとローカルAppImageの同梱sidecarでも部分成功とresume復旧を確認した。実BOLD APIにはアクセスしていない。
+- GitHub Releaseには自動生成ソースアーカイブとRelease Notesのみを公開し、AppImageとSHA256ファイルは添付しない。
+
 ## 3.3.6 (2026-10-15)
 
 ### Scope
