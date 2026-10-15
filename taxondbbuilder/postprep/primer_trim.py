@@ -391,7 +391,7 @@ def _prepare_vsearch_inputs(
     tmp: Path,
     candidates: list[dict[str, Any]],
     primer_db_entries: list[tuple[str, str]],
-) -> tuple[Path, Path, Path, list[tuple[int, str, str]], int]:
+) -> tuple[Path, Path, Path, list[tuple[int, str, str, int]], int]:
     db_fa = tmp / "primers.fa"
     q_fa = tmp / "queries.fa"
     out_path = tmp / "hits.tsv"
@@ -401,7 +401,7 @@ def _prepare_vsearch_inputs(
 
     max_primer_len = max((len(p) for _, p in primer_db_entries), default=30)
     window_len = max(20, max_primer_len + 8)
-    query_rows: list[tuple[int, str, str]] = []
+    query_rows: list[tuple[int, str, str, int]] = []
     attempted = 0
     with q_fa.open("w", encoding="utf-8") as f:
         for candidate in candidates:
@@ -410,12 +410,12 @@ def _prepare_vsearch_inputs(
             if not int(row.get("left_hit", 0)):
                 qid = f"{candidate['idx']}|L"
                 f.write(f">{qid}\n{seq[:window_len]}\n")
-                query_rows.append((candidate["idx"], "L", qid))
+                query_rows.append((candidate["idx"], "L", qid, len(seq[:window_len])))
                 attempted += 1
             if not int(row.get("right_hit", 0)):
                 qid = f"{candidate['idx']}|R"
                 f.write(f">{qid}\n{seq[-window_len:]}\n")
-                query_rows.append((candidate["idx"], "R", qid))
+                query_rows.append((candidate["idx"], "R", qid, len(seq[-window_len:])))
                 attempted += 1
     return db_fa, q_fa, out_path, query_rows, attempted
 
@@ -470,6 +470,7 @@ def _parse_vsearch_hits(
                 pident = float(cols[2]) / 100.0
                 aln_len = int(cols[3])
                 mismatch = int(cols[4])
+                query_start, query_end = int(cols[6]), int(cols[7])
             except ValueError:
                 continue
             primer_len = primer_len_map.get(sid, 0)
@@ -480,6 +481,8 @@ def _parse_vsearch_hits(
                 continue
             hit = {
                 "sid": sid,
+                "query_start": query_start,
+                "query_end": query_end,
                 "pident": pident,
                 "aln_len": aln_len,
                 "mismatch": mismatch,
@@ -503,12 +506,12 @@ def _parse_vsearch_hits(
 
 def _merge_vsearch_hits(
     rows: list[dict[str, Any]],
-    query_rows: list[tuple[int, str, str]],
+    query_rows: list[tuple[int, str, str, int]],
     best_hits: dict[str, dict[str, Any]],
 ) -> int:
     rescued = 0
     hit_applied: dict[tuple[int, str], bool] = {}
-    for idx, side, qid in query_rows:
+    for idx, side, qid, query_length in query_rows:
         hit = best_hits.get(qid)
         row = rows[idx]
         if hit is None:
@@ -520,11 +523,14 @@ def _merge_vsearch_hits(
             continue
         if side == "R" and not is_right_subject:
             continue
+        if not 1 <= hit["query_start"] <= hit["query_end"] <= query_length:
+            continue
         row["recheck_status"] = "rescued_by_vsearch"
         prefix = "left" if side == "L" else "right"
         row[f"{prefix}_hit"] = 1
         row[f"{prefix}_overlap_bp"] = int(hit["aln_len"])
-        row[f"{prefix}_trim_bp"] = int(hit["aln_len"])
+        row[f"{prefix}_trim_bp"] = (hit["query_end"] if side == "L"
+                                     else query_length - hit["query_start"] + 1)
         row[f"{prefix}_mismatch"] = int(hit["mismatch"])
         mism_total = int(row.get("left_mismatch", 0)) + int(
             row.get("right_mismatch", 0)
@@ -535,7 +541,7 @@ def _merge_vsearch_hits(
         )
         rescued += 1
         hit_applied[(idx, side)] = True
-    for idx, side, _ in query_rows:
+    for idx, side, _, _ in query_rows:
         if hit_applied.get((idx, side)):
             continue
         row = rows[idx]
