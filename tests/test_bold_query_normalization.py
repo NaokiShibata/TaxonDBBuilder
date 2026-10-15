@@ -13,6 +13,7 @@ run logs in test/20261012 and test/20261014. Two facts drive these tests:
 
 from __future__ import annotations
 
+from pathlib import Path
 from types import SimpleNamespace
 from typing import Any
 
@@ -295,52 +296,21 @@ class _Log:
 
 # --- marker resolution against the codes BOLD actually emits -----------------
 
-MITOGENOME_MARKERS = {
-    "12s": {"aliases": ["12", "12s", "rrns"], "phrases": ["12S", "rrnS"], "bold": {"marker_codes": ["12S"]}},
-    "coi": {"aliases": ["coi", "co1"], "phrases": ["COI"], "bold": {"marker_codes": ["COI-5P"]}},
-    "coiii": {"aliases": ["coiii", "cox3"], "phrases": ["COIII", "COX3"]},
-    # The rest of the set the 2026-10-12 run actually used.
-    "coii": {"aliases": ["coii", "cox2"], "phrases": ["COII", "COX2"]},
-    "cytb": {"aliases": ["cytb"], "phrases": ["CYTB", "cytochrome b"]},
-    "nd1": {"aliases": ["nd1"], "phrases": ["ND1"]},
-    "atp6": {"aliases": ["atp6"], "phrases": ["ATP6"]},
-}
+ROOT = Path(__file__).resolve().parents[1]
 
 
-def test_bold_emits_coxiii_but_the_config_only_offers_coiii_and_cox3():
-    """Pins today's gap: BOLD's code COXIII resolves to nothing.
+def shipped_markers() -> dict[str, dict[str, Any]]:
+    """The mitogenome marker set the product actually ships with."""
+    import tomllib
 
-    3 of 117 Silurus asotus rows carry marker_code=COXIII with a 781 bp
-    sequence and are dropped even in a mitogenome-wide run.
-    """
-    resolved = bold_api.resolve_marker_from_record(
-        "COXIII", ["coiii"], MITOGENOME_MARKERS
-    )
-    assert resolved is None
+    with (ROOT / "configs" / "markers_mitogenome.toml").open("rb") as fh:
+        return tomllib.load(fh)["markers"]
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="BOLD's own marker code COXIII should resolve to the coiii marker",
-)
-def test_coxiii_should_resolve_to_coiii():
-    assert bold_api.resolve_marker_from_record(
-        "COXIII", ["coiii"], MITOGENOME_MARKERS
-    ) == ("coiii", "COXIII")
+SHIPPED = shipped_markers()
 
-
-# --- the matched=0 case is a data fact, not a parse bug -----------------------
-
-def _row(marker_code: str, sequence: str = "ACGT" * 200) -> dict[str, str]:
-    return {
-        "processid": f"PROC{marker_code}-12",
-        "species": "Silurus asotus",
-        "marker_code": marker_code,
-        "nuc": sequence,
-    }
-
-
-# The cached Silurus asotus download: 99 COI-5P plus one set of mitogenome genes.
+# The cached Silurus asotus download: 99 COI-5P plus one set of mitogenome
+# genes, every row carrying a sequence. COXIII appears 3 times.
 CACHED_ASOTUS_MARKERS = [
     "COI-5P",
     "COII",
@@ -357,6 +327,88 @@ CACHED_ASOTUS_MARKERS = [
 ]
 
 
+def _row(marker_code: str, processid: str = "", sequence: str = "ACGT" * 200) -> dict[str, str]:
+    return {
+        "processid": processid or f"PROC{marker_code}-12",
+        "species": "Silurus asotus",
+        "marker_code": marker_code,
+        "nuc": sequence,
+    }
+
+
+def test_bold_coxiii_now_resolves_to_coiii():
+    assert bold_api.resolve_marker_from_record("COXIII", ["coiii"], SHIPPED) == (
+        "coiii",
+        "COXIII",
+    )
+
+
+def test_the_shipped_config_declares_coxiii_as_a_bold_marker_code():
+    assert SHIPPED["coiii"]["bold"]["marker_codes"] == ["COXIII"]
+
+
+def test_coiii_still_matches_the_older_coiii_and_cox3_spellings():
+    """Backward compatibility: the aliases and phrases still work."""
+    for text in ("COIII", "COX3", "coiii", "cox3", "cytochrome c oxidase subunit III"):
+        assert bold_api.resolve_marker_from_record(text, ["coiii"], SHIPPED)[0] == "coiii"
+
+
+def test_coxiii_does_not_add_a_new_way_to_hit_coiii():
+    """The added code matches COXIII exactly and nothing else."""
+    assert bold_api.resolve_marker_from_record("COXIII", ["coiii"], SHIPPED)[0] == "coiii"
+    # COXIII is not a substring of any coii candidate, so coii is unaffected.
+    assert bold_api.resolve_marker_from_record("COXIII", ["coii"], SHIPPED) is None
+
+
+def test_coii_is_misidentified_as_coi_in_a_full_mitogenome_run():
+    """Pre-existing looseness, unchanged by the COXIII fix (reported, not fixed).
+
+    Aliases and phrases match by substring, and `COI` is a substring of `COII`.
+    Resolution returns the first key that matches, and the shipped config
+    declares coi before coii - so a mitogenome-wide run labels COII rows coi.
+    An exact match is not preferred over a substring match.
+    """
+    assert list(SHIPPED).index("coi") < list(SHIPPED).index("coii")
+    assert bold_api.resolve_marker_from_record("COII", list(SHIPPED), SHIPPED)[0] == "coi"
+    # Asked for coii alone, the exact match wins, so the defect needs a wide run.
+    assert bold_api.resolve_marker_from_record("COII", ["coii"], SHIPPED)[0] == "coii"
+
+
+def test_a_12s_run_still_excludes_coxiii():
+    assert normalize_bold_row(_row("COXIII"), ["12s"], SHIPPED) is None
+
+
+def test_the_cached_asotus_rows_now_all_match_a_mitogenome_run():
+    """The 3 COXIII rows that used to be dropped are identified again.
+
+    Real example from the cache: processid=CYTC5134-12, 781 bp.
+    """
+    keys = list(SHIPPED)
+    rows = [
+        _row("COXIII", "CYTC5134-12", "ACGT" * 195),  # 781 bp, as cached
+        _row("COXIII", "CYTC5135-12"),
+        _row("COXIII", "CYTC5136-12"),
+        _row("COI-5P"),
+    ]
+    matched = [normalize_bold_row(r, keys, SHIPPED) for r in rows]
+    assert all(m is not None for m in matched)
+    assert [m["marker_key"] for m in matched] == ["coiii", "coiii", "coiii", "coi"]
+    assert matched[0]["sequence"].startswith("ACGT")
+
+
+def test_a_full_cached_download_matches_every_row_now():
+    """Before 3.3.6 one code in twelve was dropped; none is now."""
+    keys = list(SHIPPED)
+    matched = [normalize_bold_row(_row(code), keys, SHIPPED) for code in CACHED_ASOTUS_MARKERS]
+    assert all(m is not None for m in matched)
+    # COII lands on coi at the shipped declaration order; see
+    # test_coii_is_misidentified_as_coi_in_a_full_mitogenome_run.
+    assert [m["marker_key"] for m in matched[:3]] == ["coi", "coi", "coiii"]
+
+
+# --- the matched=0 case is a data fact, not a parse bug -----------------------
+
+
 def test_a_12s_run_over_the_cached_asotus_rows_matches_nothing():
     """Every cached row has a sequence; none of them is 12S.
 
@@ -366,25 +418,11 @@ def test_a_12s_run_over_the_cached_asotus_rows_matches_nothing():
     rows = [_row(code) for code in CACHED_ASOTUS_MARKERS]
     assert all(row["nuc"] for row in rows)
     for row in rows:
-        assert normalize_bold_row(row, ["12s"], MITOGENOME_MARKERS) is None
-
-
-def test_the_same_rows_do_match_a_wider_marker_set():
-    """The rows are parseable — only the marker request does not fit them."""
-    keys = ["12s", "coi", "coiii", "coii", "cytb", "nd1", "atp6"]
-    matched = [
-        normalize_bold_row(_row(code), keys, MITOGENOME_MARKERS)
-        for code in CACHED_ASOTUS_MARKERS
-    ]
-    # The keys this fixture covers resolve; COXIII and the ND genes left
-    # out of `keys` do not.
-    assert sum(1 for m in matched if m) == 5
-    assert matched[0]["marker_key"] == "coi"
+        assert normalize_bold_row(row, ["12s"], SHIPPED) is None
 
 
 def test_a_12s_row_would_match_if_bold_had_one():
     """The 12s path itself works, so its absence upstream is not our bug."""
-    row = _row("12S")
-    matched = normalize_bold_row(row, ["12s"], MITOGENOME_MARKERS)
+    matched = normalize_bold_row(_row("12S"), ["12s"], SHIPPED)
     assert matched is not None
     assert matched["marker_key"] == "12s"

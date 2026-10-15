@@ -140,6 +140,11 @@ feature_types = ["CDS", "gene"]
 feature_fields = ["gene", "product", "note", "standard_name"]
 header_format = "mifish_pipeline"
 
+[markers."coiii".bold]
+# BOLD's own code for this gene; the aliases above do not match it (COXIII is
+# not a substring of COIII or COX3), so BOLD rows were dropped before 3.3.6.
+marker_codes = ["COXIII"]
+
 [markers."cytb"]
 fallback = "mitogenome"
 fallback_targets = ["CYTB"]
