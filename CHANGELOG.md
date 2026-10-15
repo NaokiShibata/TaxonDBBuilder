@@ -25,6 +25,7 @@
 - GitHub Releaseでは自動生成のソースアーカイブとRelease Notesのみを公開する。AppImageとSHA256ファイルは添付しない。
 
 ### Known issues
+- v3.3.6では実BOLD APIからの取得成功は未検証である。検証には保存済みキャッシュとローカルの偽BOLDサーバーを使用し、実APIにはアクセスしていない。
 - BOLD の 403 は未解消のまま。観測は 2 種類あり (download だけ 403 / preprocessor から 403)、`docs/bold-api-diagnostics.md` §7 に併記し、単一原因は断定していない。`quote(query_id, safe="")` は変更していない。
 - 個々のBOLD標本の分類同定精度を保証する変更ではない。検索対象の分類群スコープとマーカー判定の誤りを防ぐ対策であり、標本自体の誤同定は別途確認が必要である。
 
