@@ -20,7 +20,12 @@ def _sha256(path: Path) -> str:
     return digest.hexdigest()
 
 
-def _version() -> str:
+def app_version() -> str:
+    """The release this code belongs to, repo checkout or frozen bundle alike.
+
+    taxondbbuilder.spec bundles VERSION into the PyInstaller bundle, so the
+    `_MEIPASS` candidate is what a frozen sidecar reads.
+    """
     candidates = [Path(__file__).resolve().parent.parent / "VERSION"]
     bundle_root = getattr(sys, "_MEIPASS", None)
     if bundle_root:
@@ -50,7 +55,7 @@ def write_run_manifest(
     payload = {
         "schema_version": 1,
         "created_at": datetime.now(timezone.utc).isoformat(),
-        "taxondbbuilder_version": _version(),
+        "taxondbbuilder_version": app_version(),
         "runtime": {
             "python": platform.python_version(),
             "platform": platform.platform(),

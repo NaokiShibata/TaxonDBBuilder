@@ -17,7 +17,7 @@ use_history = true
 # timeout_sec = 60
 # retries = 3
 # backoff_sec = 1.5
-# user_agent = "TaxonDBBuilder/0.1"
+# user_agent = "TaxonDBBuilder/<version> (+https://github.com/NaokiShibata/TaxonDBBuilder)"  # default: the running version
 
 # Output header format
 [output]

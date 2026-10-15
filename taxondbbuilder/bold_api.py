@@ -21,14 +21,19 @@ from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlencode, urlsplit
 from urllib.request import Request, urlopen
 
+from .manifest import app_version
 from .net_retry import retry_call
 
 DEFAULT_BASE_URL = "https://portal.boldsystems.org/api"
 DEFAULT_TIMEOUT_SEC = 60.0
 DEFAULT_RETRIES = 3
 DEFAULT_BACKOFF_SEC = 1.5
+# The version a server sees must be the version actually running; a stale
+# hard-coded number is misinformation in someone else's access logs. Not a
+# spoof: this identifies the client, it does not imitate anything else.
 DEFAULT_USER_AGENT = (
-    "TaxonDBBuilder/0.1 (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    f"TaxonDBBuilder/{app_version()} "
+    "(+https://github.com/NaokiShibata/TaxonDBBuilder)"
 )
 MAX_DOCUMENT_COUNT = 1_000_000
 DEFAULT_DOWNLOAD_FORMAT = "tsv"

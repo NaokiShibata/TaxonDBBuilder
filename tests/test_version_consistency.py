@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import re
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -58,3 +59,54 @@ def test_all_version_declarations_agree():
 def test_version_is_a_release_number():
     version = declared_versions()["VERSION"]
     assert re.fullmatch(r"\d+\.\d+\.\d+", version), version
+
+
+def test_the_bold_user_agent_carries_the_running_version():
+    """A server's access log must be able to tell which build called it.
+
+    It said TaxonDBBuilder/0.1 for every release since 3.3.0, which is not a
+    version anyone can act on.
+    """
+    from taxondbbuilder.bold_api import DEFAULT_USER_AGENT
+    from taxondbbuilder.manifest import app_version
+
+    version = declared_versions()["VERSION"]
+    assert app_version() == version
+    assert DEFAULT_USER_AGENT == (
+        f"TaxonDBBuilder/{version} (+https://github.com/NaokiShibata/TaxonDBBuilder)"
+    )
+
+
+def test_app_version_prefers_the_checkout_and_falls_back_to_the_bundle(
+    tmp_path, monkeypatch
+):
+    """A checkout reads VERSION next to the package; a frozen sidecar reads the
+    copy taxondbbuilder.spec bundled into _MEIPASS."""
+    from pathlib import Path
+
+    from taxondbbuilder import manifest
+
+    (tmp_path / "VERSION").write_text("9.9.9\n", encoding="utf-8")
+    monkeypatch.setattr(sys, "_MEIPASS", str(tmp_path), raising=False)
+    assert manifest.app_version() == (ROOT / "VERSION").read_text(encoding="utf-8").strip()
+
+    # Frozen: no checkout beside the module, only the bundle.
+    class _FrozenPath(Path):
+        def resolve(self):
+            return tmp_path / "nonexistent" / "bold_api.py"
+
+    monkeypatch.setattr(manifest, "Path", _FrozenPath)
+    assert manifest.app_version() == "9.9.9"
+
+
+def test_app_version_is_unknown_without_any_file(tmp_path, monkeypatch):
+    """No VERSION file anywhere: 'unknown', never a stale hard-coded number."""
+    from taxondbbuilder import manifest
+
+    class _MissingPath(Path):
+        def resolve(self):
+            return tmp_path / "nonexistent" / "bold_api.py"
+
+    monkeypatch.delattr(sys, "_MEIPASS", raising=False)
+    monkeypatch.setattr(manifest, "Path", _MissingPath)
+    assert manifest.app_version() == "unknown"
