@@ -544,6 +544,8 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     def read(handle: _FakeHandle):
         return handle.payload
 
+    allow_fallback = True
+
     def efetch(**kwargs: Any):
         fetch_calls.append(kwargs)
         if "id" in kwargs:
@@ -552,7 +554,7 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
             start = int(kwargs.get("retstart", 4))
         fetch_attempts[start] = fetch_attempts.get(start, 0) + 1
         attempt = fetch_attempts[start]
-        if start == 2 and "id" not in kwargs:
+        if allow_fallback and start == 2 and "id" not in kwargs:
             raise HTTPError(
                 "https://example.invalid",
                 HTTPStatus.BAD_REQUEST,
@@ -576,6 +578,11 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
         "per_query": 2,
         "fetch_retries": 2,
     }
+    count, chunks = builder.fetch_genbank("fixture", cfg, 0)
+    assert list(chunks) == [(0, "chunk-0"), (2, "chunk-2"), (4, "chunk-4")]
+    assert any("id" in call and call["id"] == "id2" for call in fetch_calls)
+    allow_fallback = False
+    fetch_attempts.clear()
     dump_dir = tmp_path / "gb-cache"
     count, chunks = builder.fetch_genbank(
         "fixture", cfg, 0, dump_dir=dump_dir, taxid="999"
@@ -585,6 +592,7 @@ def test_fetch_genbank_pages_fallback_retries_dump_and_resume(
     query_cache = next((dump_dir / ".cache" / "taxid999").iterdir())
     assert query_cache.name.startswith("query-")
     assert sorted(path.name for path in query_cache.iterdir()) == [
+        "snapshot.json",
         "start000000000_count0002.cache",
         "start000000002_count0002.cache",
         "start000000004_count0002.cache",

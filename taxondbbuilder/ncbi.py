@@ -2,6 +2,7 @@
 
 import io
 import hashlib
+import json
 import os
 import re
 import sys
@@ -662,6 +663,51 @@ class _GenbankFetchContext:
     webenv: Any
     query_key: Any
     cache_root: Path | None
+    snapshot: dict | None = None
+    resumed_snapshot: bool = False
+
+
+def _write_genbank_snapshot(root: Path, snapshot: dict) -> None:
+    path = root / "snapshot.json"
+    temporary = path.with_suffix(f".{os.getpid()}.tmp")
+    try:
+        temporary.write_text(json.dumps(snapshot), encoding="utf-8")
+        temporary.replace(path)
+    finally:
+        temporary.unlink(missing_ok=True)
+
+
+def _genbank_search_snapshot(query, db, use_history, cache_root, resume):
+    path = cache_root / "snapshot.json" if cache_root else None
+    if resume and path and path.is_file():
+        try:
+            record = json.loads(path.read_text(encoding="utf-8"))
+            valid = (isinstance(record, dict) and record.get("schema_version") == 1
+                     and isinstance(record.get("Count"), int) and record["Count"] >= 0
+                     and isinstance(record.get("pages"), dict))
+            if not valid:
+                raise ValueError("invalid snapshot schema")
+            if not all(isinstance(key, str) and isinstance(value, str)
+                       for key, value in record["pages"].items()):
+                raise ValueError("invalid snapshot checksums")
+            for field_name in ("WebEnv", "QueryKey"):
+                if record.get(field_name) is not None and not isinstance(record[field_name], str):
+                    raise ValueError("invalid snapshot history")
+        except (ValueError, KeyError, TypeError) as exc:
+            raise typer.BadParameter("Invalid NCBI cache snapshot; use a new --dump-gb directory.") from exc
+        return record, True
+    if resume and cache_root and any(cache_root.glob("start*.cache")):
+        raise typer.BadParameter("NCBI cache has no search snapshot; use a new --dump-gb directory.")
+    handle = Entrez.esearch(db=db, term=query, retmax=0, usehistory="y" if use_history else "n")
+    try:
+        result = Entrez.read(handle)
+    finally:
+        handle.close()
+    record = dict(schema_version=1, Count=int(result.get("Count", 0)),
+                  WebEnv=result.get("WebEnv"), QueryKey=result.get("QueryKey"), pages={})
+    if cache_root:
+        _write_genbank_snapshot(cache_root, record)
+    return record, False
 
 
 def _create_genbank_fetch_context(
@@ -685,13 +731,6 @@ def _create_genbank_fetch_context(
         raise typer.BadParameter(
             "ncbi.rettype must be 'gb' or 'gbwithparts' for region extraction."
         )
-    handle = Entrez.esearch(
-        db=db, term=query, retmax=0, usehistory="y" if use_history else "n"
-    )
-    record = Entrez.read(handle)
-    count = int(record.get("Count", 0))
-    webenv = record.get("WebEnv")
-    query_key = record.get("QueryKey")
     cache_root = None
     if dump_dir:
         cache_key = hashlib.sha256(
@@ -704,6 +743,9 @@ def _create_genbank_fetch_context(
             cache_root = cache_root / f"taxid{taxid}"
         cache_root = cache_root / f"query-{cache_key}"
         cache_root.mkdir(parents=True, exist_ok=True)
+    record, resumed_snapshot = _genbank_search_snapshot(query, db, use_history, cache_root, resume)
+    count = int(record.get("Count", 0))
+    webenv, query_key = record.get("WebEnv"), record.get("QueryKey")
     return _GenbankFetchContext(
         query=query,
         db=db,
@@ -720,6 +762,8 @@ def _create_genbank_fetch_context(
         webenv=webenv,
         query_key=query_key,
         cache_root=cache_root,
+        snapshot=record if cache_root else None,
+        resumed_snapshot=resumed_snapshot,
     )
 
 
@@ -732,7 +776,13 @@ def _genbank_cache_path(ctx: _GenbankFetchContext, start: int) -> Path | None:
 def _load_genbank_cache(ctx: _GenbankFetchContext, start: int) -> str | None:
     path = _genbank_cache_path(ctx, start)
     if path and path.exists():
-        return path.read_text(encoding="utf-8", errors="ignore")
+        data = path.read_bytes()
+        expected = ctx.snapshot["pages"].get(path.name) if ctx.snapshot else None
+        if expected is None:
+            return None
+        if hashlib.sha256(data).hexdigest() != expected:
+            raise typer.BadParameter("NCBI cache checksum mismatch; use a new --dump-gb directory.")
+        return data.decode("utf-8")
     return None
 
 
@@ -743,6 +793,9 @@ def _save_genbank_cache(ctx: _GenbankFetchContext, start: int, data: str) -> Non
         try:
             tmp_path.write_text(data, encoding="utf-8")
             tmp_path.replace(path)
+            if ctx.snapshot is not None:
+                ctx.snapshot["pages"][path.name] = hashlib.sha256(path.read_bytes()).hexdigest()
+                _write_genbank_snapshot(ctx.cache_root, ctx.snapshot)
         finally:
             tmp_path.unlink(missing_ok=True)
 
@@ -837,6 +890,8 @@ def _iter_genbank_history_chunks(
         except HTTPError as exc:
             if exc.code != HTTPStatus.BAD_REQUEST:
                 raise
+            if ctx.snapshot is not None:
+                raise typer.BadParameter("NCBI search snapshot expired; use a new --dump-gb directory.") from exc
             data = _fetch_genbank_chunk_by_ids(ctx, start)
             if data is None:
                 continue
@@ -851,6 +906,8 @@ def _iter_genbank_direct_chunks(ctx: _GenbankFetchContext) -> Iterable[tuple[int
         if cached is not None:
             yield start, cached
             continue
+        if ctx.resumed_snapshot:
+            raise typer.BadParameter("Incomplete NCBI snapshot without history; use a new --dump-gb directory.")
         data = _fetch_genbank_chunk_by_ids(ctx, start)
         if data is None:
             continue
