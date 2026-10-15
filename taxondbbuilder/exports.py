@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import re
-from collections import defaultdict
 from pathlib import Path
 from typing import Any, Iterable
 
@@ -31,17 +30,22 @@ def _species_binomial(value: str) -> str | None:
     return f"{genus} {species}"
 
 
-def _unique_feature_id(raw: str, seen: dict[str, int], fallback_index: int) -> str:
+def _unique_feature_id(raw: str, seen: set[str], fallback_index: int) -> str:
     base = sanitize_header(raw) or f"feature_{fallback_index}"
-    seen[base] += 1
-    return base if seen[base] == 1 else f"{base}__{seen[base]}"
+    candidate = base
+    suffix = 2
+    while candidate in seen:
+        candidate = f"{base}__{suffix}"
+        suffix += 1
+    seen.add(candidate)
+    return candidate
 
 
 def _collect_final_records(
     fasta_path: Path, emitted_records: list[dict[str, str]]
 ) -> tuple[list[dict[str, str]], int]:
     paired = pair_fasta_with_rows(fasta_path, emitted_records)
-    seen_ids: dict[str, int] = defaultdict(int)
+    seen_ids: set[str] = set()
     mapped: list[dict[str, str]] = []
     for index, (record, source) in enumerate(paired, start=1):
         if source is None:
