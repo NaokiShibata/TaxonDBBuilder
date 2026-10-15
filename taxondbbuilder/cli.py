@@ -413,21 +413,23 @@ def _process_ncbi_chunks(
     threads = [Thread(target=worker, daemon=True) for _ in range(ctx.workers)]
     for thread in threads:
         thread.start()
-    for start, chunk in data_iter:
-        if stop_event.is_set():
-            break
-        if not chunk:
-            continue
-        if count is not None and count > 0:
-            per_query = int(ctx.ncbi_cfg.get("per_query", 100))
-            fetched = min(start + per_query, count)
-            ctx.run_logger.info(f"# fetch progress taxid={taxid}: {fetched}/{count}")
-        queue.put((start, chunk))
-    for _ in threads:
-        queue.put(None)
-    queue.join()
-    for thread in threads:
-        thread.join()
+    try:
+        for start, chunk in data_iter:
+            if stop_event.is_set():
+                break
+            if not chunk:
+                continue
+            if count is not None and count > 0:
+                per_query = int(ctx.ncbi_cfg.get("per_query", 100))
+                fetched = min(start + per_query, count)
+                ctx.run_logger.info(f"# fetch progress taxid={taxid}: {fetched}/{count}")
+            queue.put((start, chunk))
+    finally:
+        for _ in threads:
+            queue.put(None)
+        queue.join()
+        for thread in threads:
+            thread.join()
     if errors:
         raise errors[0]
 
