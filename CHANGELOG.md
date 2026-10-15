@@ -1,5 +1,24 @@
 # Changelog
 
+## 3.3.6 (planned)
+
+### Scope
+- 実データで確認できた BOLD 検索とマーカー判定の不具合に限定する。Cloudflare の 403 を回避する実装、`source=both` の部分成功、BOLD 取得の新しい件数制限は含めない。
+- バージョン宣言は 8 箇所すべて 3.3.6 に更新した (一致テストで検証)。
+
+### Fixed
+- **学名が BOLD の分類群として解決できなかった場合を、0 件とは別の状態として扱うようにした。** preprocessor は解決できない学名を `ids:processid:<学名>;ids:sampleid:<学名>;ids:insdcacs:<学名>` に変換する (2026-10-12 の `Silurus tomodai`、2026-10-14 の `Tachysurus nudiceps` で実測)。これは ID 検索なので 0 件になり、従来は「その学名に標本が無い」と同じ `specimens=0` と報告していた。`prepare_bold_query()` は tax 系スコープの語が 1 つも無く `ids:` 語だけ返った場合を未解決 (`resolved=false`) とし、**summary・query・download へは送信しない**。実行ログには `taxon_unresolved reason=<preprocessor が返した語>` を残し、manifest の `queries.bold[]` に `resolved: false` を追記する (`specimen_count` は `null` のまま。既存キーの意味は変えていないので後方互換)。真に 0 件の学名は従来どおりのメッセージを出す。HTTP エラーは未解決として扱わない — `BoldApiError` は従来どおりそのまま上昇する。
+- **`coiii` に BOLD の実コード `COXIII` を追加した。** BOLD は `marker_code=COXIII` と書くが、設定は `aliases = ["coiii", "cox3"]` と `phrases = ["COIII", "COX3", ...]` のみで、`marker_codes` は完全一致、aliases / phrases は部分一致という照合規則では `COXIII` はどれとも一致しなかった。キャッシュ済み `Silurus asotus` 117 行のうち 3 行 (例 `processid=CYTC5134-12`、781 bp) がミトコンドリア全遺伝子の実行でも落ちていた。`COIII` / `COX3` の既存照合はそのまま通る。
+- **BOLD へのリクエストの `User-Agent` が実行中のバージョンを反映するようにした。** 従来 `TaxonDBBuilder/0.1` 固定で、3.3.0 系以降すべてのリリースで同じ値を送っていた。実行時バージョンは実行 manifest と同じ解決経路 (`VERSION` ファイル、PyInstaller 同梱版はバンドル内の `VERSION`) を使う。PyInstaller で freeze した sidecar で `TaxonDBBuilder/3.3.5` (検証時の値) が送られることをローカルのフェイク BOLD で確認した。アクセス制限の回避を目的とした偽装ではない。
+
+### Added
+- `tools/bold_cache_audit.py`: BOLD ダウンロードキャッシュを読み取り専用で集計し、`marker_code` の出現頻度・配列の有無・`normalize_bold_row()` の除外理由を出力する調査ツール。
+- `docs/source-both-partial-failure.md`: BOLD 失敗時に NCBI のみで継続する設計案 (未実装)。既定は fail-fast 維持、`--on-bold-failure` の明示指定時だけ継続、manifest へ `requested` / `completed` / `failed` を記録、部分成果物は別名で区別、GUI は実行前の宣言的オプションへ写す。
+
+### Known issues
+- **`COII` が `coi` に誤判定される (v3.3.5 以前からの既存挙動、今回未修正)。** aliases / phrases の照合が部分一致で、`COI` は `COII` の部分文字列であり、解決は最初に一致したマーカーで止まる。`configs/markers_mitogenome.toml` は `coi` を `coii` より先に宣言しているため、全遺伝子実行では `COII` 行が `coi` として扱われる。実キャッシュでは 117 行中 3 行。完全一致を部分一致より優先する修正が考えられるが、既存マーカーの照合結果を変えるので今回の対象外とした。テストは現状の挙動を固定している (`tests/test_bold_query_normalization.py`)。
+- BOLD の 403 は未解消のまま。観測は 2 種類あり (download だけ 403 / preprocessor から 403)、`docs/bold-api-diagnostics.md` §7 に併記し、単一原因は断定していない。`quote(query_id, safe="")` は変更していない。
+
 ## 3.3.5 (2026-10-14)
 
 ### Scope
