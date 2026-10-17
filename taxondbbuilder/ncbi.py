@@ -853,18 +853,21 @@ def _fetch_genbank_chunk_by_ids(ctx: _GenbankFetchContext, start: int) -> str | 
         retmax=ctx.per_query,
         usehistory="n",
     )
-    search_record = Entrez.read(search_handle)
-    ids = search_record.get("IdList", [])
-    if not ids:
-        return None
-    return _read_efetch_with_retries(
-        ctx,
-        start,
-        db=ctx.db,
-        rettype=ctx.rettype,
-        retmode=ctx.retmode,
-        id=",".join(ids),
-    )
+    try:
+        search_record = Entrez.read(search_handle)
+        ids = search_record.get("IdList", [])
+        if not ids:
+            return None
+        return _read_efetch_with_retries(
+            ctx,
+            start,
+            db=ctx.db,
+            rettype=ctx.rettype,
+            retmode=ctx.retmode,
+            id=",".join(ids),
+        )
+    finally:
+        search_handle.close()
 
 
 def _iter_genbank_history_chunks(
@@ -908,7 +911,14 @@ def _iter_genbank_direct_chunks(ctx: _GenbankFetchContext) -> Iterable[tuple[int
             continue
         if ctx.resumed_snapshot:
             raise typer.BadParameter("Incomplete NCBI snapshot without history; use a new --dump-gb directory.")
-        data = _fetch_genbank_chunk_by_ids(ctx, start)
+        try:
+            data = _fetch_genbank_chunk_by_ids(ctx, start)
+        except HTTPError as exc:
+            if exc.code != HTTPStatus.BAD_REQUEST:
+                raise
+            raise typer.BadParameter(
+                f"NCBI search returned 400 (invalid request); this can happen when the requested ID range exceeds server limits.",
+            ) from exc
         if data is None:
             continue
         _save_genbank_cache(ctx, start, data)
