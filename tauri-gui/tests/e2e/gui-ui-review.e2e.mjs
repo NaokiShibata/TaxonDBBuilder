@@ -15,6 +15,27 @@ async function ready(page, extra = {}) {
   return errors;
 }
 
+test("a running job cannot restart and cancellation stays pending until terminal status", async ({ page }) => {
+  const errors = await ready(page);
+  await expect(page.locator("#cancel")).toBeDisabled();
+  await page.click("#run");
+  await expect(page.locator("#log-view")).toContainText("job dir:");
+  await expect(page.locator("#run")).toBeDisabled();
+  await expect(page.locator("#run")).toHaveAttribute("aria-busy", "true");
+  await page.evaluate(() => {
+    document.querySelector("#setup-form").dispatchEvent(new Event("submit", { cancelable: true }));
+  });
+  expect(await page.evaluate(() => window.__guiInvocations__.filter(({ cmd }) => cmd === "start_run").length)).toBe(1);
+  await page.click("#cancel");
+  await expect(page.locator("#cancel")).toBeDisabled();
+  await expect(page.locator("#status")).toHaveText("Cancelling…");
+  await page.evaluate(() => window.__guiEmit__("run-event", { eventType: "status", status: "Cancelled" }));
+  await page.click("#tab-setup");
+  await expect(page.locator("#run")).toBeEnabled();
+  await expect(page.locator("#run")).toHaveAttribute("aria-busy", "false");
+  expect(errors).toEqual([]);
+});
+
 test("invalid numeric inputs block submission instead of being partially parsed", async ({ page }) => {
   await ready(page);
   for (const [id, value] of [["ncbi-per-query", "12abc"], ["ncbi-delay-sec", "-1"], ["f-length-min", "1.2"], ["f-length-max", "4294967296"]]) {
@@ -49,3 +70,18 @@ for (const action of ["reset", "import"]) {
     await expect(page.locator("#log-view")).toContainText("job dir:");
   });
 }
+
+test("starting errors restore Run and cancel errors allow a retry", async ({ page }) => {
+  const errors = await ready(page, { start_run: { reject: "start failed" } });
+  await page.click("#run");
+  await expect(page.locator("#log-view")).toContainText("start failed");
+  await expect(page.locator("#run")).toBeEnabled();
+  await expect(page.locator("#cancel")).toBeDisabled();
+  await ready(page, { cancel_run: { reject: "cancel failed" } });
+  await page.click("#run");
+  await page.click("#cancel");
+  await expect(page.locator("#log-view")).toContainText("cancel failed");
+  await expect(page.locator("#cancel")).toBeEnabled();
+  await expect(page.locator("#run")).toBeDisabled();
+  expect(errors).toEqual([]);
+});

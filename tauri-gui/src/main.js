@@ -124,6 +124,7 @@ const state = {
   taxonCandidateItems: [],
   taxonSearchSeq: 0,
   taxonSearchTimer: null,
+  runState: "idle",
   baseConfigPath: ""
 };
 
@@ -621,7 +622,16 @@ function updateGuidanceState() {
   setFlowItemState(els.flowOutput, els.outputRootInput.value.trim().length > 0);
   setFlowItemState(els.flowEmail, els.emailInput.value.trim().length > 0);
   updatePostPrepGuidance();
-  els.run.disabled = !isReadyToRun();
+  els.run.disabled = state.runState !== "idle" || !isReadyToRun();
+}
+
+function setRunState(runState) {
+  state.runState = runState;
+  const busy = runState !== "idle";
+  els.run.setAttribute("aria-busy", `${busy}`);
+  els.run.textContent = busy ? "Running…" : "Run";
+  els.cancel.disabled = runState !== "running";
+  updateGuidanceState();
 }
 
 function getSelectedPostPrepSteps() {
@@ -817,6 +827,11 @@ function handleRunLog(payload) {
 
 function handleRunStatus(payload) {
   if (!payload.status) return;
+  if (["Finished", "Failed", "Cancelled", "PartialSuccess"].includes(payload.status)) {
+    setRunState("idle");
+  } else if (payload.status === "Running" && state.runState !== "cancelling") {
+    setRunState("running");
+  }
   const partial = payload.status === "PartialSuccess";
   els.status.textContent = partial ? "部分成功（NCBIのみ）" : payload.status;
   els.partialResultState.textContent = partial ? "部分成功（NCBIのみ）" : "";
@@ -932,37 +947,46 @@ async function loadSavedConfig() {
 }
 
 async function runJob() {
+  if (state.runState !== "idle") return;
   const req = collectRequest();
   if (!req.taxids.length) throw new Error("please input at least one taxid");
   if (!req.markers.length) throw new Error("please add at least one marker");
   if (!req.outputRoot) throw new Error("output directory is required");
   if (sourceUsesNcbi() && !req.email) throw new Error("email is required for ncbi/both");
 
-  await setupEventListener();
-  monitorView.reset();
-  state.jobDir = "";
-  renderResultJobDir();
-  state.outputPath = "";
-  state.files = [];
-  state.msaTreeStatus = "";
-  state.msaTreeTaxa = null;
-  state.selectedTreePath = "";
-  els.metricsDisclosure.open = false;
-  els.outputFilesDisclosure.open = false;
-  treeViewController?.dispose();
-  treeViewController = null;
-  setTreeViewControlsEnabled(false);
-  els.treeSearch.value = "";
-  els.treeViewStatus.textContent = "Checking the phylogenetic tree result.";
-  renderTreeStatus(els.treeViewContainer, "The phylogenetic tree will be displayed after the run completes.");
-  setMonitorEnabled(true);
-  setResultsEnabled(false);
-  switchView("monitor");
+  setRunState("starting");
+  try {
+    await setupEventListener();
+    monitorView.reset();
+    state.jobDir = "";
+    renderResultJobDir();
+    state.outputPath = "";
+    state.files = [];
+    state.msaTreeStatus = "";
+    state.msaTreeTaxa = null;
+    state.selectedTreePath = "";
+    els.metricsDisclosure.open = false;
+    els.outputFilesDisclosure.open = false;
+    treeViewController?.dispose();
+    treeViewController = null;
+    setTreeViewControlsEnabled(false);
+    els.treeSearch.value = "";
+    els.treeViewStatus.textContent = "Checking the phylogenetic tree result.";
+    renderTreeStatus(els.treeViewContainer, "The phylogenetic tree will be displayed after the run completes.");
+    setMonitorEnabled(true);
+    setResultsEnabled(false);
+    switchView("monitor");
 
-  const resp = await invoke("start_run", { req });
-  state.outputPath = resp.outputPath || "";
-  monitorView.appendLog(`job dir: ${resp.jobDir}`);
-  monitorView.appendLog(`log path: ${resp.logPath}`);
+    const resp = await invoke("start_run", { req });
+    if (state.runState === "starting") setRunState("running");
+    state.outputPath = resp.outputPath || "";
+    monitorView.appendLog(`job dir: ${resp.jobDir}`);
+    monitorView.appendLog(`log path: ${resp.logPath}`);
+  } catch (error) {
+    setRunState("idle");
+    els.status.textContent = "Failed";
+    throw error;
+  }
 }
 
 function resetForm() {
@@ -1008,10 +1032,15 @@ els.reset.addEventListener("click", () => {
 });
 
 els.cancel.addEventListener("click", async () => {
+  if (state.runState !== "running") return;
+  setRunState("cancelling");
+  els.status.textContent = "Cancelling…";
   try {
     await invoke("cancel_run");
   } catch (error) {
+    if (state.runState === "cancelling") setRunState("running");
     monitorView.appendLog(`[error] cancel failed: ${error}`);
+    els.status.textContent = "Cancel failed";
   }
 });
 
@@ -1194,6 +1223,7 @@ numericInputs.forEach(([input]) => input.addEventListener("input", () => {
 }));
 
 initHelpTips();
+setRunState("idle");
 addTaxids(els.taxidsHidden.value);
 renderTaxids();
 syncTaxidsHidden();
