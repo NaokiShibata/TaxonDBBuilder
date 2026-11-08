@@ -1,15 +1,15 @@
 export function parseIntOrNull(value) {
-  const v = `${value}`.trim();
-  if (!v) return null;
-  const parsed = Number.parseInt(v, 10);
-  return Number.isNaN(parsed) ? null : parsed;
+  const v = String(value ?? "").trim();
+  if (!/^[+-]?\d+$/.test(v)) return null;
+  const parsed = Number(v);
+  return Number.isSafeInteger(parsed) ? parsed : null;
 }
 
 export function parseFloatOrNull(value) {
-  const v = `${value}`.trim();
-  if (!v) return null;
-  const parsed = Number.parseFloat(v);
-  return Number.isNaN(parsed) ? null : parsed;
+  const v = String(value ?? "").trim();
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)(?:e[+-]?\d+)?$/i.test(v)) return null;
+  const parsed = Number(v);
+  return Number.isFinite(parsed) ? parsed : null;
 }
 
 export function readCheckedValues(elements) {

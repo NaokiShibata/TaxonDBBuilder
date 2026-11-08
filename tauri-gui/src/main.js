@@ -615,6 +615,7 @@ function updatePostPrepGuidance() {
 }
 
 function updateGuidanceState() {
+  numericInputs.forEach(([input]) => validateNumericInput(input));
   setFlowItemState(els.flowTaxids, state.taxids.length > 0);
   setFlowItemState(els.flowMarkers, state.markers.length > 0);
   setFlowItemState(els.flowOutput, els.outputRootInput.value.trim().length > 0);
@@ -741,6 +742,16 @@ async function renderRunTree() {
 }
 
 function collectRequest() {
+  for (const [input] of numericInputs) {
+    validateNumericInput(input);
+    if (!input.validity.valid) {
+      for (let parent = input.parentElement; parent; parent = parent.parentElement) {
+        if (parent.tagName === "DETAILS") parent.open = true;
+      }
+      input.reportValidity();
+      throw new Error(input.validationMessage);
+    }
+  }
   if (!commitTaxidInput()) throw new Error(els.taxidInput.validationMessage);
   const steps = getSelectedPostPrepSteps();
   const qualityEnabled = steps.includes("quality_filter");
@@ -786,11 +797,7 @@ function collectRequest() {
       db: els.ncbiDbInput.value.trim(),
       rettype: els.ncbiRettypeInput.value.trim(),
       retmode: els.ncbiRetmodeInput.value.trim(),
-      perQuery: Math.max(
-        1,
-        Number.parseInt(els.ncbiPerQueryInput.value, 10) ||
-          Number(els.ncbiPerQueryInput.defaultValue),
-      ),
+      perQuery: parseIntOrNull(els.ncbiPerQueryInput.value) ?? Number(els.ncbiPerQueryInput.defaultValue),
       useHistory: els.ncbiUseHistoryInput.checked,
       delaySec: parseFloatOrNull(els.ncbiDelaySecInput.value)
     },
@@ -1161,6 +1168,30 @@ els.treeExport.addEventListener("click", async () => {
 els.tabSetup.addEventListener("click", () => switchView("setup"));
 els.tabMonitor.addEventListener("click", () => switchView("monitor"));
 els.tabResults.addEventListener("click", () => switchView("results"));
+
+const numericInputs = [
+  [els.filterLengthMinInput, parseIntOrNull, 0, 4294967295],
+  [els.filterLengthMaxInput, parseIntOrNull, 0, 4294967295],
+  [els.postLengthMinInput, parseIntOrNull, 0, 4294967295],
+  [els.postLengthMaxInput, parseIntOrNull, 0, 4294967295],
+  [els.ncbiPerQueryInput, parseIntOrNull, 1, 4294967295],
+  [els.ncbiDelaySecInput, parseFloatOrNull, 0],
+  [els.qualityMaxAmbiguousFractionInput, parseFloatOrNull, 0, 1],
+];
+
+function validateNumericInput(input) {
+  const [, parse, min, max = Infinity] = numericInputs.find(([element]) => element === input);
+  const value = input.value.trim();
+  const parsed = parse(value);
+  input.setCustomValidity(value && (parsed == null || parsed < min || parsed > max)
+    ? `Enter a valid number between ${min} and ${max === Infinity ? "the supported maximum" : max}.`
+    : "");
+}
+
+numericInputs.forEach(([input]) => input.addEventListener("input", () => {
+  validateNumericInput(input);
+  input.reportValidity();
+}));
 
 initHelpTips();
 addTaxids(els.taxidsHidden.value);
