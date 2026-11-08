@@ -36,6 +36,26 @@ test("a running job cannot restart and cancellation stays pending until terminal
   expect(errors).toEqual([]);
 });
 
+test("Escape cancels pending and in-flight taxonomy suggestions", async ({ page }) => {
+  await openGuiApp(page, { search_taxonomy: { value: [{ taxId: "1", scientificName: "Taxon" }] } });
+  await page.fill("#taxon-name-input", "Taxon");
+  await page.press("#taxon-name-input", "Escape");
+  await page.waitForTimeout(350);
+  await expect(page.locator("#taxon-candidates")).not.toHaveClass(/active/);
+  expect(await page.evaluate(() => window.__guiInvocations__.filter(({ cmd }) => cmd === "search_taxonomy").length)).toBe(0);
+  await page.evaluate(() => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.__TAURI_INTERNALS__.invoke = (cmd, args) => cmd === "search_taxonomy"
+      ? new Promise((resolve) => { window.resolveTaxonomy = resolve; })
+      : original(cmd, args);
+  });
+  await page.fill("#taxon-name-input", "Taxon again");
+  await page.waitForFunction(() => window.resolveTaxonomy);
+  await page.press("#taxon-name-input", "Escape");
+  await page.evaluate(() => window.resolveTaxonomy([{ taxId: "1", scientificName: "Old taxon" }]));
+  await expect(page.locator("#taxon-candidates")).not.toHaveClass(/active/);
+});
+
 test("invalid numeric inputs block submission instead of being partially parsed", async ({ page }) => {
   await ready(page);
   for (const [id, value] of [["ncbi-per-query", "12abc"], ["ncbi-delay-sec", "-1"], ["f-length-min", "1.2"], ["f-length-max", "4294967296"]]) {
@@ -84,4 +104,12 @@ test("starting errors restore Run and cancel errors allow a retry", async ({ pag
   await expect(page.locator("#cancel")).toBeEnabled();
   await expect(page.locator("#run")).toBeDisabled();
   expect(errors).toEqual([]);
+});
+
+test("clicking outside taxonomy search closes suggestions", async ({ page }) => {
+  await openGuiApp(page, { search_taxonomy: { value: [{ taxId: "1", scientificName: "Taxon" }] } });
+  await page.fill("#taxon-name-input", "Taxon");
+  await expect(page.locator("#taxon-candidates")).toHaveClass(/active/);
+  await page.click("#taxid-input");
+  await expect(page.locator("#taxon-candidates")).not.toHaveClass(/active/);
 });

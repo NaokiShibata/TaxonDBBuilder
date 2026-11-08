@@ -229,8 +229,11 @@ function initHelpTips() {
   });
 }
 
-document.addEventListener("click", () => {
+document.addEventListener("click", (event) => {
   hideHelp();
+  if (event.target !== els.taxonNameInput && !els.taxonCandidates?.contains(event.target)) {
+    clearTaxonCandidates();
+  }
 });
 
 window.addEventListener("resize", () => {
@@ -359,6 +362,9 @@ function commitTaxidInput() {
 }
 
 function clearTaxonCandidates() {
+  clearTimeout(state.taxonSearchTimer);
+  state.taxonSearchTimer = null;
+  state.taxonSearchSeq += 1;
   state.taxonCandidateItems = [];
   if (els.taxonCandidates) {
     els.taxonCandidates.innerHTML = "";
@@ -423,6 +429,7 @@ async function searchTaxonCandidatesNow() {
 }
 
 function scheduleTaxonSearch() {
+  state.taxonSearchSeq += 1;
   if (state.taxonSearchTimer) {
     clearTimeout(state.taxonSearchTimer);
   }
