@@ -106,6 +106,45 @@ test("starting errors restore Run and cancel errors allow a retry", async ({ pag
   expect(errors).toEqual([]);
 });
 
+for (const staleFails of [false, true]) {
+  test(`an older tree ${staleFails ? "failure" : "response"} cannot replace the selected tree`, async ({ page }) => {
+    const errors = await ready(page, {
+      read_text_file: {
+        routes: [
+          { includes: ".tree.nwk", value: "(Initial:1,Other:1);" },
+          { includes: ".msa.fasta", reject: "no alignment" },
+        ],
+      },
+    });
+    await page.click("#run");
+    await expect(page.locator("#log-view")).toContainText("job dir:");
+    await page.evaluate(() => window.__guiEmit__("run-event", {
+      eventType: "result", jobDir: "/srv/job", files: ["/srv/one.tree.nwk", "/srv/two.tree.nwk"],
+    }));
+    await expect(page.locator("#tree-view-container svg")).toHaveCount(1);
+    await page.evaluate(() => {
+      const original = window.__TAURI_INTERNALS__.invoke;
+      window.treeReads = {};
+      window.__TAURI_INTERNALS__.invoke = (cmd, args) => cmd === "read_text_file" && args.path.endsWith(".tree.nwk")
+        ? new Promise((resolve, reject) => { window.treeReads[args.path] = { resolve, reject }; })
+        : original(cmd, args);
+    });
+    await page.selectOption("#tree-select", "/srv/two.tree.nwk");
+    await page.selectOption("#tree-select", "/srv/one.tree.nwk");
+    await page.evaluate(() => window.treeReads["/srv/one.tree.nwk"].resolve("(Newest:1,Selected:1);"));
+    await expect(page.locator("#tree-view-container")).toContainText("Newest");
+    await page.evaluate((fails) => {
+      const pending = window.treeReads["/srv/two.tree.nwk"];
+      if (fails) pending.reject(new Error("stale read failed"));
+      else pending.resolve("(Stale:1,Ignored:1);");
+    }, staleFails);
+    await expect(page.locator("#tree-select")).toHaveValue("/srv/one.tree.nwk");
+    await expect(page.locator("#tree-view-container")).toContainText("Newest");
+    await expect(page.locator("#tree-view-container")).not.toContainText("Stale");
+    expect(errors).toEqual([]);
+  });
+}
+
 test("clicking outside taxonomy search closes suggestions", async ({ page }) => {
   await openGuiApp(page, { search_taxonomy: { value: [{ taxId: "1", scientificName: "Taxon" }] } });
   await page.fill("#taxon-name-input", "Taxon");

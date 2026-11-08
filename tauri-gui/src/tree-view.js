@@ -510,6 +510,7 @@ export function renderTreeSVG(
 ) {
   containerEl.replaceChildren();
   const tree = inspectTree(root);
+  const leafGroups = new Map();
   const state = {
     root,
     containerEl,
@@ -637,6 +638,7 @@ export function renderTreeSVG(
   }
 
   function addTooltipEvents(group, node) {
+    leafGroups.set(node, group);
     group.addEventListener("mouseenter", (event) => showTooltip(node, event));
     group.addEventListener("mousemove", (event) => showTooltip(node, event));
     group.addEventListener("mouseleave", hideTooltip);
@@ -679,6 +681,7 @@ export function renderTreeSVG(
   }
 
   function redraw() {
+    leafGroups.clear();
     state.tree = inspectTree(state.root);
     state.layoutData = createRectangularLayout(
       state.tree,
@@ -721,7 +724,16 @@ export function renderTreeSVG(
   const controller = {
     setSearch(query) {
       state.searchQuery = `${query || ""}`.trim().toLocaleLowerCase();
-      redraw();
+      for (const [node, group] of leafGroups) {
+        const palette = leafPalette(isMatched(node));
+        const [point, label] = group.children;
+        point.setAttribute("fill", palette.fill);
+        point.setAttribute("stroke", palette.stroke);
+        point.setAttribute("stroke-width", palette.strokeWidth);
+        label.setAttribute("fill", palette.labelFill);
+        label.setAttribute("font-weight", palette.fontWeight);
+        label.setAttribute("class", palette.labelClass);
+      }
     },
     setConservationThreshold(threshold) {
       const value = Number(threshold);

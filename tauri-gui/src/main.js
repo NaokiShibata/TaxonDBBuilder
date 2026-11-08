@@ -125,6 +125,7 @@ const state = {
   taxonSearchSeq: 0,
   taxonSearchTimer: null,
   runState: "idle",
+  treeRenderSeq: 0,
   baseConfigPath: ""
 };
 
@@ -721,6 +722,7 @@ async function loadTreeInput(treePath) {
 }
 
 async function renderRunTree() {
+  const seq = ++state.treeRenderSeq;
   const paths = collectTreePaths();
   populateTreeSelect(paths);
   const treePath = paths.includes(state.selectedTreePath)
@@ -742,6 +744,7 @@ async function renderRunTree() {
   els.treeViewStatus.textContent = `Loading: ${treeFilename}`;
   try {
     const { root, alignment, msaStatus } = await loadTreeInput(treePath);
+    if (seq !== state.treeRenderSeq) return;
     treeViewController?.dispose();
     treeViewController = renderTreeSVG(
       root,
@@ -754,6 +757,9 @@ async function renderRunTree() {
     els.msaConservation.disabled = alignment.size === 0;
     els.treeViewStatus.textContent = `${treeFilename} / ${msaStatus}`;
   } catch (error) {
+    if (seq !== state.treeRenderSeq) return;
+    monitorView.appendLog(`[error] Failed to load tree ${treePath}: ${error}`);
+    console.warn(`Failed to load tree ${treePath}`, error);
     disableTreePanel("Failed to load the phylogenetic tree file.", unavailableMessage);
   }
 }
@@ -972,6 +978,7 @@ async function runJob() {
     state.msaTreeStatus = "";
     state.msaTreeTaxa = null;
     state.selectedTreePath = "";
+    state.treeRenderSeq += 1;
     els.metricsDisclosure.open = false;
     els.outputFilesDisclosure.open = false;
     treeViewController?.dispose();
