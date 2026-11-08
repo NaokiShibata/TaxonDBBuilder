@@ -205,6 +205,7 @@ function appendHelpTip(target, text) {
   button.type = "button";
   button.className = "help-tip";
   button.setAttribute("aria-label", "Show help");
+  button.title = text;
   button.textContent = "?";
   button.dataset.help = text;
   button.addEventListener("click", (event) => {
@@ -276,6 +277,8 @@ function switchView(name) {
     const active = key === name;
     view.classList.toggle("active", active);
     tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", `${active}`);
+    tab.tabIndex = active ? 0 : -1;
   }
 }
 
@@ -1221,6 +1224,19 @@ els.treeExport.addEventListener("click", async () => {
 els.tabSetup.addEventListener("click", () => switchView("setup"));
 els.tabMonitor.addEventListener("click", () => switchView("monitor"));
 els.tabResults.addEventListener("click", () => switchView("results"));
+
+const tabs = [els.tabSetup, els.tabMonitor, els.tabResults];
+tabs.forEach((tab) => tab.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const enabled = tabs.filter((item) => !item.disabled);
+  const direction = event.key === "ArrowLeft" ? -1 : 1;
+  const next = event.key === "Home" ? enabled[0]
+    : event.key === "End" ? enabled.at(-1)
+      : enabled[(enabled.indexOf(tab) + direction + enabled.length) % enabled.length];
+  switchView(next.id.replace("tab-", ""));
+  next.focus();
+}));
 
 const numericInputs = [
   [els.filterLengthMinInput, parseIntOrNull, 0, 4294967295],
