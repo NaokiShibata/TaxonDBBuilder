@@ -252,8 +252,18 @@ const monitorView = createMonitorView({
   logsEl: els.logs,
   metricsListEl: els.metricsList,
   resultFilesEl: els.resultFiles,
-  openPath: (path) => invoke("open_path", { path })
+  openPath: (path) => invokeAction("open_path", { path })
 });
+
+async function invokeAction(command, args) {
+  try {
+    return await invoke(command, args);
+  } catch (error) {
+    monitorView.appendLog(`[error] ${command} failed: ${error}`);
+    els.status.textContent = `Error: ${command}`;
+    return null;
+  }
+}
 
 function switchView(name) {
   const map = {
@@ -852,7 +862,7 @@ function handleRunStatus(payload) {
 
 function handleRunProgress(payload) {
   if (payload.phase) els.phase.textContent = payload.phase;
-  if (payload.percent != null) els.progress.value = payload.percent;
+  if (Number.isFinite(payload.percent)) els.progress.value = Math.max(0, Math.min(payload.percent, 100));
   monitorView.renderProgressDetail(payload.phase, payload.percent, payload.metrics);
   if (!payload.metrics) return;
   monitorView.renderMetrics(payload.metrics);
@@ -1059,7 +1069,7 @@ els.cancel.addEventListener("click", async () => {
 });
 
 els.pickOutput.addEventListener("click", async () => {
-  const selected = await invoke("choose_output_directory");
+  const selected = await invokeAction("choose_output_directory");
   if (selected) {
     els.outputRootInput.value = selected;
     updateGuidanceState();
@@ -1067,7 +1077,7 @@ els.pickOutput.addEventListener("click", async () => {
 });
 
 els.pickPrimer.addEventListener("click", async () => {
-  const selected = await invoke("choose_primer_file");
+  const selected = await invokeAction("choose_primer_file");
   if (selected) {
     els.primerFileInput.value = selected;
     updateGuidanceState();
@@ -1176,7 +1186,7 @@ els.newJob.addEventListener("click", () => {
 });
 
 els.openJobDir.addEventListener("click", async () => {
-  if (state.jobDir) await invoke("open_path", { path: state.jobDir });
+  if (state.jobDir) await invokeAction("open_path", { path: state.jobDir });
 });
 
 els.treeSearch.addEventListener("input", () => {

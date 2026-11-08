@@ -91,6 +91,14 @@ for (const action of ["reset", "import"]) {
   });
 }
 
+test("dialog errors are reported without an unhandled rejection", async ({ page }) => {
+  const errors = await ready(page, { choose_output_directory: { reject: "permission denied" } });
+  await page.click("#pick-output");
+  await expect(page.locator("#log-view")).toContainText("permission denied");
+  await expect(page.locator("#status")).toContainText("choose_output_directory");
+  expect(errors).toEqual([]);
+});
+
 test("starting errors restore Run and cancel errors allow a retry", async ({ page }) => {
   const errors = await ready(page, { start_run: { reject: "start failed" } });
   await page.click("#run");
@@ -151,4 +159,13 @@ test("clicking outside taxonomy search closes suggestions", async ({ page }) => 
   await expect(page.locator("#taxon-candidates")).toHaveClass(/active/);
   await page.click("#taxid-input");
   await expect(page.locator("#taxon-candidates")).not.toHaveClass(/active/);
+});
+
+test("progress percentages stay within bounds and ignore non-finite values", async ({ page }) => {
+  await ready(page);
+  await page.click("#run");
+  for (const [percent, expected] of [[-5, 0], [150, 100], [42, 42], [Infinity, 42], [NaN, 42]]) {
+    await page.evaluate((percent) => window.__guiEmit__("run-event", { eventType: "progress", percent }), percent);
+    expect(await page.locator("#progress").evaluate((el) => el.value)).toBe(expected);
+  }
 });

@@ -172,13 +172,29 @@ export function createMonitorView({
   openPath,
 }) {
   const MAX_LOG_LINES = 4000;
-  const logLines = [];
+  const OMITTED_LOG_LINE =
+    "[Older GUI log lines omitted. See the .log file for the full log.]\n";
+  const pendingLogLines = [];
+  let pendingLogsOmitted = false;
   let logRenderScheduled = false;
 
   function renderLogs() {
     logRenderScheduled = false;
-    logsEl.textContent = `${logLines.join("\n")}\n`;
-    logsEl.scrollTop = logsEl.scrollHeight;
+    const nearBottom = logsEl.scrollTop + logsEl.clientHeight >= logsEl.scrollHeight - 40;
+    const scrollTop = logsEl.scrollTop;
+    const chunk = document.createDocumentFragment();
+    for (const line of pendingLogLines) chunk.appendChild(document.createTextNode(`${line}\n`));
+    pendingLogLines.length = 0;
+    logsEl.appendChild(chunk);
+    if (pendingLogsOmitted || logsEl.childNodes.length > MAX_LOG_LINES) {
+      const heightBeforeTrim = logsEl.scrollHeight;
+      if (logsEl.firstChild?.textContent === OMITTED_LOG_LINE) logsEl.firstChild.remove();
+      while (logsEl.childNodes.length >= MAX_LOG_LINES) logsEl.firstChild.remove();
+      logsEl.prepend(document.createTextNode(OMITTED_LOG_LINE));
+      if (!nearBottom) logsEl.scrollTop = Math.max(0, scrollTop - (heightBeforeTrim - logsEl.scrollHeight));
+      pendingLogsOmitted = false;
+    }
+    if (nearBottom) logsEl.scrollTop = logsEl.scrollHeight;
   }
 
   function scheduleLogRender() {
@@ -194,27 +210,18 @@ export function createMonitorView({
     progressEl.value = 0;
     progressDetailEl.textContent = "0.0%";
 
-    logLines.length = 0;
+    pendingLogLines.length = 0;
+    pendingLogsOmitted = false;
     logsEl.textContent = "";
 
     metricsListEl.innerHTML = "";
   }
 
   function appendLog(line) {
-    logLines.push(line);
-
-    if (logLines.length > MAX_LOG_LINES) {
-      const removeCount = logLines.length - MAX_LOG_LINES;
-      logLines.splice(0, removeCount);
-
-      if (
-        logLines[0] !==
-        "[Older GUI log lines omitted. See the .log file for the full log.]"
-      ) {
-        logLines.unshift(
-          "[Older GUI log lines omitted. See the .log file for the full log.]",
-        );
-      }
+    pendingLogLines.push(line);
+    if (pendingLogLines.length > MAX_LOG_LINES) {
+      pendingLogLines.shift();
+      pendingLogsOmitted = true;
     }
 
     scheduleLogRender();
@@ -259,7 +266,12 @@ export function createMonitorView({
       mark.textContent = "➚";
       link.append(text, mark);
       link.addEventListener("click", async () => {
-        await openPath(path);
+        try {
+          await openPath(path);
+        } catch (error) {
+          appendLog(`open_path failed: ${error}`);
+          statusEl.textContent = "Error: open_path";
+        }
       });
 
       row.append(link);
