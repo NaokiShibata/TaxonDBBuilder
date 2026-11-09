@@ -127,7 +127,7 @@ npm --prefix tauri-gui run tauri:build
 Linuxでは生成された`.AppImage`ファイルを起動します。以下はリポジトリルートから実行する例です。
 
 ```bash
-${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilder_3.3.8_amd64.AppImage
+${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilder_3.3.9_amd64.AppImage
 ```
 
 アプリが起動すれば完了です。
