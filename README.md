@@ -126,9 +126,9 @@ manifestの`sources`には要求したsource、完了したsource、BOLD障害�
 BOLDの学名未解決や検索0件は通信障害とは区別し、部分成功への切り替え理由にはしません。
 再実行時は同じ`--dump-gb`と`--resume`を指定するとキャッシュを再利用し、BOLDが取得できれば通常のboth成果物を作成します。
 
-GUIではsource=bothを選ぶと「BOLD障害時の動作」を選択できます。
-既定は「BOLD失敗時は処理を中止」です。
-「BOLD失敗時はNCBIのみで継続」を選んだ実行で部分成果物が完成すると「部分成功（NCBIのみ）」と表示し、Resultsから実際の部分成果物を開けます。
+GUIではsource=bothを選ぶと「BOLD failure policy」を選択できます。
+既定は「Stop on BOLD failure」です。
+「Continue with NCBI only」を選んだ実行で部分成果物が完成すると「部分成功（NCBIのみ）」と表示し、Resultsから実際の部分成果物を開けます。
 
 このオプションはBOLDのHTTP 403を回避するものではありません。
 実BOLD APIの取得成功は未検証で、通信障害の検証にはローカルの偽APIを使っています。
