@@ -62,7 +62,7 @@ pixi run -e dev test
 
 ## クイックスタート
 
-環境構築後から **GenBankキャッシュ付きの実行** までの手順です。
+環境構築後に、GenBankキャッシュを保存しながら実行する手順です。
 
 ```bash
 # 1) 設定（api_key / email を入力）
@@ -211,7 +211,7 @@ file = "configs/markers_mitogenome.toml"
 # build 実行時に --post-prep を指定すると適用されます
 # パラメータは有効化するカテゴリに応じて指定します
 # - length_filter: sequence_length_min または sequence_length_max
-# - primer_trim: primer_file + primer_set
+# - primer_trim: primer_set（独自セットの場合は primer_file も必要）
 # - msa_tree: msa_tree_enable = true
 # sequence_length_min = 120
 # sequence_length_max = 300
@@ -418,7 +418,7 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 
 ### コマンドと設定ファイルの対応
 
-以下の対応関係を押さえると、設定とコマンドが繋がって理解できます。
+以下の表で、コマンド引数と参照する設定の対応を確認できます。
 
 | コマンド引数             | 参照する設定                                   | 説明                                                                                                                |
 | ------------------------ | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
@@ -435,7 +435,7 @@ feature_fields = ["gene", "product", "note", "standard_name"]
 | `--dry-run`              | なし                                           | 実際の取得・抽出を行わず、生成されるNCBIクエリのみ表示                                                              |
 | `--post-prep`            | `db.toml` の `[post_prep]`                     | 生成FASTAに後処理を有効化                                                                                           |
 | `--post-prep-step`       | `db.toml` の `[post_prep]`                     | 実行する後処理カテゴリを選択 (`primer_trim` / `length_filter` / `quality_filter` / `duplicate_report` / `msa_tree`) |
-| `--post-prep-primer-set` | `[post_prep].primer_file`                      | primer_trim で使う primer_set をCLIから指定 (複数可・config上書き)                                                  |
+| `--post-prep-primer-set` | `[post_prep].primer_set`                      | primer_trim で使う primer_set をCLIから指定 (複数可・config上書き)                                                  |
 
 ### 具体例
 
@@ -464,7 +464,7 @@ pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s
 pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --output-prefix "rhinogobius"
 ```
 
-GenBankを保存しつつ実行 (acc_idごとに `.gb` を保存)
+GenBankを保存しつつ実行 (accessionごとに `.gb` を保存)
 
 ```bash
 pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --dump-gb Results/gb
@@ -600,7 +600,7 @@ pixi run python3 -m taxondbbuilder build -c configs/db.toml -t 63457 -m 12s --wo
 ## 出力
 
 - 出力先: `Results/db/YYYYMMDD/`
-- ファイル名: `taxid{ID}__{marker}.fasta` (複数指定時は `multi_taxon` / `multi_marker`)
+- ファイル名: `taxondbbuilder_taxid{ID}__{marker}.fasta` (複数指定時は `multi_taxon` / `multi_marker`。既定のプレフィックスは `taxondbbuilder_`)
 - 実行ログ: 出力FASTAと同名の `.log`
 - ACCと生物種名の対応表: `*.fasta.acc_organism.csv`（`organism_taxid`と`taxonomy_lineage`を含む）
 - source merge 対応表: `*.fasta.source_merge.csv`（NCBI/BOLDのsource、要求TaxID、record固有TaxID、lineage、accession、出力ヘッダーを記録）
@@ -629,13 +629,13 @@ GUIではPMiFish、QIIME 2、DADA2から一つを選択でき、選択に合わ�
   - `duplicate_report` (常に実行)
   - `msa_tree` (`msa_tree_enable = true` の場合、最後に実行)
 - `--post-prep-step` を指定した場合、指定カテゴリのみ実行
-- `[post_prep].primer_file + primer_set` 指定時、`primer_trim` カテゴリで primer trim を適用
-- `primer_set` は文字列または文字列配列で指定可能
-- `--post-prep-primer-set` を使うと、実行時に primer_set を上書き可能 (複数指定可)
+- `[post_prep].primer_set` 指定時、`primer_trim` カテゴリで primer trim を適用。組み込みにない独自セットには `primer_file` も必要
   - 5'末端: `forward` 候補
   - 3'末端: `reverse` の逆相補候補
   - 逆向き配列も考慮し、`reverse`(5') + `forward`逆相補(3') の組み合わせも判定
   - IUPAC塩基 (`R`, `Y`, `N` など) を利用可能
+- `primer_set` は文字列または文字列配列で指定可能
+- `--post-prep-primer-set` を使うと、実行時に primer_set を上書き可能 (複数指定可)
 - `[post_prep].sequence_length_min/max` 指定時、`length_filter` カテゴリで配列長フィルタを適用
 - `[post_prep].quality_max_ambiguous_fraction`で曖昧塩基の許容率を0から1で指定
 - `[post_prep].quality_reject_invalid_iupac = true`で標準IUPAC DNA以外の塩基を除外
@@ -686,7 +686,7 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 
 ## キャッシュと再抽出
 
-- `--dump-gb` で **acc_idごとのGenBankファイル** を保存します。
+- `--dump-gb` で **accessionごとのGenBankファイル** を保存します。
 - NCBIキャッシュはTaxIDと検索クエリのハッシュごとに`--dump-gb/.cache/`へ保存します。
 - BOLDキャッシュは正規化した検索語と形式のハッシュごとに`--dump-gb/.cache/bold/`へ保存します。
 - `--resume`はNCBIとBOLDのキャッシュを優先して使います（出力は毎回新規に作り直します）。
@@ -699,7 +699,7 @@ reverse = ["CATAGTGGGGTATCTAATCCCAGTTTG"]
 
 ## フィルタについて
 
-フィルタは**指定なしを受け付けます**。必要な場合のみTOMLの `[filters]` に追加してください。
+フィルタの指定は任意です。必要な場合のみTOMLの `[filters]` に追加してください。
 `[filters]` は NCBI Nucleotide の Filtering 項目に合わせています (Advanced Search の index list を参照)。
 
 - `filter`: NCBI "Filter" 項目の語彙。文字列 or 文字列配列 → `{term}[filter]`
@@ -721,7 +721,7 @@ GUIの環境構築、sidecar作成、ビルド手順は[GUI README](tauri-gui/RE
 `-m mitogenome`は注釈された各領域を個別に出力し、FASTAヘッダー末尾に`|region=<領域名>`を付けます。
 
 同梱のmitogenomeマーカー設定では、D-loop、12S、16S、13種類のCDSの不十分なFeature注釈を補完します。
-`-m mitogenome`でまとめて抽出する場合と、`-m nd4`などの個別指定で同じ処理を使います。
+`-m mitogenome`でまとめて抽出する場合も、`-m nd4`などで個別に指定する場合も、同じ補完処理を使います。
 正常な領域は元の注釈を優先し、不十分な領域だけを評価します。
 
 ```toml
@@ -734,7 +734,7 @@ fallback_targets = ["ND4"]
 `fallback_targets`は`12S`、`16S`、`COI`、`COII`、`COIII`、`CYTB`、`ATP6`、`ATP8`、`ND1`〜`ND6`、`ND4L`、`control_region`を指定できます。
 tRNAを明示的に抽出する設定では、`tRNA-Phe`などの名前も指定できます。
 LeuとSerは`tRNA-Leu(UUR)`、`tRNA-Leu(CUN)`、`tRNA-Ser(UCN)`、`tRNA-Ser(AGY)`で区別します。
-設定を省略するか`fallback = "none"`にすると、そのマーカーは従来通り抽出します。
+設定を省略するか`fallback = "none"`にすると、そのマーカーの配列は従来通り抽出します。
 BOLDの取得には適用しません。
 
 補完は次の順序で進みます。
@@ -765,8 +765,8 @@ TSVにはFASTAヘッダー、領域ID、補完方法、理由、元座標、採�
 原点越えでは`start > end`になる場合があります。
 FASTAヘッダーの設定形式は維持しつつ領域suffixを付けるため、PMiFishなどの専用形式でも領域を識別できます。
 
-TSVの`stage=extraction_before_post_prep`は、抽出時点の座標と配列長を表します。
+TSVの`stage=extraction_before_post_prep`は抽出時点の座標と配列長を表します。
 後続のトリミングやフィルターで配列が変わってもTSVの元座標を更新しないため、最終FASTAへの残存状況はヘッダーで照合してください。
 両側遺伝子からの推定区間は実験的に確定した境界を保証しません。
 
-例としてOQ851455.1の`D-loop 15637`は、tRNA-Proの終端と原点にあるtRNA-Pheから`15637..17610`（1,974 bp）と推定されます。
+例としてOQ851455.1の`D-loop 15637`はtRNA-Proの終端と原点にあるtRNA-Pheから`15637..17610`（1,974 bp）と推定されます。
