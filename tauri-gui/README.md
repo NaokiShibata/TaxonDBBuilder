@@ -67,22 +67,33 @@ AppImageの実行時にも `gstreamer1.0-plugins-base` が必要です。未導�
 `taxonomy.db` の生成・更新手順は [taxonomy-db-build](../docs/taxonomy-db-build.md) を参照してください。
 GUI は学名検索時に `taxonomy.db` を探索します（例: `tauri-gui/resources/taxonomy.db`）。
 
-`tools/build_taxonomy_db.py` を使って `taxonomy.db` を生成する場合は、リポジトリルートで以下を実行します。
+リポジトリルートで、[NCBI Taxonomy FTPサイト](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/)の`taxdump.tar.gz`をHTTPSで取得し、`names.dmp`を取り出します。
+`names.dmp`は名称一覧で、このDBの構築には学名を表す`scientific name`の行だけを使います。
+
+```bash
+mkdir -p taxdump
+curl -fL https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz \
+  -o taxdump/taxdump.tar.gz
+tar -xzf taxdump/taxdump.tar.gz -C taxdump names.dmp
+test -s taxdump/names.dmp
+```
+
+取得した`names.dmp`から、CSVと`taxonomy.db`を生成します。
 
 ```bash
 # names.dmp から CSV と SQLite を一括生成
 pixi run python tools/build_taxonomy_db.py all \
-  --names-dmp /path/to/taxdump/names.dmp \
+  --names-dmp taxdump/names.dmp \
   --out-csv tauri-gui/resources/taxid_scientific_name.csv \
   --out-db tauri-gui/resources/taxonomy.db
 ```
 
-個別実行する場合:
+個別に実行する場合は、以下のコマンドを使います。
 
 ```bash
 # 1) names.dmp -> CSV
 pixi run python tools/build_taxonomy_db.py extract-csv \
-  --names-dmp /path/to/taxdump/names.dmp \
+  --names-dmp taxdump/names.dmp \
   --out-csv tauri-gui/resources/taxid_scientific_name.csv
 
 # 2) CSV -> taxonomy.db
