@@ -13,7 +13,9 @@ export const el = (tag) => ({
   className: "",
   clientWidth: 800,
   setAttribute(k, v) {
-    this.attrs.push([k, `${v}`]);
+    const existing = this.attrs.find(([key]) => key === k);
+    if (existing) existing[1] = `${v}`;
+    else this.attrs.push([k, `${v}`]);
   },
   appendChild(c) {
     this.children.push(c);

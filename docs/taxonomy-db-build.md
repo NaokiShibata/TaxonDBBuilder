@@ -28,15 +28,20 @@ GUI (Tauri) は `tauri-gui/resources/taxonomy.db` を参照します。
 
 ## 3. taxdump の取得と展開
 
+リポジトリルートで、[NCBI Taxonomy FTPサイト](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/)の`taxdump.tar.gz`をHTTPSで取得します。
+このアーカイブから、DBの構築に使う`names.dmp`だけを取り出します。
 URL は変更される可能性があるため、最新の配布先は NCBI を確認してください。
 
 ```bash
 mkdir -p taxdump
-wget ftp://ftp.ncbi.nih.gov/pub/taxonomy/taxdump.tar.gz -O taxdump/taxdump.tar.gz
-tar -zxvf taxdump.tar.gz -C taxdump
+curl -fL https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz \
+  -o taxdump/taxdump.tar.gz
+tar -xzf taxdump/taxdump.tar.gz -C taxdump names.dmp
+test -s taxdump/names.dmp
 ```
 
 展開後に `names.dmp` があることを確認してください。
+続く生成コマンドには、展開先の`taxdump/names.dmp`を指定します。
 
 ## 4. 生成スクリプト
 

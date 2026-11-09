@@ -1,12 +1,12 @@
 # TaxonDBBuilder GUI
 
-[TAURI](https://v2.tauri.app)と呼ばれるRustで書かれたフレームワークを使ってGUIを生成して配列のダウンロードを実行することが可能です。
+Rust製のフレームワーク[Tauri](https://v2.tauri.app)を使ったGUIで、配列をダウンロードできます。
 
 ![](figures/TaxonDBBuilderGUI.drawio.png)
 
 ## 概要
 
-GUIアプリをビルドして配列ダウンロードを実行可能です。基本的にサーバーは不要です。
+GUIアプリをビルドすると、配列をダウンロードできます。基本的にサーバーは不要です。
 
 ## GUIアプリとして使う
 
@@ -25,7 +25,7 @@ GUIアプリをビルドして配列ダウンロードを実行可能です。�
 
 #### 2) Node.js / npm のインストール
 
-`nvm` を使う例:
+`nvm` を使う例です。
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.3/install.sh | bash
@@ -65,24 +65,35 @@ AppImageの実行時にも `gstreamer1.0-plugins-base` が必要です。未導�
 ### ビルド手順
 
 `taxonomy.db` の生成・更新手順は [taxonomy-db-build](../docs/taxonomy-db-build.md) を参照してください。
-GUI は起動時に `taxonomy.db` を探索します（例: `tauri-gui/resources/taxonomy.db`）。
+GUI は学名検索時に `taxonomy.db` を探索します（例: `tauri-gui/resources/taxonomy.db`）。
 
-`tools/build_taxonomy_db.py` を使って `taxonomy.db` を生成する場合は、リポジトリルートで以下を実行します。
+リポジトリルートで、[NCBI Taxonomy FTPサイト](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/)の`taxdump.tar.gz`をHTTPSで取得し、`names.dmp`を取り出します。
+`names.dmp`は名称一覧で、このDBの構築には学名を表す`scientific name`の行だけを使います。
+
+```bash
+mkdir -p taxdump
+curl -fL https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/taxdump.tar.gz \
+  -o taxdump/taxdump.tar.gz
+tar -xzf taxdump/taxdump.tar.gz -C taxdump names.dmp
+test -s taxdump/names.dmp
+```
+
+取得した`names.dmp`から、CSVと`taxonomy.db`を生成します。
 
 ```bash
 # names.dmp から CSV と SQLite を一括生成
 pixi run python tools/build_taxonomy_db.py all \
-  --names-dmp /path/to/taxdump/names.dmp \
+  --names-dmp taxdump/names.dmp \
   --out-csv tauri-gui/resources/taxid_scientific_name.csv \
   --out-db tauri-gui/resources/taxonomy.db
 ```
 
-個別実行する場合:
+個別に実行する場合は、以下のコマンドを使います。
 
 ```bash
 # 1) names.dmp -> CSV
 pixi run python tools/build_taxonomy_db.py extract-csv \
-  --names-dmp /path/to/taxdump/names.dmp \
+  --names-dmp taxdump/names.dmp \
   --out-csv tauri-gui/resources/taxid_scientific_name.csv
 
 # 2) CSV -> taxonomy.db
@@ -103,23 +114,23 @@ npm --prefix tauri-gui run tauri:build
 
 出荷する成果物はAppImageのみです。`bundle.targets`を`appimage`に固定しているため、debとrpmは生成しません。
 
-`tauri:build`と`tauri:dev`は、Python抽出プログラムの入力に変更があればsidecarを再ビルドします。
-変更がない場合は既存sidecarを再利用し、GUIだけを更新して古い抽出処理が残ることも防ぎます。
+`tauri:build`と`tauri:dev`は、Python抽出プログラムの入力に変更があればsidecarを再ビルドし、GUIだけが更新されて古い抽出処理が残ることを防ぎます。
+変更がない場合は既存sidecarを再利用します。
 抽出プログラムのビルドに失敗した場合は、古いバイナリで続行せず停止します。
 
-既存のAppDirを使ってAppImageだけを更新する場合は `npm run tauri:build:appimage:fast` を実行します。
+既存のAppDirを使ってAppImageだけを更新する場合は `npm --prefix tauri-gui run tauri:build:appimage:fast` を実行します。
 この経路はGTK/WebKit依存ライブラリを再収集しないため、アプリのコード変更時に使えます。
-依存関係を変更した場合や初回は `npm run tauri:build` でAppDirを作り直してください。
+依存関係を変更した場合や初回は `npm --prefix tauri-gui run tauri:build` でAppDirを作り直してください。
 
 ### 実行
 
-生成物を起動します。Linuxですと`.AppImage`ファイルが対象になります。
+Linuxでは生成された`.AppImage`ファイルを起動します。以下はリポジトリルートから実行する例です。
 
 ```bash
-${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilder_3.3.3_amd64.AppImage
+${PWD}/tauri-gui/src-tauri/target/release/bundle/appimage/TaxonDBBuilder_3.3.9_amd64.AppImage
 ```
 
-アプリが立ち上がれば完了
+アプリが起動すれば完了です。
 
 ### GUIアプリの使い方
 
@@ -185,9 +196,9 @@ msa_tree_bootstrap_replicates = 1000
 # Runtime step selection example:
 # --post-prep-step primer_trim --post-prep-step duplicate_report
 # Parameters are required only for enabled steps:
-# - length_filter: sequence_length_min + sequence_length_max
+# - length_filter: sequence_length_min または sequence_length_max
 # - quality_filter: one or more quality_* / duplicate_sequence_policy options
-# - primer_trim: primer_file + primer_set
+# - primer_trim: primer_set（独自セットの場合は primer_file も必要）
 # primer candidates: `python3 taxondbbuilder.py list-primer-sets -c configs/db.toml`
 sequence_length_min = 120
 # sequence_length_max = 300
@@ -216,30 +227,32 @@ Resume用キャッシュは出力ルートの`.taxondbbuilder-cache/gb`でジョ
 PMiFishの`gb|{acc_id}|{organism}`、QIIME 2の`{acc_id}`、または
 DADA2の`{acc_id} {organism_raw}`へ切り替わります。
 
-Post Prepの `MSA / 系統樹構築` では、`実行しない`、`全TaxIDをまとめて1本`、
+Post Prepの `MSA / 系統樹構築` では`実行しない`、`全TaxIDをまとめて1本`、
 `TaxIDごとに作成` を選択できます。
 TaxIDごとのモードでは、Resultsに `*.taxid{ID}.tree.nwk` と対応するMSAが出力され、
 系統樹ビューアのセレクタから表示対象を切り替えられます。
 Bootstrap支持値は枝の上側に表示されるため、葉の配列名とは重なりません。
 
-`Run Monitor`のタブに移行します。こちらではダウンロード状況をRealtime Logウィンドウで確認することが可能です。また、止めたければCancelボタンを押せば止まります。
+実行を開始すると、画面が`Run Monitor`タブに切り替わります。ダウンロード状況はRealtime Logで確認できます。中止する場合はCancelボタンを押します。
 
 ![](figures/TaxonDBBuilderGUI03.drawio.png)
 
-ダウンロードが完了したら、`Results`タブに移行します。`Run Setup`で出力フォルダに指定した場所に下記のような構造のフォルダが生成されると思います。
+成果物の作成が完了すると、画面が`Results`タブに切り替わります。成果物は、`Run Setup`で指定した出力フォルダ内のジョブフォルダに保存されます。
+GenBankキャッシュはジョブ間で共有され、出力フォルダ直下の`.taxondbbuilder-cache/gb`に保存されます。以下は出力例です。
 
 ```bash
-/home/naoki/ghq/github.com/NaokiShibata/TaxonDBBuilder/test
+<出力フォルダ>
+├── .taxondbbuilder-cache
+│   └── gb
+│       ├── taxid1476529
+│       ├── taxid32443
+│       └── taxid7777
 └── 20260225
     └── job4
         ├── config
         │   ├── db.toml
         │   ├── markers_mitogenome.toml
         │   └── primers.toml
-        ├── gb
-        │   ├── taxid1476529
-        │   ├── taxid32443
-        │   └── taxid7777
         └── Results
             ├── MiFish_20260225232416.fasta
             ├── MiFish_20260225232416.fasta.acc_organism.csv
@@ -251,6 +264,6 @@ Bootstrap支持値は枝の上側に表示されるため、葉の配列名と�
             └── MiFish_20260225232416.fasta.log
 ```
 
-内容はおおよそコマンドライン実行と同様です。また、GUIの**OPEN**をクリックするとエディタでファイルを開くことが可能です。
+内容はおおよそコマンドライン実行と同様です。Resultsのファイル名のボタンをクリックすると、OSに関連付けられたアプリでファイルを開けます。
 
 ![](figures/TaxonDBBuilderGUI04.drawio.png)

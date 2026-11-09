@@ -124,6 +124,8 @@ const state = {
   taxonCandidateItems: [],
   taxonSearchSeq: 0,
   taxonSearchTimer: null,
+  runState: "idle",
+  treeRenderSeq: 0,
   baseConfigPath: ""
 };
 
@@ -203,6 +205,7 @@ function appendHelpTip(target, text) {
   button.type = "button";
   button.className = "help-tip";
   button.setAttribute("aria-label", "Show help");
+  button.title = text;
   button.textContent = "?";
   button.dataset.help = text;
   button.addEventListener("click", (event) => {
@@ -228,8 +231,11 @@ function initHelpTips() {
   });
 }
 
-document.addEventListener("click", () => {
+document.addEventListener("click", (event) => {
   hideHelp();
+  if (event.target !== els.taxonNameInput && !els.taxonCandidates?.contains(event.target)) {
+    clearTaxonCandidates();
+  }
 });
 
 window.addEventListener("resize", () => {
@@ -247,8 +253,18 @@ const monitorView = createMonitorView({
   logsEl: els.logs,
   metricsListEl: els.metricsList,
   resultFilesEl: els.resultFiles,
-  openPath: (path) => invoke("open_path", { path })
+  openPath: (path) => invokeAction("open_path", { path })
 });
+
+async function invokeAction(command, args) {
+  try {
+    return await invoke(command, args);
+  } catch (error) {
+    monitorView.appendLog(`[error] ${command} failed: ${error}`);
+    els.status.textContent = `Error: ${command}`;
+    return null;
+  }
+}
 
 function switchView(name) {
   const map = {
@@ -261,6 +277,8 @@ function switchView(name) {
     const active = key === name;
     view.classList.toggle("active", active);
     tab.classList.toggle("active", active);
+    tab.setAttribute("aria-selected", `${active}`);
+    tab.tabIndex = active ? 0 : -1;
   }
 }
 
@@ -358,6 +376,9 @@ function commitTaxidInput() {
 }
 
 function clearTaxonCandidates() {
+  clearTimeout(state.taxonSearchTimer);
+  state.taxonSearchTimer = null;
+  state.taxonSearchSeq += 1;
   state.taxonCandidateItems = [];
   if (els.taxonCandidates) {
     els.taxonCandidates.innerHTML = "";
@@ -422,6 +443,7 @@ async function searchTaxonCandidatesNow() {
 }
 
 function scheduleTaxonSearch() {
+  state.taxonSearchSeq += 1;
   if (state.taxonSearchTimer) {
     clearTimeout(state.taxonSearchTimer);
   }
@@ -615,12 +637,22 @@ function updatePostPrepGuidance() {
 }
 
 function updateGuidanceState() {
+  numericInputs.forEach(([input]) => validateNumericInput(input));
   setFlowItemState(els.flowTaxids, state.taxids.length > 0);
   setFlowItemState(els.flowMarkers, state.markers.length > 0);
   setFlowItemState(els.flowOutput, els.outputRootInput.value.trim().length > 0);
   setFlowItemState(els.flowEmail, els.emailInput.value.trim().length > 0);
   updatePostPrepGuidance();
-  els.run.disabled = !isReadyToRun();
+  els.run.disabled = state.runState !== "idle" || !isReadyToRun();
+}
+
+function setRunState(runState) {
+  state.runState = runState;
+  const busy = runState !== "idle";
+  els.run.setAttribute("aria-busy", `${busy}`);
+  els.run.textContent = busy ? "Running…" : "Run";
+  els.cancel.disabled = runState !== "running";
+  updateGuidanceState();
 }
 
 function getSelectedPostPrepSteps() {
@@ -703,6 +735,7 @@ async function loadTreeInput(treePath) {
 }
 
 async function renderRunTree() {
+  const seq = ++state.treeRenderSeq;
   const paths = collectTreePaths();
   populateTreeSelect(paths);
   const treePath = paths.includes(state.selectedTreePath)
@@ -724,6 +757,7 @@ async function renderRunTree() {
   els.treeViewStatus.textContent = `Loading: ${treeFilename}`;
   try {
     const { root, alignment, msaStatus } = await loadTreeInput(treePath);
+    if (seq !== state.treeRenderSeq) return;
     treeViewController?.dispose();
     treeViewController = renderTreeSVG(
       root,
@@ -736,11 +770,24 @@ async function renderRunTree() {
     els.msaConservation.disabled = alignment.size === 0;
     els.treeViewStatus.textContent = `${treeFilename} / ${msaStatus}`;
   } catch (error) {
+    if (seq !== state.treeRenderSeq) return;
+    monitorView.appendLog(`[error] Failed to load tree ${treePath}: ${error}`);
+    console.warn(`Failed to load tree ${treePath}`, error);
     disableTreePanel("Failed to load the phylogenetic tree file.", unavailableMessage);
   }
 }
 
 function collectRequest() {
+  for (const [input] of numericInputs) {
+    validateNumericInput(input);
+    if (!input.validity.valid) {
+      for (let parent = input.parentElement; parent; parent = parent.parentElement) {
+        if (parent.tagName === "DETAILS") parent.open = true;
+      }
+      input.reportValidity();
+      throw new Error(input.validationMessage);
+    }
+  }
   if (!commitTaxidInput()) throw new Error(els.taxidInput.validationMessage);
   const steps = getSelectedPostPrepSteps();
   const qualityEnabled = steps.includes("quality_filter");
@@ -786,11 +833,7 @@ function collectRequest() {
       db: els.ncbiDbInput.value.trim(),
       rettype: els.ncbiRettypeInput.value.trim(),
       retmode: els.ncbiRetmodeInput.value.trim(),
-      perQuery: Math.max(
-        1,
-        Number.parseInt(els.ncbiPerQueryInput.value, 10) ||
-          Number(els.ncbiPerQueryInput.defaultValue),
-      ),
+      perQuery: parseIntOrNull(els.ncbiPerQueryInput.value) ?? Number(els.ncbiPerQueryInput.defaultValue),
       useHistory: els.ncbiUseHistoryInput.checked,
       delaySec: parseFloatOrNull(els.ncbiDelaySecInput.value)
     },
@@ -810,6 +853,11 @@ function handleRunLog(payload) {
 
 function handleRunStatus(payload) {
   if (!payload.status) return;
+  if (["Finished", "Failed", "Cancelled", "PartialSuccess"].includes(payload.status)) {
+    setRunState("idle");
+  } else if (payload.status === "Running" && state.runState !== "cancelling") {
+    setRunState("running");
+  }
   const partial = payload.status === "PartialSuccess";
   els.status.textContent = partial ? "部分成功（NCBIのみ）" : payload.status;
   els.partialResultState.textContent = partial ? "部分成功（NCBIのみ）" : "";
@@ -817,7 +865,7 @@ function handleRunStatus(payload) {
 
 function handleRunProgress(payload) {
   if (payload.phase) els.phase.textContent = payload.phase;
-  if (payload.percent != null) els.progress.value = payload.percent;
+  if (Number.isFinite(payload.percent)) els.progress.value = Math.max(0, Math.min(payload.percent, 100));
   monitorView.renderProgressDetail(payload.phase, payload.percent, payload.metrics);
   if (!payload.metrics) return;
   monitorView.renderMetrics(payload.metrics);
@@ -925,37 +973,47 @@ async function loadSavedConfig() {
 }
 
 async function runJob() {
+  if (state.runState !== "idle") return;
   const req = collectRequest();
   if (!req.taxids.length) throw new Error("please input at least one taxid");
   if (!req.markers.length) throw new Error("please add at least one marker");
   if (!req.outputRoot) throw new Error("output directory is required");
   if (sourceUsesNcbi() && !req.email) throw new Error("email is required for ncbi/both");
 
-  await setupEventListener();
-  monitorView.reset();
-  state.jobDir = "";
-  renderResultJobDir();
-  state.outputPath = "";
-  state.files = [];
-  state.msaTreeStatus = "";
-  state.msaTreeTaxa = null;
-  state.selectedTreePath = "";
-  els.metricsDisclosure.open = false;
-  els.outputFilesDisclosure.open = false;
-  treeViewController?.dispose();
-  treeViewController = null;
-  setTreeViewControlsEnabled(false);
-  els.treeSearch.value = "";
-  els.treeViewStatus.textContent = "Checking the phylogenetic tree result.";
-  renderTreeStatus(els.treeViewContainer, "The phylogenetic tree will be displayed after the run completes.");
-  setMonitorEnabled(true);
-  setResultsEnabled(false);
-  switchView("monitor");
+  setRunState("starting");
+  try {
+    await setupEventListener();
+    monitorView.reset();
+    state.jobDir = "";
+    renderResultJobDir();
+    state.outputPath = "";
+    state.files = [];
+    state.msaTreeStatus = "";
+    state.msaTreeTaxa = null;
+    state.selectedTreePath = "";
+    state.treeRenderSeq += 1;
+    els.metricsDisclosure.open = false;
+    els.outputFilesDisclosure.open = false;
+    treeViewController?.dispose();
+    treeViewController = null;
+    setTreeViewControlsEnabled(false);
+    els.treeSearch.value = "";
+    els.treeViewStatus.textContent = "Checking the phylogenetic tree result.";
+    renderTreeStatus(els.treeViewContainer, "The phylogenetic tree will be displayed after the run completes.");
+    setMonitorEnabled(true);
+    setResultsEnabled(false);
+    switchView("monitor");
 
-  const resp = await invoke("start_run", { req });
-  state.outputPath = resp.outputPath || "";
-  monitorView.appendLog(`job dir: ${resp.jobDir}`);
-  monitorView.appendLog(`log path: ${resp.logPath}`);
+    const resp = await invoke("start_run", { req });
+    if (state.runState === "starting") setRunState("running");
+    state.outputPath = resp.outputPath || "";
+    monitorView.appendLog(`job dir: ${resp.jobDir}`);
+    monitorView.appendLog(`log path: ${resp.logPath}`);
+  } catch (error) {
+    setRunState("idle");
+    els.status.textContent = "Failed";
+    throw error;
+  }
 }
 
 function resetForm() {
@@ -1001,15 +1059,20 @@ els.reset.addEventListener("click", () => {
 });
 
 els.cancel.addEventListener("click", async () => {
+  if (state.runState !== "running") return;
+  setRunState("cancelling");
+  els.status.textContent = "Cancelling…";
   try {
     await invoke("cancel_run");
   } catch (error) {
+    if (state.runState === "cancelling") setRunState("running");
     monitorView.appendLog(`[error] cancel failed: ${error}`);
+    els.status.textContent = "Cancel failed";
   }
 });
 
 els.pickOutput.addEventListener("click", async () => {
-  const selected = await invoke("choose_output_directory");
+  const selected = await invokeAction("choose_output_directory");
   if (selected) {
     els.outputRootInput.value = selected;
     updateGuidanceState();
@@ -1017,7 +1080,7 @@ els.pickOutput.addEventListener("click", async () => {
 });
 
 els.pickPrimer.addEventListener("click", async () => {
-  const selected = await invoke("choose_primer_file");
+  const selected = await invokeAction("choose_primer_file");
   if (selected) {
     els.primerFileInput.value = selected;
     updateGuidanceState();
@@ -1126,7 +1189,7 @@ els.newJob.addEventListener("click", () => {
 });
 
 els.openJobDir.addEventListener("click", async () => {
-  if (state.jobDir) await invoke("open_path", { path: state.jobDir });
+  if (state.jobDir) await invokeAction("open_path", { path: state.jobDir });
 });
 
 els.treeSearch.addEventListener("input", () => {
@@ -1162,7 +1225,45 @@ els.tabSetup.addEventListener("click", () => switchView("setup"));
 els.tabMonitor.addEventListener("click", () => switchView("monitor"));
 els.tabResults.addEventListener("click", () => switchView("results"));
 
+const tabs = [els.tabSetup, els.tabMonitor, els.tabResults];
+tabs.forEach((tab) => tab.addEventListener("keydown", (event) => {
+  if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+  event.preventDefault();
+  const enabled = tabs.filter((item) => !item.disabled);
+  const direction = event.key === "ArrowLeft" ? -1 : 1;
+  const next = event.key === "Home" ? enabled[0]
+    : event.key === "End" ? enabled.at(-1)
+      : enabled[(enabled.indexOf(tab) + direction + enabled.length) % enabled.length];
+  switchView(next.id.replace("tab-", ""));
+  next.focus();
+}));
+
+const numericInputs = [
+  [els.filterLengthMinInput, parseIntOrNull, 0, 4294967295],
+  [els.filterLengthMaxInput, parseIntOrNull, 0, 4294967295],
+  [els.postLengthMinInput, parseIntOrNull, 0, 4294967295],
+  [els.postLengthMaxInput, parseIntOrNull, 0, 4294967295],
+  [els.ncbiPerQueryInput, parseIntOrNull, 1, 4294967295],
+  [els.ncbiDelaySecInput, parseFloatOrNull, 0],
+  [els.qualityMaxAmbiguousFractionInput, parseFloatOrNull, 0, 1],
+];
+
+function validateNumericInput(input) {
+  const [, parse, min, max = Infinity] = numericInputs.find(([element]) => element === input);
+  const value = input.value.trim();
+  const parsed = parse(value);
+  input.setCustomValidity(value && (parsed == null || parsed < min || parsed > max)
+    ? `Enter a valid number between ${min} and ${max === Infinity ? "the supported maximum" : max}.`
+    : "");
+}
+
+numericInputs.forEach(([input]) => input.addEventListener("input", () => {
+  validateNumericInput(input);
+  input.reportValidity();
+}));
+
 initHelpTips();
+setRunState("idle");
 addTaxids(els.taxidsHidden.value);
 renderTaxids();
 syncTaxidsHidden();

@@ -8,10 +8,19 @@
   </head>
   <body>
     <main class="app-shell">
-      <nav class="tabs" aria-label="Application views">
-        <button id="tab-setup" class="tab active">Run Setup</button>
-        <button id="tab-monitor" class="tab" disabled>Run Monitor</button>
-        <button id="tab-results" class="tab" disabled>Results</button>
+      <nav class="tabs" role="tablist" aria-label="Application views">
+        <button
+          id="tab-setup" class="tab active" role="tab"
+          aria-controls="view-setup" aria-selected="true" tabindex="0"
+        >Run Setup</button>
+        <button
+          id="tab-monitor" class="tab" role="tab" disabled
+          aria-controls="view-monitor" aria-selected="false" tabindex="-1"
+        >Run Monitor</button>
+        <button
+          id="tab-results" class="tab" role="tab" disabled
+          aria-controls="view-results" aria-selected="false" tabindex="-1"
+        >Results</button>
       </nav>
 
       <aside class="side-pane">
@@ -40,9 +49,6 @@
           <p class="guide-copy">
             Start from required inputs, then add optional filters and post prep.
           </p>
-          <div class="guide-arrow">
-            Fill required fields in order: Taxid -> Marker -> Output -> Email
-          </div>
           <ul
             id="flow-checklist"
             class="flow-checklist required-flow-checklist"
@@ -77,7 +83,7 @@
       </aside>
 
       <section class="content-pane">
-        <section id="view-setup" class="view active">
+        <section id="view-setup" role="tabpanel" aria-labelledby="tab-setup" tabindex="0" class="view active">
           <form id="setup-form" class="setup-form">
             <p id="config-notice" class="config-notice" role="status" hidden></p>
             <div class="setup-columns">
@@ -115,11 +121,11 @@
                       placeholder="32443 or 32443,7777,1476529"
                       autocomplete="off"
                     />
-                    <button id="add-taxid" type="button">Add</button>
+                    <button id="add-taxid" type="button" aria-label="Add taxid">Add</button>
                   </div>
                   <div class="taxid-toolbar">
                     <span id="taxid-count">0 taxids</span>
-                    <button id="clear-taxids" type="button">Clear all</button>
+                    <button id="clear-taxids" type="button" aria-label="Clear all taxids">Clear all</button>
                   </div>
                   <ul id="taxid-list" class="taxid-list"></ul>
                   <textarea
@@ -146,10 +152,10 @@
                     <option value="both">both</option>
                   </select>
                   <div id="bold-failure-field" hidden>
-                    <label for="on-bold-failure">BOLD障害時の動作</label>
+                    <label for="on-bold-failure">BOLD failure policy</label>
                     <select id="on-bold-failure" disabled>
-                      <option value="fail-fast">BOLD失敗時は処理を中止</option>
-                      <option value="continue-ncbi">BOLD失敗時はNCBIのみで継続</option>
+                      <option value="fail-fast">Stop on BOLD failure</option>
+                      <option value="continue-ncbi">Continue with NCBI only</option>
                     </select>
                   </div>
                   <p class="source-workers">
@@ -412,11 +418,11 @@
                       <option value="nd6">nd6</option>
                       <option value="control_region">control_region</option>
                     </select>
-                    <button id="add-marker" type="button">Add</button>
+                    <button id="add-marker" type="button" aria-label="Add marker">Add</button>
                   </div>
                   <div class="taxid-toolbar">
                     <span id="marker-count">0 markers</span>
-                    <button id="clear-markers" type="button">Clear all</button>
+                    <button id="clear-markers" type="button" aria-label="Clear all markers">Clear all</button>
                   </div>
                   <ul id="marker-list" class="taxid-list marker-list"></ul>
                 </section>
@@ -684,11 +690,11 @@
           </form>
         </section>
 
-        <section id="view-monitor" class="view">
+        <section id="view-monitor" role="tabpanel" aria-labelledby="tab-monitor" tabindex="0" class="view">
           <div class="card monitor-header">
             <div class="monitor-meta">
-              <div><strong>Status:</strong> <span id="status">Idle</span></div>
-              <div><strong>Phase:</strong> <span id="phase">-</span></div>
+              <div><strong>Status:</strong> <span id="status" role="status">Idle</span></div>
+              <div><strong>Phase:</strong> <span id="phase" role="status">-</span></div>
             </div>
             <div class="monitor-progress">
               <progress id="progress" max="100" value="0"></progress>
@@ -703,7 +709,7 @@
 
           <div class="card logs">
             <h3>Realtime Log</h3>
-            <pre id="log-view"></pre>
+            <pre id="log-view" role="log" aria-live="polite" aria-relevant="additions text"></pre>
           </div>
 
           <div class="actions">
@@ -711,7 +717,7 @@
           </div>
         </section>
 
-        <section id="view-results" class="view">
+        <section id="view-results" role="tabpanel" aria-labelledby="tab-results" tabindex="0" class="view">
           <p id="partial-result-state" role="status"></p>
           <details
             id="output-files-disclosure"

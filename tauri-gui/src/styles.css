@@ -4,7 +4,7 @@
   --panel: #fafdff;
   --panel-strong: #ffffff;
   --ink: #274157;
-  --muted: #7590a5;
+  --muted: #526d82;
   --line: #d7e8f6;
   --primary: #25adff;
   --primary-strong: #118ae3;
@@ -254,6 +254,7 @@ select {
 
 .card-taxon {
   order: 1;
+  align-content: start;
 }
 
 .card-marker {
@@ -281,10 +282,6 @@ select {
   gap: 6px;
 }
 
-.side-pane .guide-arrow {
-  display: none;
-}
-
 .side-pane .post-guide {
   display: none;
 }
@@ -302,15 +299,6 @@ select {
   margin-top: 2px;
   font-size: 13px;
   color: var(--muted);
-}
-
-.guide-arrow {
-  border: 1px dashed #b8daf5;
-  border-radius: 10px;
-  padding: 8px 10px;
-  font-size: 12px;
-  color: #3173a5;
-  background: #f3faff;
 }
 
 .flow-checklist {
@@ -430,11 +418,6 @@ select {
   display: none;
 }
 
-textarea {
-  resize: vertical;
-  min-height: 210px;
-}
-
 input:focus,
 textarea:focus,
 select:focus {
@@ -534,10 +517,6 @@ select:focus {
 
 .card-marker .taxid-entry button {
   width: 72px;
-}
-
-.card-taxon {
-  align-content: start;
 }
 
 .card-taxon .taxid-entry {
@@ -692,7 +671,7 @@ label.help-target:not(.help-heading) > textarea {
   text-align: left;
   white-space: normal;
   pointer-events: none;
-  z-index: 2147483647;
+  z-index: 1000;
 }
 
 .help-popup-global[hidden] {
@@ -1038,9 +1017,7 @@ progress {
 }
 
 #log-view {
-  min-height: 260px;
-  height: min(62vh, 720px);
-  max-height: 460px;
+  height: clamp(260px, 62vh, 460px);
 
   overflow-x: auto;
   overflow-y: auto;

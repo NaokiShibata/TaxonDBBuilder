@@ -7,7 +7,7 @@ test("BOLD failure policy is opt-in and available only for both", async ({ page 
   await page.selectOption("#source", "both");
   await expect(page.locator("#on-bold-failure")).toBeVisible();
   await expect(page.locator("#on-bold-failure")).toHaveValue("fail-fast");
-  await page.selectOption("#on-bold-failure", "continue-ncbi");
+  await page.getByRole("combobox", { name: "BOLD failure policy", exact: true }).selectOption({ label: "Continue with NCBI only" });
   await page.selectOption("#source", "bold");
   await expect(page.locator("#on-bold-failure")).toBeDisabled();
   await expect(page.locator("#on-bold-failure")).toHaveValue("fail-fast");
