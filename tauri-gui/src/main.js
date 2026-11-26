@@ -1126,9 +1126,15 @@ els.taxonNameInput?.addEventListener("input", () => {
   scheduleTaxonSearch();
 });
 
+function setTaxonomyBusy(busy) {
+  for (const el of [els.taxonomyDownload, els.taxonomyTargetChange]) {
+    if (el) el.disabled = busy;
+  }
+  els.taxonomyDownload?.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
 els.taxonomyDownload?.addEventListener("click", async () => {
-  els.taxonomyDownload.disabled = true;
-  els.taxonomyDownload.setAttribute("aria-busy", "true");
+  setTaxonomyBusy(true);
   els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
   try {
     const path = await invoke("download_taxonomy_db");
@@ -1142,20 +1148,24 @@ els.taxonomyDownload?.addEventListener("click", async () => {
       : "Download failed";
     monitorView.appendLog(`[error] taxonomy download failed: ${error}`);
   } finally {
-    els.taxonomyDownload.disabled = false;
-    els.taxonomyDownload.setAttribute("aria-busy", "false");
+    setTaxonomyBusy(false);
   }
 });
 
 els.taxonomyTargetChange?.addEventListener("click", async () => {
+  setTaxonomyBusy(true);
   try {
     const picked = await invoke("choose_taxonomy_db_dir");
-    if (!picked) return; // picker cancelled: keep the current target.
+    if (!picked) return; // picker cancelled or replace declined: keep the current target.
     state.taxonomyTarget = picked;
     els.taxonomyStatusText.textContent = `Download target: ${picked}`;
     monitorView.appendLog(`[info] taxonomy.db target: ${picked}`);
+    if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
   } catch (error) {
+    els.taxonomyStatusText.textContent = "Target change failed";
     monitorView.appendLog(`[error] taxonomy target change failed: ${error}`);
+  } finally {
+    setTaxonomyBusy(false);
   }
 });
 
@@ -1166,8 +1176,9 @@ async function initTaxonomyDownloadTarget() {
     if (!path) return;
     state.taxonomyTarget = path;
     els.taxonomyStatusText.textContent = `Download target: ${path}`;
-  } catch {
-    // The click handler surfaces backend errors including this command's.
+  } catch (error) {
+    els.taxonomyStatusText.textContent = "Download target unavailable — use Change… to pick a folder";
+    monitorView.appendLog(`[error] taxonomy target lookup failed: ${error}`);
   }
 }
 initTaxonomyDownloadTarget();

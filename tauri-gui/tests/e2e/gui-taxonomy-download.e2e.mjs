@@ -47,6 +47,7 @@ test("Download taxonomy DB blocks double runs, reports success, and re-runs the 
   await page.click("#taxonomy-download");
   await expect(page.locator("#taxonomy-download")).toBeDisabled();
   await expect(page.locator("#taxonomy-download")).toHaveAttribute("aria-busy", "true");
+  await expect(page.locator("#taxonomy-target-change")).toBeDisabled();
   await expect(page.locator("#taxonomy-status-text")).toHaveText("Downloading taxonomy DB…");
   await page.click("#taxonomy-download", { force: true });
   expect(await downloadCount(page)).toBe(1);
@@ -54,6 +55,7 @@ test("Download taxonomy DB blocks double runs, reports success, and re-runs the 
   await page.evaluate(() => window.resolveTaxonomyDownload("/local/taxonomy.db"));
   await expect(page.locator("#taxonomy-status-text")).toHaveText("taxonomy.db updated: /local/taxonomy.db");
   await expect(page.locator("#taxonomy-download")).toBeEnabled();
+  await expect(page.locator("#taxonomy-target-change")).toBeEnabled();
   await expect(page.locator("#taxonomy-download")).toHaveAttribute("aria-busy", "false");
   expect(await downloadCount(page)).toBe(1);
   await expect(page.locator("#log-view")).toContainText("taxonomy.db updated");

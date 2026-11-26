@@ -27,6 +27,12 @@ static TAXONOMY_DB_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 fn run_taxonomy_fetch_build(app: &AppHandle) -> Result<String, String> {
     let sidecar_path = resolve_sidecar_path(app)?;
     let db_path = taxonomy_db_download_path(app)?;
+    if db_path.exists() && !download_is_authorized(app, &db_path)? {
+        return Err(format!(
+            "{} already exists. Press Change… and confirm replacing it first.",
+            db_path.display()
+        ));
+    }
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
@@ -53,20 +59,42 @@ pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<String, String> {
 
 #[tauri::command]
 pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, String> {
-    let current = taxonomy_db_download_path(&app)?;
-    let start = current
-        .parent()
-        .map(|p| p.to_path_buf())
-        .unwrap_or_default();
-    let picked = FileDialog::new()
-        .set_directory(&start)
-        .set_title("Select folder for taxonomy.db")
-        .pick_folder();
-    let Some(dir) = picked else {
-        return Ok(None);
-    };
-    let db_path = set_taxonomy_db_dir(&app, &dir)?;
-    Ok(Some(db_path.to_string_lossy().into_owned()))
+    // Same exclusivity as the download: no folder swap while a build runs.
+    if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
+        return Err("taxonomy download is running; pick a folder after it finishes".to_string());
+    }
+    let result = (|| {
+        let current = taxonomy_db_download_path(&app)?;
+        let start = current.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        let Some(dir) = FileDialog::new()
+            .set_directory(&start)
+            .set_title("Select folder for taxonomy.db")
+            .pick_folder()
+        else {
+            return Ok(None);
+        };
+        let target = dir.join("taxonomy.db");
+        if target.exists() && !download_is_authorized(&app, &target)? {
+            let answer = rfd::MessageDialog::new()
+                .set_level(rfd::MessageLevel::Warning)
+                .set_title("Replace existing taxonomy.db?")
+                .set_description(format!(
+                    "{} already exists. Downloading will replace it.",
+                    target.display()
+                ))
+                .show();
+            if !matches!(
+                answer,
+                rfd::MessageDialogResult::Yes | rfd::MessageDialogResult::Ok
+            ) {
+                return Ok(None);
+            }
+        }
+        let db_path = set_taxonomy_db_dir(&app, &dir)?;
+        Ok(Some(db_path.to_string_lossy().into_owned()))
+    })();
+    TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
+    result
 }
 
 #[tauri::command]
