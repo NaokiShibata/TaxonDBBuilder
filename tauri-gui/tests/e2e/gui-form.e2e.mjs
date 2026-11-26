@@ -277,3 +277,14 @@ test("run-events drive the monitor and unlock the results view", async ({ page }
   expect(await page.locator("#view-results.active").count()).toBe(1);
   expect(errors).toEqual([]);
 });
+
+test("the TaxID field keeps non-numeric characters out", async ({ page }) => {
+  await openGuiApp(page);
+  await page.fill("#taxid-input", "12ab34cd");
+  expect(await value(page, "#taxid-input")).toBe("1234");
+  await page.fill("#taxid-input", "567;89");
+  expect(await value(page, "#taxid-input")).toBe("567;89");
+  await page.click("#add-taxid");
+  await expect(page.locator("#taxid-list")).toContainText("567");
+  await expect(page.locator("#taxid-list")).toContainText("89");
+});

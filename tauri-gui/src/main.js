@@ -1148,6 +1148,12 @@ els.addTaxid.addEventListener("click", () => {
 });
 
 els.taxidInput.addEventListener("input", () => {
+  // TaxIDs are numeric; keep non-digits out of the field as they are typed
+  // or pasted. Comma, semicolon, and space stay as list separators.
+  const filtered = els.taxidInput.value.replace(/[^0-9,;\s]/g, "");
+  if (filtered !== els.taxidInput.value) {
+    els.taxidInput.value = filtered;
+  }
   els.taxidInput.setCustomValidity("");
   updateGuidanceState();
 });
