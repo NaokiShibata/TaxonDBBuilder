@@ -1045,6 +1045,13 @@ progress {
   }
 }
 
+.logs-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 #log-view {
   height: clamp(260px, 62vh, 460px);
 

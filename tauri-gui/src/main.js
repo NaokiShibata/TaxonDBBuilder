@@ -50,6 +50,7 @@ const els = {
   progress: document.querySelector("#progress"),
   progressDetail: document.querySelector("#progress-detail"),
   logs: document.querySelector("#log-view"),
+  copyLog: document.querySelector("#copy-log"),
   metricsList: document.querySelector("#metrics-list"),
   resultFiles: document.querySelector("#result-files"),
   openJobDir: document.querySelector("#open-job-dir"),
@@ -1075,6 +1076,25 @@ els.form.addEventListener("submit", async (event) => {
 
 els.reset.addEventListener("click", () => {
   resetForm();
+});
+
+els.copyLog.addEventListener("click", async () => {
+  const text = els.logs.innerText;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // The webview may not expose the async clipboard; the classic path works there.
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  els.copyLog.textContent = "Copied";
+  setTimeout(() => {
+    els.copyLog.textContent = "Copy";
+  }, 1200);
 });
 
 els.cancel.addEventListener("click", async () => {
