@@ -1,0 +1,122 @@
+{
+  "schema": "rust-anything/bridge@1",
+  "root": "/home/naoki/ghq/github.com/NaokiShibata/taxondb-rust-port-primer-trim",
+  "unit": "taxondbbuilder/postprep/primer_trim.py",
+  "language": "python",
+  "kind": "pyo3",
+  "crate_name": "primer-trim-rs",
+  "exports": [
+    {
+      "name": "apply_post_prep_primer_trim",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 1117,
+      "params": [
+        {
+          "name": "fasta_path",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "forward_primers",
+          "ts_type": "string[]",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "reverse_primers",
+          "ts_type": "string[]",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "options",
+          "ts_type": "Record<string, unknown> | undefined",
+          "optional": true,
+          "rest": false,
+          "default": "None"
+        }
+      ],
+      "returns": "Record<string, unknown>",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": [
+    {
+      "name": "primer_base_matches",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 59,
+      "reason": "returns bool through a dataclass-free path but is called per character by the kept Python helpers"
+    },
+    {
+      "name": "required_overlap_bp",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 66,
+      "reason": "pure helper, called by kept Python code"
+    },
+    {
+      "name": "count_mismatches",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 76,
+      "reason": "pure helper, called by kept Python code"
+    },
+    {
+      "name": "find_best_prefix_match",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 171,
+      "reason": "returns a PrimerEndpointMatch dataclass; the port works at pipeline level instead"
+    },
+    {
+      "name": "find_best_suffix_match",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 192,
+      "reason": "returns a PrimerEndpointMatch dataclass; the port works at pipeline level instead"
+    },
+    {
+      "name": "resolve_orientation",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 213,
+      "reason": "returns dataclasses; kept in Python"
+    },
+    {
+      "name": "confidence_label",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 225,
+      "reason": "trivial string helper, kept in Python"
+    },
+    {
+      "name": "compute_trim_lengths_from_row",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 235,
+      "reason": "row dict helper, kept in Python"
+    },
+    {
+      "name": "summarize_rows_to_records",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 303,
+      "reason": "helper used with Python rows, kept"
+    },
+    {
+      "name": "run_vsearch_endpoint_recheck",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 553,
+      "reason": "subprocess orchestration kept in Python; the Rust pipeline shells out itself"
+    },
+    {
+      "name": "PrimerEndpointMatch",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 24,
+      "reason": "class: decorated with `@dataclass`, public class attribute `full_len_match`, public class attribute `mismatches`, public class attribute `overlap_bp`, public class attribute `primer`, public class attribute `score`, public class attribute `trim_bp`"
+    },
+    {
+      "name": "OrientationScore",
+      "file": "taxondbbuilder/postprep/primer_trim.py",
+      "line": 34,
+      "reason": "class: `@property` method `matched_ends`, `@property` method `mismatch_total`, `@property` method `score_total`, decorated with `@dataclass`, public class attribute `left`, public class attribute `name`, public class attribute `right`"
+    }
+  ]
+}

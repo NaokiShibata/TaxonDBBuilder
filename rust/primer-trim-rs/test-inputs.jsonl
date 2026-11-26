@@ -1,0 +1,4 @@
+{"fn": "apply_post_prep_primer_trim", "args": [{"$repr": "PosixPath"}, ["ACGTACGTACGT"], ["TGCATGCATGCA"], {"recheck_tool": "vsearch", "keep_retained_fasta": false}]}
+{"fn": "apply_post_prep_primer_trim", "args": [{"$repr": "PosixPath"}, ["ACGT"], ["TGCA"], {"trim_mode": "one_or_both", "max_mismatch": 0, "max_error_rate": {"$float": "0.0"}, "min_overlap_bp": null, "min_overlap_ratio": {"$float": "1.0"}, "end_max_offset": 0, "keep_retained_fasta": true, "iter_enable": false, "iter_max_rounds": 3, "iter_stop_delta": 0.002, "iter_target_conf": 0.98, "sidecar_format": "tsv", "recheck_tool": "off", "recheck_min_identity": 0.85, "recheck_min_query_cov": 0.7}]}
+{"fn": "apply_post_prep_primer_trim", "args": [{"$repr": "PosixPath"}, ["ACGT"], ["TGCA"], {"sidecar_format": "tsv", "keep_retained_fasta": true}]}
+{"fn": "apply_post_prep_primer_trim", "args": [{"$repr": "PosixPath"}, ["ACGT"], ["TGCA"], {"recheck_tool": "vsearch", "keep_retained_fasta": false}]}
