@@ -4041,7 +4041,7 @@ dependencies = [
 
 [[package]]
 name = "taxondbbuilder-gui"
-version = "3.3.10"
+version = "3.4.0"
 dependencies = [
  "chrono",
  "open",
