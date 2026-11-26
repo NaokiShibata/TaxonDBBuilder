@@ -1156,3 +1156,25 @@ def apply_post_prep_primer_trim(
         recheck_rescued,
         recheck_error,
     )
+# >>> rust-anything: primer-trim-rs is on. `rust-anything disable ../../rust/primer-trim-rs` removes this block.
+def _rust_anything_primer_trim_rs():
+    import importlib, os, sys
+    mode = os.environ.get("RUST_ANYTHING_MODE")
+    if mode == "old" or os.environ.get("RUST_ANYTHING_UNIT_PRIMER_TRIM") == "original":
+        return
+    at = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../rust/primer-trim-rs/python"))
+    sys.path.insert(0, at)
+    try:
+        native = importlib.import_module("primer_trim_rs")
+    except ImportError:
+        if mode == "new":
+            raise
+        return
+    finally:
+        sys.path.remove(at)
+    globals().update({name: getattr(native, name) for name in ["apply_post_prep_primer_trim"]})
+
+
+_rust_anything_primer_trim_rs()
+del _rust_anything_primer_trim_rs
+# <<< rust-anything: primer-trim-rs
