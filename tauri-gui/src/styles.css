@@ -1064,8 +1064,10 @@ progress {
   font-size: 12px;
   line-height: 1.45;
 
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* rich renders the Run Summary as a bordered table; wrapping it breaks the
+     borders mid-character, so keep lines raw and scroll horizontally. */
+  white-space: pre;
+  overflow-wrap: normal;
   tab-size: 2;
   scrollbar-gutter: stable;
 }
