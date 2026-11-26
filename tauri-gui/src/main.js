@@ -17,6 +17,22 @@ import {
   renderTreeSVG
 } from "./tree-view.js";
 
+// Tauri's init script can finish after this module starts running
+// (tauri#12348), leaving __TAURI_INTERNALS__ undefined for the startup
+// invokes below. Wait for the bridge instead of failing with
+// "Cannot read properties of undefined (reading 'invoke')".
+if (typeof window.__TAURI_INTERNALS__ === "undefined") {
+  await new Promise((resolve) => {
+    const deadline = Date.now() + 5000;
+    const timer = setInterval(() => {
+      if (typeof window.__TAURI_INTERNALS__ !== "undefined" || Date.now() > deadline) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 25);
+  });
+}
+
 const els = {
   tabSetup: document.querySelector("#tab-setup"),
   tabMonitor: document.querySelector("#tab-monitor"),
