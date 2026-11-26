@@ -203,11 +203,16 @@ def fetch_and_build(
             os.link(staged, out_db)  # exclusive publish: fails if something is there
         except Exception as exc:
             if displaced is not None:
+                # Restore only into an empty destination: os.rename would
+                # clobber whatever another publisher just wrote. If the
+                # destination is occupied (or links are unsupported), keep
+                # the backup and report its path instead.
                 try:
-                    os.rename(displaced, out_db)  # restore the active DB
+                    os.link(displaced, out_db)  # exclusive restore
+                    os.unlink(displaced)
                     displaced = None
                 except OSError:
-                    pass  # both files kept; the message below names the backup
+                    pass
             if isinstance(exc, FileExistsError):
                 if not replace:
                     raise FileExistsError(

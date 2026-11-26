@@ -97,16 +97,41 @@ def test_failed_publish_restores_the_active_db(tmp_path: Path, monkeypatch: pyte
     out_db.parent.mkdir(parents=True)
     out_db.write_bytes(b"active database")
 
-    def failing_link(*args, **kwargs):
-        raise OSError("no hard links on this filesystem")
+    real_link = taxonomy_db.os.link
 
-    monkeypatch.setattr(taxonomy_db.os, "link", failing_link)
+    def failing_publish_link(src, dst, *args, **kwargs):
+        # Only the staged publish fails; the filesystem still supports links.
+        if ".taxonomy-fetch-" in str(src):
+            raise OSError("no space left on device")
+        return real_link(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(taxonomy_db.os, "link", failing_publish_link)
 
     with pytest.raises(RuntimeError, match="publishing .* failed"):
         taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
 
     assert out_db.read_bytes() == b"active database"
     assert not [p for p in out_db.parent.iterdir() if ".old-" in p.name]
+
+
+def test_no_link_filesystem_keeps_backup_and_reports_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="exfat.tar.gz")
+    out_db = tmp_path / "exfat" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"active database")
+
+    def failing_link(*args, **kwargs):
+        raise OSError("hard links are not supported on this filesystem")
+
+    monkeypatch.setattr(taxonomy_db.os, "link", failing_link)
+
+    with pytest.raises(RuntimeError, match=r"kept as .*taxonomy\.db\.old-"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"active database"
 
 
 def test_replace_displaces_a_file_swapped_during_the_build(
@@ -134,6 +159,36 @@ def test_replace_displaces_a_file_swapped_during_the_build(
     olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
     assert len(olds) == 1 and olds[0].read_bytes() == b"someone else's database"
     assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
+
+
+def test_rollback_keeps_both_files_when_destination_reappears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="gap.tar.gz")
+    out_db = tmp_path / "gap" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"consented database")
+
+    real_link = taxonomy_db.os.link
+    publish_calls: list[str] = []
+
+    def racing_link(src, dst, *args, **kwargs):
+        # The publish link loses the race: another writer claims the slot.
+        publish_calls.append(str(dst))
+        if len(publish_calls) == 1:
+            Path(dst).write_bytes(b"republished by another writer")
+            raise FileExistsError(17, "File exists", str(dst))
+        return real_link(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(taxonomy_db.os, "link", racing_link)
+
+    with pytest.raises(RuntimeError, match="appeared during the final publish"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    # The other writer's DB stays in place; the consented DB survives as backup.
+    assert out_db.read_bytes() == b"republished by another writer"
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"consented database"
 
 
 @pytest.mark.parametrize("stage", ["download", "missing-names", "corrupt-archive", "empty", "duplicate"])
