@@ -12,7 +12,8 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 chrono = { version = "0.4", features = ["clock", "serde"] }
 open = "5"
-rfd = "0.15"
+# gtk3 backend (the app is GTK already): native dialogs without a Zenity dependency.
+rfd = { version = "0.15", default-features = false, features = ["gtk3"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

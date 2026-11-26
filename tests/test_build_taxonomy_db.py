@@ -75,6 +75,30 @@ def test_replace_publishes_over_existing_db(tmp_path: Path) -> None:
     assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
 
 
+def test_replace_aborts_if_the_file_changes_after_confirmation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="swap.tar.gz")
+    out_db = tmp_path / "swap" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"consented database")
+
+    original = taxonomy_db.extract_names_dmp
+
+    def swapping_extract(*args, **kwargs):
+        result = original(*args, **kwargs)
+        out_db.unlink()
+        out_db.write_bytes(b"someone else's database")
+        return result
+
+    monkeypatch.setattr(taxonomy_db, "extract_names_dmp", swapping_extract)
+
+    with pytest.raises(RuntimeError, match="changed after the replace confirmation"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert out_db.read_bytes() == b"someone else's database"
+
+
 @pytest.mark.parametrize("stage", ["download", "missing-names", "corrupt-archive", "empty", "duplicate"])
 def test_failures_keep_the_existing_db(tmp_path: Path, stage: str, monkeypatch: pytest.MonkeyPatch) -> None:
     out_db = tmp_path / "taxonomy.db"

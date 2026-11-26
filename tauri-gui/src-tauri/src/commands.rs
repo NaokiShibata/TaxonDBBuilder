@@ -24,6 +24,22 @@ fn completion_status(cancelled: bool, code: i32) -> &'static str {
 
 static TAXONOMY_DB_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
+/// Clears the busy flag on any exit path, including early error returns.
+struct TaxonomyBusyGuard;
+
+impl Drop for TaxonomyBusyGuard {
+    fn drop(&mut self) {
+        TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
+    }
+}
+
+fn take_taxonomy_busy() -> Result<TaxonomyBusyGuard, String> {
+    if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
+        return Err("taxonomy download is already running".to_string());
+    }
+    Ok(TaxonomyBusyGuard)
+}
+
 /// Ask on the main thread whether replacing an existing taxonomy.db is allowed.
 /// Consent is per attempt: nothing is persisted.
 fn prompt_replace(app: &AppHandle, target: &std::path::Path) -> Result<bool, String> {
@@ -46,14 +62,13 @@ fn prompt_replace(app: &AppHandle, target: &std::path::Path) -> Result<bool, Str
     rx.recv().map_err(|e| format!("replace prompt failed: {e}"))
 }
 
-fn run_taxonomy_fetch_build(app: &AppHandle, replace: bool) -> Result<String, String> {
+fn run_taxonomy_fetch_build(app: &AppHandle, db_path: &std::path::Path, replace: bool) -> Result<String, String> {
     let sidecar_path = resolve_sidecar_path(app)?;
-    let db_path = taxonomy_db_download_path(app)?;
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
     let mut command = std::process::Command::new(&sidecar_path);
-    command.args(["taxonomy-fetch-build", "--out-db"]).arg(&db_path);
+    command.args(["taxonomy-fetch-build", "--out-db"]).arg(db_path);
     if replace {
         command.arg("--replace");
     }
@@ -79,9 +94,7 @@ pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<String, String> {
 #[tauri::command]
 pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, String> {
     // Same exclusivity as the download: no folder swap while a build runs.
-    if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
-        return Err("taxonomy download is running; pick a folder after it finishes".to_string());
-    }
+    let _busy = take_taxonomy_busy()?;
     let result = (|| {
         // A broken override must never block the repair path: use it as a hint only.
         let start = taxonomy_db_download_path(&app)
@@ -98,17 +111,16 @@ pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, S
         let db_path = set_taxonomy_db_dir(&app, &dir)?;
         Ok(Some(db_path.to_string_lossy().into_owned()))
     })();
-    TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
     result
 }
 
 /// Ok(None) means the user declined the replace prompt: nothing was written.
 #[tauri::command]
 pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<Option<String>, String> {
-    if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
-        return Err("taxonomy download is already running".to_string());
-    }
     let result = tauri::async_runtime::spawn_blocking(move || {
+        // The guard releases the flag on every exit path, including errors.
+        let _busy = take_taxonomy_busy()?;
+        // Resolve once: the prompt and the sidecar use this exact destination.
         let db_path = taxonomy_db_download_path(&app)?;
         let mut replace = false;
         if db_path.exists() {
@@ -117,11 +129,10 @@ pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<Option<String
             }
             replace = true;
         }
-        run_taxonomy_fetch_build(&app, replace).map(Some)
+        run_taxonomy_fetch_build(&app, &db_path, replace).map(Some)
     })
     .await
     .map_err(|e| format!("taxonomy download task failed: {e}"))??;
-    TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
     Ok(result)
 }
 

@@ -165,6 +165,16 @@ def fetch_and_build(
     """
     out_db = out_db.expanduser()
     out_db.parent.mkdir(parents=True, exist_ok=True)
+
+    def stat_or_none(path: Path):
+        try:
+            return path.stat(follow_symlinks=False)
+        except FileNotFoundError:
+            return None
+
+    # With replace, the consented file's identity is captured now and re-checked
+    # at publish time: a swapped or newly appeared destination aborts the run.
+    consented_stat = stat_or_none(out_db) if replace else None
     with tempfile.TemporaryDirectory(prefix=".taxonomy-fetch-", dir=out_db.parent) as tmp:
         tmp_path = Path(tmp)
         if archive is not None:
@@ -185,6 +195,27 @@ def fetch_and_build(
             raise ValueError(f"generated taxonomy.db failed quick_check: {check}")
         staged = tmp_path / "taxonomy.db"
         if replace:
+            current = stat_or_none(out_db)
+            if consented_stat is not None:
+                same_identity = current is not None and (
+                    current.st_dev,
+                    current.st_ino,
+                    current.st_mtime_ns,
+                    current.st_size,
+                ) == (
+                    consented_stat.st_dev,
+                    consented_stat.st_ino,
+                    consented_stat.st_mtime_ns,
+                    consented_stat.st_size,
+                )
+                if not same_identity:
+                    raise RuntimeError(
+                        f"{out_db} changed after the replace confirmation; nothing was replaced"
+                    )
+            elif current is not None:
+                raise RuntimeError(
+                    f"{out_db} appeared during the build; nothing was replaced"
+                )
             os.replace(staged, out_db)
         else:
             try:
