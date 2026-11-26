@@ -1055,8 +1055,8 @@ function resetForm() {
   els.postEnableInput.checked = true;
   setPrimerCandidateSelection(["mifish_unity"]);
   syncPrimerSetFromCandidates();
-  setMsaTreeMode("per_taxid");
-  setPostPrepStepSelection(["primer_trim", "length_filter", "quality_filter"]);
+  setMsaTreeMode("disabled");
+  setPostPrepStepSelection(["primer_trim"]);
   setOutputExportFormatSelection([]);
   state.baseConfigPath = "";
   els.loadedDbTomlPath.textContent = "";
