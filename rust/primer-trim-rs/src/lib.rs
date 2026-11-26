@@ -114,6 +114,7 @@ fn error(message: String) -> PyErr {
 
 fn apply_post_prep_primer_trim_inner(
     py: Python<'_>,
+    raised: &std::cell::RefCell<Option<PyErr>>,
     fasta_path: Bound<'_, PyAny>,
     forward_primers: Vec<String>,
     reverse_primers: Vec<String>,
@@ -126,18 +127,15 @@ fn apply_post_prep_primer_trim_inner(
     };
     // The source calls its module-level `run_vsearch_endpoint_recheck`, so tests can
     // monkeypatch it: cross back through `primer_trim` instead of a private port copy.
+    // A Python exception from the callback is stored and re-raised unchanged, like the
+    // source letting it propagate.
     let recheck = |ctx: &port::Ctx,
                    rows: &mut Vec<serde_json::Map<String, serde_json::Value>>,
-                   seqs: &[String]|
+                   seqs: &mut Vec<String>|
      -> Result<(i64, i64, Option<String>), String> {
         let pyerr = |e: PyErr| {
-            let name = e
-                .value(py)
-                .get_type()
-                .name()
-                .map(|n| n.to_string())
-                .unwrap_or_else(|_| "RuntimeError".to_string());
-            format!("{name}: {e}")
+            *raised.borrow_mut() = Some(e);
+            "primer-trim: the recheck callback raised".to_string()
         };
         let run = py
             .import("taxondbbuilder.postprep.primer_trim")
@@ -156,7 +154,7 @@ fn apply_post_prep_primer_trim_inner(
             })
             .collect::<Result<_, _>>()?;
         let py_rows = pyo3::types::PyList::new(py, row_objects).unwrap();
-        let py_seqs = pyo3::types::PyList::new(py, seqs).unwrap();
+        let py_seqs = pyo3::types::PyList::new(py, &*seqs).unwrap();
         let out = run
             .call1((
                 &py_rows,
@@ -171,6 +169,20 @@ fn apply_post_prep_primer_trim_inner(
             .map_err(pyerr)?;
         let (attempted, rescued, error): (i64, i64, Option<String>) =
             out.extract().map_err(pyerr)?;
+        // The source hands the very same two lists to the rebuild: read back what the
+        // callback left in them, including length changes the rebuild then rejects.
+        *seqs = py_seqs
+            .iter()
+            .map(|item| item.extract::<String>().map_err(pyerr))
+            .collect::<Result<_, _>>()?;
+        if py_rows.len() != seqs.len() {
+            return Err(format!(
+                "ValueError: primer sidecar rows ({}) != sequences ({})",
+                py_rows.len(),
+                seqs.len()
+            ));
+        }
+        rows.resize(py_rows.len(), serde_json::Map::new());
         for (row, item) in rows.iter_mut().zip(py_rows.iter()) {
             if let serde_json::Value::Object(updated) = crate::pyconv::FromPy::from_py(&item)? {
                 *row = updated;
@@ -198,9 +210,17 @@ fn apply_post_prep_primer_trim(
     reverse_primers: Vec<String>,
     options: Option<Bound<'_, PyAny>>,
 ) -> PyResult<Py<PyAny>> {
-    apply_post_prep_primer_trim_inner(py, fasta_path, forward_primers, reverse_primers, options)
-        .map_err(error)
-        .and_then(|v| crate::pyconv::ToPy::to_py(&v, py))
+    let raised = std::cell::RefCell::new(None);
+    apply_post_prep_primer_trim_inner(
+        py,
+        &raised,
+        fasta_path,
+        forward_primers,
+        reverse_primers,
+        options,
+    )
+    .map_err(|e| raised.borrow_mut().take().unwrap_or_else(|| error(e)))
+    .and_then(|v| crate::pyconv::ToPy::to_py(&v, py))
 }
 
 #[pymodule]

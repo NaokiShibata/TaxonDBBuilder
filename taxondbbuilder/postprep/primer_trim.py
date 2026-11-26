@@ -1165,6 +1165,9 @@ def _rust_anything_primer_trim_rs():
     at = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../../rust/primer-trim-rs/python"))
     sys.path.insert(0, at)
     try:
+        # Bind this checkout's wrapper even if another checkout's copy is already
+        # imported; a stale module in sys.modules would shadow the path insert.
+        sys.modules.pop("primer_trim_rs", None)
         native = importlib.import_module("primer_trim_rs")
     except ImportError:
         if mode == "new":

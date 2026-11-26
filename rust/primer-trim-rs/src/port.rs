@@ -22,8 +22,8 @@ pub struct Primer {
 
 /// The module-level `run_vsearch_endpoint_recheck` of `primer_trim.py`, passed in by the
 /// bindings so monkeypatching it (as the tests do) still takes effect.
-pub type RecheckFn<'a> =
-    dyn Fn(&Ctx, &mut Vec<Row>, &[String]) -> Result<(i64, i64, Option<String>), String> + 'a;
+pub type RecheckFn<'a> = dyn Fn(&Ctx, &mut Vec<Row>, &mut Vec<String>) -> Result<(i64, i64, Option<String>), String>
+    + 'a;
 
 pub struct Ctx {
     pub forward: Vec<Primer>,
@@ -128,7 +128,12 @@ fn unwrap_marker(v: &Value) -> Value {
             return json!(i);
         }
         if let Some(f) = marker_float(m) {
-            return json!(f);
+            // Non-finite floats have no JSON representation: keep the marker intact and
+            // let to_float and to_int decode it.
+            if f.is_finite() {
+                return json!(f);
+            }
+            return v.clone();
         }
     }
     v.clone()
@@ -160,13 +165,23 @@ fn opts_get(opts: &Value, key: &str, default: Value) -> Value {
 
 fn to_int(v: &Value) -> Result<i64, String> {
     let v = unwrap_marker(v);
+    let big = |i: i128| i.clamp(i64::MIN as i128, i64::MAX as i128) as i64;
+    let f64_to_int = |f: f64| -> Result<i64, String> {
+        if f.is_nan() {
+            return Err("ValueError: cannot convert float NaN to integer".to_string());
+        }
+        if f.is_infinite() {
+            return Err("OverflowError: cannot convert float infinity to integer".to_string());
+        }
+        Ok(f as i64)
+    };
     match &v {
         Value::Bool(b) => Ok(i64::from(*b)),
         Value::Number(n) => {
             if let Some(i) = n.as_i64() {
                 Ok(i)
             } else if let Some(f) = n.as_f64() {
-                Ok(f as i64)
+                Ok(f64_to_int(f)?)
             } else {
                 Err(format!(
                     "TypeError: int() argument must be a string, a bytes-like object or a real number, not '{kind}'",
@@ -177,7 +192,22 @@ fn to_int(v: &Value) -> Result<i64, String> {
         Value::String(s) => s
             .trim()
             .parse::<i64>()
+            .or_else(|_| s.trim().parse::<i128>().map(big))
             .map_err(|_| format!("ValueError: invalid literal for int() with base 10: '{s}'")),
+        Value::Object(m) if m.len() == 1 => {
+            if let Some(Value::String(s)) = m.get("$int") {
+                return s.trim().parse::<i128>().map(big).map_err(|_| {
+                    format!("ValueError: invalid literal for int() with base 10: '{s}'")
+                });
+            }
+            if let Some(f) = marker_float(m) {
+                return f64_to_int(f);
+            }
+            Err(format!(
+                "TypeError: int() argument must be a string, a bytes-like object or a real number, not '{}'",
+                py_type_name(&v)
+            ))
+        }
         _ => Err(format!(
             "TypeError: int() argument must be a string, a bytes-like object or a real number, not '{kind}'",
             kind = py_type_name(&v)
@@ -196,6 +226,9 @@ fn to_float(v: &Value) -> Result<f64, String> {
             .trim()
             .parse::<f64>()
             .map_err(|_| format!("ValueError: could not convert string to float: '{s}'")),
+        Value::Object(m) if m.len() == 1 && marker_float(m).is_some() => {
+            Ok(marker_float(m).unwrap())
+        }
         _ => Err(format!(
             "TypeError: float() argument must be a string or a real number, not '{kind}'",
             kind = py_type_name(&v)
@@ -211,6 +244,15 @@ fn to_bool(v: &Value) -> bool {
         Value::Number(n) => n.as_f64().is_some_and(|f| f != 0.0),
         Value::String(s) => !s.is_empty(),
         Value::Array(a) => !a.is_empty(),
+        Value::Object(m) if m.len() == 1 => {
+            if let Some(f) = marker_float(m) {
+                f != 0.0
+            } else if let Some(Value::String(s)) = m.get("$int") {
+                s.parse::<i128>().map(|i| i != 0).unwrap_or(true)
+            } else {
+                true
+            }
+        }
         Value::Object(m) => !m.is_empty(),
     }
 }
@@ -466,21 +508,46 @@ fn matches_token(seq_token: &str, primer_token: &str) -> bool {
     seq_token.chars().count() == 1 && allowed_of_token(primer_token).contains(seq_token)
 }
 
+/// Python slice bounds: negative indices count from the end, indices clamp to the
+/// sequence, and a stop below the start yields the empty slice.
+fn py_slice(start: i64, stop: i64, len: i64) -> (usize, usize) {
+    let norm = |i: i64| {
+        if i < 0 {
+            (i + len).clamp(0, len)
+        } else {
+            i.clamp(0, len)
+        }
+    };
+    let (s, e) = (norm(start), norm(stop));
+    if e <= s {
+        (0, 0)
+    } else {
+        (s as usize, e as usize)
+    }
+}
+
 fn required_overlap_bp(
     primer_len: i64,
     min_overlap_bp: Option<i64>,
     min_overlap_ratio: f64,
-) -> i64 {
-    let ratio_required = py_round(primer_len as f64 * min_overlap_ratio);
+) -> Result<i64, String> {
+    let scaled = primer_len as f64 * min_overlap_ratio;
+    if scaled.is_nan() {
+        return Err("ValueError: cannot convert float NaN to integer".to_string());
+    }
+    if scaled.is_infinite() {
+        return Err("OverflowError: cannot convert float infinity to integer".to_string());
+    }
+    let ratio_required = py_round(scaled);
     let ratio_required = if primer_len <= 0 {
         1
     } else {
         ratio_required.clamp(1, primer_len)
     };
     match min_overlap_bp {
-        None => ratio_required,
-        Some(_) if primer_len <= 0 => 1,
-        Some(bp) => bp.max(ratio_required).clamp(1, primer_len),
+        None => Ok(ratio_required),
+        Some(_) if primer_len <= 0 => Ok(1),
+        Some(bp) => Ok(bp.max(ratio_required).clamp(1, primer_len)),
     }
 }
 
@@ -495,18 +562,19 @@ fn best_endpoint(
     min_overlap_ratio: f64,
     max_offset: i64,
     from_end: bool,
-) -> Option<Match> {
+) -> Result<Option<Match>, String> {
     let seq_len = work_seq.len() as i64;
     let mut best: Option<Match> = None;
     for primer in primers {
         // `len(primer)` in the source counts the raw string, not the upper-cased expansion.
         let primer_len = primer.original.chars().count() as i64;
         let max_overlap = primer_len.min(seq_len);
-        let required = required_overlap_bp(primer_len, min_overlap_bp, min_overlap_ratio);
+        let required = required_overlap_bp(primer_len, min_overlap_bp, min_overlap_ratio)?;
         if max_overlap < required {
             continue;
         }
-        let max_shift = max_offset.max(0).min((seq_len - required).max(0));
+        // A negative `end_max_offset` leaves `range(max_shift + 1)` empty in the source.
+        let max_shift = max_offset.min((seq_len - required).max(0));
         // work_primer = primer[::-1] (when from_end), upper-cased per character by the source.
         let (pbytes, ptokens): (Vec<u8>, Vec<String>) = if primer.upper.is_ascii() {
             let mut bytes = primer.upper.as_bytes().to_vec();
@@ -545,7 +613,13 @@ fn best_endpoint(
                 );
                 if mismatches <= max_mismatch {
                     let error_rate = mismatches as f64 / overlap as f64;
-                    if error_rate <= max_error_rate {
+                    // The source skips with `error_rate > max_error_rate`, which lets a NaN
+                    // threshold through: every comparison against NaN is false.
+                    let over_rate = matches!(
+                        error_rate.partial_cmp(&max_error_rate),
+                        Some(std::cmp::Ordering::Greater)
+                    );
+                    if !over_rate {
                         let candidate = Match {
                             primer: primer.original.clone(),
                             overlap_bp: overlap,
@@ -566,7 +640,7 @@ fn best_endpoint(
             }
         }
     }
-    best
+    Ok(best)
 }
 
 // ---------- pipeline ----------
@@ -743,6 +817,32 @@ fn build_ctx(
     })
 }
 
+/// `shutil.copyfile`: it raises SameFileError before opening the destination for writing,
+/// so a symlinked or hard-linked retained path never truncates the input.
+/// shortcut: dev/ino identity on unix only; other platforms skip the SameFileError check.
+fn copyfile(src: &Path, dst: &Path) -> Result<(), String> {
+    #[cfg(unix)]
+    let same = fs::metadata(src)
+        .and_then(|a| fs::metadata(dst).map(|b| (a, b)))
+        .is_ok_and(|(a, b)| {
+            use std::os::unix::fs::MetadataExt;
+            a.dev() == b.dev() && a.ino() == b.ino()
+        });
+    #[cfg(not(unix))]
+    let same = false;
+    if same {
+        let rp = |p: &Path| format!("PosixPath('{}')", p.display());
+        return Err(format!(
+            "shutil.SameFileError: {} and {} are the same file",
+            rp(src),
+            rp(dst)
+        ));
+    }
+    fs::copy(src, dst)
+        .map(|_| ())
+        .map_err(|e| io_error(&e, dst))
+}
+
 fn read_utf8(path: &Path) -> Result<String, String> {
     let bytes = fs::read(path).map_err(|e| io_error(&e, path))?;
     String::from_utf8(bytes).map_err(|e| {
@@ -777,7 +877,7 @@ fn read_primer_records(path: &Path) -> Result<Vec<(String, String)>, String> {
     for line in lines {
         if let Some(rest) = line.strip_prefix('>') {
             if let Some(t) = title.take() {
-                records.push((t, finish_seq(&seq_parts)));
+                records.push((t, finish_seq(&seq_parts)?));
                 seq_parts.clear();
             }
             title = Some(rest.trim_end().to_string());
@@ -786,20 +886,31 @@ fn read_primer_records(path: &Path) -> Result<Vec<(String, String)>, String> {
         }
     }
     if let Some(t) = title.take() {
-        records.push((t, finish_seq(&seq_parts)));
+        records.push((t, finish_seq(&seq_parts)?));
     }
     Ok(records)
 }
 
 /// The parser strips all " \\t\\r\\n" from the joined sequence, then the caller uppercases
 /// and maps U to T.
-fn finish_seq(parts: &[String]) -> String {
+fn finish_seq(parts: &[String]) -> Result<String, String> {
     let joined: String = parts
         .iter()
         .flat_map(|p| p.chars())
         .filter(|c| !matches!(c, ' ' | '\t' | '\r' | '\n'))
         .collect();
-    joined.to_uppercase().replace('U', "T")
+    // Biopython stores sequence bytes and decodes them as ASCII in `str(record.seq)`,
+    // before the caller's `.upper()`.
+    let bytes = joined.as_bytes();
+    if let Some(pos) = bytes.iter().position(|b| !b.is_ascii()) {
+        // The ASCII codec reports one byte at a time, like `bytes.decode("ascii")`.
+        return Err(format!(
+            "UnicodeDecodeError: \u{1}ascii\u{1}{pos}\u{1}{}\u{1}ordinal not in range(128)\u{1}{:02x}",
+            pos + 1,
+            bytes[pos]
+        ));
+    }
+    Ok(joined.to_uppercase().replace('U', "T"))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -811,7 +922,7 @@ fn trim_record_for_round(
     max_mismatch: i64,
     overlap_ratio: f64,
     overlap_bp: Option<i64>,
-) -> (Row, Option<String>, Counts) {
+) -> Result<(Row, Option<String>, Counts), String> {
     let seq_ascii = seq_upper.is_ascii();
     let work = WorkSeq::new(seq_upper);
     let work_rev = work.reversed_view();
@@ -825,7 +936,7 @@ fn trim_record_for_round(
         overlap_ratio,
         ctx.end_max_offset,
         false,
-    );
+    )?;
     let canonical_right = best_endpoint(
         &work_rev,
         &ctx.reverse_rc,
@@ -835,7 +946,7 @@ fn trim_record_for_round(
         overlap_ratio,
         ctx.end_max_offset,
         true,
-    );
+    )?;
     let reverse_left = best_endpoint(
         &work,
         &ctx.reverse,
@@ -845,7 +956,7 @@ fn trim_record_for_round(
         overlap_ratio,
         ctx.end_max_offset,
         false,
-    );
+    )?;
     let reverse_right = best_endpoint(
         &work_rev,
         &ctx.forward_rc,
@@ -855,7 +966,7 @@ fn trim_record_for_round(
         overlap_ratio,
         ctx.end_max_offset,
         true,
-    );
+    )?;
 
     let canon = (
         matched_ends(&canonical_left, &canonical_right),
@@ -926,7 +1037,8 @@ fn trim_record_for_round(
 
     let trimmed: Option<String> = if seq_ascii {
         let bytes = seq_upper.as_bytes();
-        let cut = &bytes[left_len as usize..right_index as usize];
+        let (s, e) = py_slice(left_len, right_index, bytes.len() as i64);
+        let cut = &bytes[s..e];
         if cut.is_empty() {
             None
         } else {
@@ -934,9 +1046,8 @@ fn trim_record_for_round(
         }
     } else {
         let chars: Vec<char> = seq_upper.chars().collect();
-        let cut: String = chars[left_len as usize..right_index as usize]
-            .iter()
-            .collect();
+        let (s, e) = py_slice(left_len, right_index, chars.len() as i64);
+        let cut: String = chars[s..e].iter().collect();
         if cut.is_empty() { None } else { Some(cut) }
     };
     let dropped = usize::from(trimmed.is_none()) as i64;
@@ -956,7 +1067,7 @@ fn trim_record_for_round(
         confidence,
         dropped,
     );
-    (row, trimmed, counts)
+    Ok((row, trimmed, counts))
 }
 
 fn confidence_label(matched_ends: i64, mismatch_total: i64, ambiguous: bool) -> &'static str {
@@ -1046,10 +1157,14 @@ fn row_i64(row: &Row, key: &str, default: i64) -> i64 {
         .unwrap_or(default)
 }
 
-fn run_round(ctx: &Ctx, records: &[(String, String)], round_idx: i64) -> RoundResult {
+fn run_round(
+    ctx: &Ctx,
+    records: &[(String, String)],
+    round_idx: i64,
+) -> Result<RoundResult, String> {
     let relax = round_idx - 1;
     let overlap_bp = ctx.min_overlap_bp.map(|bp| 8.max(bp - relax));
-    let max_mismatch = ctx.max_mismatch + relax;
+    let max_mismatch = ctx.max_mismatch.saturating_add(relax);
     let overlap_ratio = (0.5f64).max(ctx.min_overlap_ratio - 0.05 * relax as f64);
 
     let mut trimmed_records = Vec::new();
@@ -1064,7 +1179,7 @@ fn run_round(ctx: &Ctx, records: &[(String, String)], round_idx: i64) -> RoundRe
             max_mismatch,
             overlap_ratio,
             overlap_bp,
-        );
+        )?;
         counts.add(&row_counts);
         rows.push(row);
         if let Some(t) = trimmed {
@@ -1072,7 +1187,7 @@ fn run_round(ctx: &Ctx, records: &[(String, String)], round_idx: i64) -> RoundRe
         }
     }
     let before = records.len() as i64;
-    RoundResult {
+    Ok(RoundResult {
         round: round_idx,
         records: trimmed_records,
         rows,
@@ -1082,7 +1197,7 @@ fn run_round(ctx: &Ctx, records: &[(String, String)], round_idx: i64) -> RoundRe
         } else {
             0.0
         },
-    }
+    })
 }
 
 impl Counts {
@@ -1100,7 +1215,7 @@ impl Counts {
     }
 }
 
-fn run_rounds(ctx: &Ctx, records: &[(String, String)]) -> Vec<RoundResult> {
+fn run_rounds(ctx: &Ctx, records: &[(String, String)]) -> Result<Vec<RoundResult>, String> {
     let round_limit = if ctx.iter_enable {
         1.max(ctx.iter_max_rounds)
     } else {
@@ -1110,7 +1225,7 @@ fn run_rounds(ctx: &Ctx, records: &[(String, String)]) -> Vec<RoundResult> {
     let mut previous_rate: Option<f64> = None;
     let mut round_idx = 1i64;
     while round_idx <= round_limit {
-        let result = run_round(ctx, records, round_idx);
+        let result = run_round(ctx, records, round_idx)?;
         let high_rate = result.high_conf_rate;
         results.push(result);
         if !ctx.iter_enable {
@@ -1127,7 +1242,7 @@ fn run_rounds(ctx: &Ctx, records: &[(String, String)]) -> Vec<RoundResult> {
         previous_rate = Some(high_rate);
         round_idx += 1;
     }
-    results
+    Ok(results)
 }
 
 // ---------- recheck inputs ----------
@@ -1216,16 +1331,11 @@ fn summarize_rows(
         };
         row.insert("trim_start".into(), json!(left_len));
         row.insert("trim_end".into(), json!(right_index));
+        let (s, e) = py_slice(left_len, right_index, seq_len);
         let trimmed: String = if seq.is_ascii() {
-            seq.as_bytes()[left_len as usize..right_index as usize]
-                .iter()
-                .map(|b| *b as char)
-                .collect()
+            seq.as_bytes()[s..e].iter().map(|b| *b as char).collect()
         } else {
-            seq.chars()
-                .skip(left_len as usize)
-                .take((right_index - left_len) as usize)
-                .collect()
+            seq.chars().skip(s).take(e - s).collect()
         };
         if trimmed.is_empty() {
             counts.dropped_empty += 1;
@@ -1482,7 +1592,7 @@ pub fn apply_post_prep_primer_trim(
     )?;
 
     if ctx.keep_retained_fasta {
-        fs::copy(&ctx.fasta, &ctx.retained_path).map_err(|e| io_error(&e, &ctx.retained_path))?;
+        copyfile(&ctx.fasta, &ctx.retained_path)?;
     }
     let records = read_primer_records(&ctx.fasta)?;
 
@@ -1508,7 +1618,7 @@ pub fn apply_post_prep_primer_trim(
         return Ok(Value::Object(out));
     }
 
-    let results = run_rounds(&ctx, &records);
+    let results = run_rounds(&ctx, &records)?;
     let mut best_idx = 0usize;
     for (i, r) in results.iter().enumerate().skip(1) {
         let cur = &results[best_idx];
@@ -1539,8 +1649,8 @@ pub fn apply_post_prep_primer_trim(
     let (recheck_attempted, recheck_rescued, recheck_error) = match ctx.recheck_tool.as_str() {
         "off" => (0, 0, None),
         "vsearch" => {
-            let seqs = aligned_sequences(&records, &rows)?;
-            let (attempted, rescued, error) = recheck(&ctx, &mut rows, &seqs)?;
+            let mut seqs = aligned_sequences(&records, &rows)?;
+            let (attempted, rescued, error) = recheck(&ctx, &mut rows, &mut seqs)?;
             let (rebuilt_records, rebuilt_summary) =
                 summarize_rows(&mut rows, &seqs, &ctx.trim_mode)?;
             best_records = rebuilt_records;
