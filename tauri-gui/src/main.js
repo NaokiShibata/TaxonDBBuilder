@@ -717,6 +717,9 @@ function setTreeViewControlsEnabled(enabled) {
 function collectTreePaths() {
   const collected = state.files.filter((path) => path.toLowerCase().endsWith(".tree.nwk"));
   if (collected.length) return collected;
+  // A finished run sends its file list; without a .tree.nwk in it (MSA set to
+  // Do not run) guessing `${outputPath}.tree.nwk` only produces a load error.
+  if (state.files.length) return [];
   return state.outputPath ? [`${state.outputPath}.tree.nwk`] : [];
 }
 
