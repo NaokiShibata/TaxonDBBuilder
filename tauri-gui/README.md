@@ -67,6 +67,8 @@ AppImageの実行時にも `gstreamer1.0-plugins-base` が必要です。未導�
 `taxonomy.db` の生成・更新手順は [taxonomy-db-build](../docs/taxonomy-db-build.md) を参照してください。
 GUI は学名検索時に `taxonomy.db` を探索します（例: `tauri-gui/resources/taxonomy.db`）。
 
+Taxon Input カードの **Download taxonomy DB** ボタンでも生成できます。押すと NCBI から `taxdump.tar.gz` を取得し、アプリのローカルデータ領域（アプリ別のユーザーディレクトリ）の `taxonomy.db` に生成します。この DB は他の探索先より優先され、失敗時は従来どおりの探索先が使われます。手動で生成する場合は以下のコマンドを使います。
+
 リポジトリルートで、[NCBI Taxonomy FTPサイト](https://ftp.ncbi.nlm.nih.gov/pub/taxonomy/)の`taxdump.tar.gz`をHTTPSで取得し、`names.dmp`を取り出します。
 `names.dmp`は名称一覧で、このDBの構築には学名を表す`scientific name`の行だけを使います。
 

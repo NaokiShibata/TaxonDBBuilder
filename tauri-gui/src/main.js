@@ -55,6 +55,8 @@ const els = {
   taxidInput: document.querySelector("#taxid-input"),
   taxonNameInput: document.querySelector("#taxon-name-input"),
   taxonCandidates: document.querySelector("#taxon-candidates"),
+  taxonomyDownload: document.querySelector("#taxonomy-download"),
+  taxonomyStatus: document.querySelector("#taxonomy-status"),
   addTaxid: document.querySelector("#add-taxid"),
   clearTaxids: document.querySelector("#clear-taxids"),
   taxidList: document.querySelector("#taxid-list"),
@@ -1121,6 +1123,24 @@ els.taxidInput.addEventListener("keydown", (event) => {
 
 els.taxonNameInput?.addEventListener("input", () => {
   scheduleTaxonSearch();
+});
+
+els.taxonomyDownload?.addEventListener("click", async () => {
+  els.taxonomyDownload.disabled = true;
+  els.taxonomyDownload.setAttribute("aria-busy", "true");
+  els.taxonomyStatus.textContent = "Downloading taxonomy DB…";
+  try {
+    const path = await invoke("download_taxonomy_db");
+    els.taxonomyStatus.textContent = "taxonomy.db updated";
+    monitorView.appendLog(`[info] taxonomy.db updated: ${path}`);
+    if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
+  } catch (error) {
+    els.taxonomyStatus.textContent = "Download failed";
+    monitorView.appendLog(`[error] taxonomy download failed: ${error}`);
+  } finally {
+    els.taxonomyDownload.disabled = false;
+    els.taxonomyDownload.setAttribute("aria-busy", "false");
+  }
 });
 
 els.taxonNameInput?.addEventListener("keydown", (event) => {

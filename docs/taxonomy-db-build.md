@@ -104,3 +104,15 @@ CREATE INDEX idx_taxonomy_scientific_name_nocase
 3. `tools/build_taxonomy_db.py all ...` を実行
 4. `tauri-gui/resources/taxonomy.db` を更新
 5. GUI を再ビルド / 再配布
+
+## 8. GUI からの更新
+
+GUI の Taxon Input カードにある **Download taxonomy DB** ボタンは、sidecar 経由で `taxondbbuilder taxonomy-fetch-build --out-db <アプリのローカルデータ領域>/taxonomy.db` を実行します。NCBI からの取得から `taxonomy.db` の生成までを1操作で行い、検証に成功したときだけ既存の DB を差し替えます。失敗時は既存の DB が残り、GUI は従来の探索先を引き続き使います。
+
+同じ処理は CLI でも実行できます。
+
+```bash
+taxondbbuilder taxonomy-fetch-build --out-db tauri-gui/resources/taxonomy.db
+```
+
+`--archive` を付けると `taxdump.tar.gz` の取得を省略でき、オフラインで再生成できます。

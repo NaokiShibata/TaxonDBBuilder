@@ -803,8 +803,22 @@ pub(crate) fn save_gui_config_internal(app: &AppHandle, config: &GuiConfig) -> R
     write_gui_config(&path, config)
 }
 
+/// The per-user location the "Download taxonomy DB" button writes to.
+pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("failed to resolve app local data dir: {e}"))?;
+    Ok(dir.join("taxonomy.db"))
+}
+
 pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, String> {
     let mut candidates: Vec<PathBuf> = Vec::new();
+
+    // A DB downloaded through the GUI takes precedence over bundled copies.
+    if let Ok(downloaded) = taxonomy_db_download_path(app) {
+        candidates.push(downloaded);
+    }
 
     if let Ok(resource_dir) = app.path().resource_dir() {
         candidates.push(resource_dir.join("taxonomy.db"));
@@ -842,7 +856,7 @@ pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, Strin
         .collect::<Vec<_>>()
         .join(", ");
     Err(format!(
-        "taxonomy.db not found. Place it at tauri-gui/resources/taxonomy.db (searched: {searched})"
+        "taxonomy.db not found. Press \"Download taxonomy DB\" in the Taxon Input card or place it at tauri-gui/resources/taxonomy.db (searched: {searched})"
     ))
 }
 

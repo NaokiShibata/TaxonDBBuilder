@@ -86,6 +86,7 @@ from .postprep.primer_trim import apply_post_prep_primer_trim
 from .record_index import HeaderCollisionError
 
 from .partial_success import run_bold_with_policy, staged_outputs, sources_manifest, published_path
+from .taxonomy_db import fetch_and_build
 
 app = typer.Typer(
     add_completion=False,
@@ -927,6 +928,26 @@ def list_markers(
         aliases_text = ", ".join(aliases) if aliases else "-"
         table.add_row(str(key), aliases_text, str(header_format) or "-")
     console.print(table)
+
+
+@app.command("taxonomy-fetch-build")
+def taxonomy_fetch_build(
+    out_db: Path = typer.Option(..., "--out-db", help="taxonomy.db output path."),
+    archive: Path = typer.Option(
+        None,
+        "--archive",
+        help="Use a local taxdump.tar.gz instead of downloading from NCBI.",
+    ),
+) -> None:
+    """
+    Download NCBI taxdump and build taxonomy.db atomically (used by the GUI).
+    """
+    try:
+        inserted = fetch_and_build(out_db, archive)
+    except Exception as exc:
+        typer.secho(f"taxonomy build failed: {exc}", fg="red", err=True)
+        raise typer.Exit(code=1)
+    typer.echo(f"inserted {inserted} rows -> {out_db}")
 
 
 @app.command("list-primer-sets")

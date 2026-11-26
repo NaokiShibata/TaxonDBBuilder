@@ -106,6 +106,15 @@
                     autocomplete="off"
                   />
                   <ul id="taxon-candidates" class="taxon-candidate-list"></ul>
+                  <div
+                    class="taxonomy-download-row"
+                    data-help="Download NCBI taxdump and rebuild the taxonomy search database."
+                  >
+                    <button id="taxonomy-download" type="button">
+                      Download taxonomy DB
+                    </button>
+                    <span id="taxonomy-status" role="status"></span>
+                  </div>
                   <label
                     for="taxid-input"
                     data-help="Enter one or more NCBI TaxIDs separated by commas."

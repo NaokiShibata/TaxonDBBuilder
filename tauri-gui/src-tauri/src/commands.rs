@@ -1,6 +1,6 @@
 use crate::config::*;
 use crate::progress::*;
-use crate::sidecar::{run_build_via_sidecar, terminate_process_tree, BuildParams};
+use crate::sidecar::{run_build_via_sidecar, resolve_sidecar_path, terminate_process_tree, BuildParams};
 use crate::state::*;
 use chrono::Local;
 use rfd::FileDialog;
@@ -20,6 +20,42 @@ fn completion_status(cancelled: bool, code: i32) -> &'static str {
         (false, 3) => "PartialSuccess",
         _ => "Failed",
     }
+}
+
+static TAXONOMY_DB_DOWNLOADING: AtomicBool = AtomicBool::new(false);
+
+fn run_taxonomy_fetch_build(app: &AppHandle) -> Result<String, String> {
+    let sidecar_path = resolve_sidecar_path(app)?;
+    let db_path = taxonomy_db_download_path(app)?;
+    if let Some(parent) = db_path.parent() {
+        fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+    }
+    let output = std::process::Command::new(&sidecar_path)
+        .args(["taxonomy-fetch-build", "--out-db"])
+        .arg(&db_path)
+        .output()
+        .map_err(|e| format!("failed to start {}: {e}", sidecar_path.display()))?;
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let tail = stderr.lines().rev().take(3).collect::<Vec<_>>().join(" | ");
+        return Err(format!(
+            "taxonomy fetch-build failed (exit {:?}): {tail}",
+            output.status.code()
+        ));
+    }
+    Ok(db_path.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
+pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<String, String> {
+    if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
+        return Err("taxonomy download is already running".to_string());
+    }
+    let result = tauri::async_runtime::spawn_blocking(move || run_taxonomy_fetch_build(&app))
+        .await
+        .map_err(|e| format!("taxonomy download task failed: {e}"));
+    TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
+    result?
 }
 
 #[tauri::command]
