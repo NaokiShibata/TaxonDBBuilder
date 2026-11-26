@@ -1141,11 +1141,15 @@ function setTaxonomyTarget(target) {
 function invokeTaxonomyDownload(confirmReplace) {
   return invoke("download_taxonomy_db", {
     confirmReplace,
-    expectedToken: state.taxonomyToken ?? null,
+    expectedToken: state.taxonomyToken,
   });
 }
 
 els.taxonomyDownload?.addEventListener("click", async () => {
+  if (!state.taxonomyToken) {
+    els.taxonomyStatusText.textContent = "Download target unavailable — use Change… first";
+    return;
+  }
   setTaxonomyBusy(true);
   els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
   try {

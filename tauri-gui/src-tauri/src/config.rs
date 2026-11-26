@@ -858,39 +858,31 @@ fn write_bytes_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String
 }
 
 /// Remember a user-picked folder; taxonomy.db keeps its fixed file name.
-/// No overwrite consent is stored here: the Download prompt decides per attempt.
-pub(crate) fn set_taxonomy_db_dir(app: &AppHandle, dir: &std::path::Path) -> Result<PathBuf, String> {
+/// Returns the target together with the token derived from the stored bytes.
+pub(crate) fn set_taxonomy_db_dir(app: &AppHandle, dir: &std::path::Path) -> Result<(PathBuf, String), String> {
     let file = taxonomy_db_dir_override_file(app)?;
     if let Some(parent) = file.parent() {
         fs::create_dir_all(parent)
             .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
-    write_bytes_atomic(&file, &path_to_bytes(dir))?;
-    Ok(dir.join("taxonomy.db"))
+    let bytes = path_to_bytes(dir);
+    write_bytes_atomic(&file, &bytes)?;
+    Ok((dir.join("taxonomy.db"), format!("{:x}", fnv1a64(&bytes))))
 }
 
-/// Changes whenever the download-target setting changes; lets a stale
-/// client request be rejected before anything is written.
-pub(crate) fn taxonomy_db_target_token(app: &AppHandle) -> Result<String, String> {
-    let file = taxonomy_db_dir_override_file(app)?;
-    match fs::metadata(&file) {
-        Ok(meta) => {
-            let ns = meta
-                .modified()
-                .map_err(|e| format!("failed to read mtime of {}: {e}", file.display()))?
-                .duration_since(std::time::UNIX_EPOCH)
-                .map_err(|e| e.to_string())?
-                .as_nanos();
-            Ok(format!("{ns:x}"))
-        }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("default".to_string()),
-        Err(e) => Err(format!("failed to read {}: {e}", file.display())),
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
     }
+    hash
 }
 
-/// The location the "Download taxonomy DB" button writes to (user-picked folder wins).
-/// A corrupt or invalid override is an error, never a silent fallback to the default.
-pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, String> {
+/// The download target and a token derived from the SAME read of the setting.
+/// Token equality proves the path is the one the client was shown; it changes
+/// exactly when the stored directory bytes change.
+pub(crate) fn taxonomy_db_target(app: &AppHandle) -> Result<(PathBuf, String), String> {
     let file = taxonomy_db_dir_override_file(app)?;
     match fs::read(&file) {
         Ok(bytes) => {
@@ -902,16 +894,23 @@ pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, Stri
                     file.display()
                 ));
             }
-            return Ok(dir.join("taxonomy.db"));
+            Ok((dir.join("taxonomy.db"), format!("{:x}", fnv1a64(&bytes))))
         }
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
-        Err(e) => return Err(format!("failed to read {}: {e}", file.display())),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let dir = app
+                .path()
+                .app_local_data_dir()
+                .map_err(|e| format!("failed to resolve app local data dir: {e}"))?;
+            Ok((dir.join("taxonomy.db"), "default".to_string()))
+        }
+        Err(e) => Err(format!("failed to read {}: {e}", file.display())),
     }
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("failed to resolve app local data dir: {e}"))?;
-    Ok(dir.join("taxonomy.db"))
+}
+
+/// The location the "Download taxonomy DB" button writes to (user-picked folder wins).
+/// A corrupt or invalid override is an error, never a silent fallback to the default.
+pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, String> {
+    taxonomy_db_target(app).map(|(path, _token)| path)
 }
 
 pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, String> {

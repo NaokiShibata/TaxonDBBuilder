@@ -73,8 +73,40 @@ def test_replace_publishes_over_existing_db(tmp_path: Path) -> None:
 
     assert inserted == 2
     assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
-    # The displaced file is kept, never silently destroyed.
-    assert (out_db.parent / "taxonomy.db.old").read_bytes() == b"previous database"
+    # The displaced file is kept under a unique .old-* name, never clobbered.
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"previous database"
+
+
+def test_replace_never_clobbers_an_existing_backup(tmp_path: Path) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="keepold.tar.gz")
+    out_db = tmp_path / "keepold" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"active database")
+    existing_backup = out_db.parent / "taxonomy.db.old"
+    existing_backup.write_bytes(b"earlier backup")
+
+    taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert existing_backup.read_bytes() == b"earlier backup"
+
+
+def test_failed_publish_restores_the_active_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="restore.tar.gz")
+    out_db = tmp_path / "restore" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"active database")
+
+    def failing_link(*args, **kwargs):
+        raise OSError("no hard links on this filesystem")
+
+    monkeypatch.setattr(taxonomy_db.os, "link", failing_link)
+
+    with pytest.raises(RuntimeError, match="publishing .* failed"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert out_db.read_bytes() == b"active database"
+    assert not [p for p in out_db.parent.iterdir() if ".old-" in p.name]
 
 
 def test_replace_displaces_a_file_swapped_during_the_build(
@@ -98,8 +130,9 @@ def test_replace_displaces_a_file_swapped_during_the_build(
     inserted = taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
 
     assert inserted == 2
-    # The mid-build foreign file was displaced to .old, not overwritten in place.
-    assert (out_db.parent / "taxonomy.db.old").read_bytes() == b"someone else's database"
+    # The mid-build foreign file was displaced to a unique backup, not overwritten.
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"someone else's database"
     assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
 
 

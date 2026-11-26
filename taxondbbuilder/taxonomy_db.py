@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import tarfile
 import tempfile
+import time
 import urllib.request
 from collections.abc import Iterator
 from itertools import batched
@@ -159,8 +160,9 @@ def fetch_and_build(
 
     Without replace, an existing out_db is never touched: publishing uses a
     no-clobber link so a file that appears during the build fails the run.
-    With replace, the entry currently at out_db is atomically displaced to
-    <name>.old and kept there, then the verified database is published.
+    With replace, the entry currently at out_db is atomically displaced to a
+    unique .old-<pid>-<ns> name and kept there, then the verified database is
+    published; a failed publish restores the displaced file first.
     Staging happens on the output directory so the final step stays on one
     filesystem.
     """
@@ -185,27 +187,41 @@ def fetch_and_build(
         if check != "ok":
             raise ValueError(f"generated taxonomy.db failed quick_check: {check}")
         staged = tmp_path / "taxonomy.db"
+        displaced: Path | None = None
         if replace:
-            # Displace the current entry atomically and keep it: whatever the
-            # user confirmed (or something that replaced it meanwhile) is saved
-            # as <name>.old instead of being silently overwritten.
+            # Displace the current entry to a unique, unoccupied name and keep
+            # it; a pre-existing backup is never clobbered. On any failure the
+            # active database is restored before the error propagates.
             try:
-                os.replace(out_db, out_db.with_name(out_db.name + ".old"))
+                displaced = out_db.with_name(
+                    f"{out_db.name}.old-{os.getpid()}-{time.time_ns()}"
+                )
+                os.replace(out_db, displaced)
             except FileNotFoundError:
-                pass
-            try:
-                os.link(staged, out_db)  # exclusive publish: fails if something appeared
-            except FileExistsError:
+                displaced = None
+        try:
+            os.link(staged, out_db)  # exclusive publish: fails if something is there
+        except Exception as exc:
+            if displaced is not None:
+                try:
+                    os.rename(displaced, out_db)  # restore the active DB
+                    displaced = None
+                except OSError:
+                    pass  # both files kept; the message below names the backup
+            if isinstance(exc, FileExistsError):
+                if not replace:
+                    raise FileExistsError(
+                        f"{out_db} already exists; nothing was replaced (use --replace after user confirmation)"
+                    ) from None
                 raise RuntimeError(
-                    f"{out_db} appeared during the final publish; nothing was replaced, the previous file is kept as {out_db.name}.old"
+                    f"{out_db} appeared during the final publish; nothing was replaced"
+                    + (f", the previous file is kept as {displaced}" if displaced else "")
                 ) from None
-            os.unlink(staged)
-        else:
-            try:
-                os.link(staged, out_db)  # exclusive publish: fails if out_db exists
-            except FileExistsError:
-                raise FileExistsError(
-                    f"{out_db} already exists; nothing was replaced (use --replace after user confirmation)"
-                ) from None
-            os.unlink(staged)
+            raise RuntimeError(
+                f"publishing {out_db} failed: {exc}"
+                + (f"; the previous file is kept as {displaced}" if displaced else "")
+            ) from exc
+        if displaced is not None:
+            print(f"previous taxonomy.db kept as {displaced}")
+        os.unlink(staged)
     return inserted

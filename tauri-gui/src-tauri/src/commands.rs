@@ -51,9 +51,10 @@ pub(crate) struct TaxonomyTarget {
 }
 
 fn taxonomy_target(app: &AppHandle) -> Result<TaxonomyTarget, String> {
+    let (path, token) = taxonomy_db_target(app)?;
     Ok(TaxonomyTarget {
-        path: taxonomy_db_download_path(app)?.to_string_lossy().into_owned(),
-        token: taxonomy_db_target_token(app)?,
+        path: path.to_string_lossy().into_owned(),
+        token,
     })
 }
 
@@ -103,10 +104,10 @@ pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<TaxonomyTa
         else {
             return Ok(None);
         };
-        let db_path = set_taxonomy_db_dir(&app, &dir)?;
+        let (db_path, token) = set_taxonomy_db_dir(&app, &dir)?;
         Ok(Some(TaxonomyTarget {
             path: db_path.to_string_lossy().into_owned(),
-            token: taxonomy_db_target_token(&app)?,
+            token,
         }))
     })();
     result
@@ -114,31 +115,33 @@ pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<TaxonomyTa
 
 /// Err(REPLACE_CONFIRMATION_REQUIRED) means the caller must ask the user and
 /// retry with confirm_replace = true. Nothing is written until then.
+/// expected_token must match the target the caller was shown; a mismatch
+/// means another instance changed the setting and nothing is written.
 #[tauri::command]
 pub(crate) async fn download_taxonomy_db(
     app: AppHandle,
     confirm_replace: Option<bool>,
-    expected_token: Option<String>,
+    expected_token: String,
 ) -> Result<TaxonomyTarget, String> {
     let result = tauri::async_runtime::spawn_blocking(move || {
         // The guard releases the flag on every exit path, including errors.
         let _busy = take_taxonomy_busy()?;
-        // Resolve once: the check and the sidecar use this exact destination.
-        let db_path = taxonomy_db_download_path(&app)?;
-        let token = taxonomy_db_target_token(&app)?;
-        if let Some(expected) = &expected_token {
-            if expected != &token {
-                return Err(
-                    "taxonomy target changed elsewhere; re-read the target line and retry".to_string(),
-                );
-            }
+        // One read yields path + token; the check and the sidecar use them.
+        let (db_path, token) = taxonomy_db_target(&app)?;
+        if expected_token != token {
+            return Err(
+                "taxonomy target changed elsewhere; re-read the target line and retry".to_string(),
+            );
         }
         let replace = db_path.exists();
         if replace && !confirm_replace.unwrap_or(false) {
             return Err(REPLACE_CONFIRMATION_REQUIRED.to_string());
         }
         let path = run_taxonomy_fetch_build(&app, &db_path, replace)?;
-        Ok(TaxonomyTarget { path, token })
+        Ok(TaxonomyTarget {
+            path,
+            token,
+        })
     })
     .await
     .map_err(|e| format!("taxonomy download task failed: {e}"))??;
