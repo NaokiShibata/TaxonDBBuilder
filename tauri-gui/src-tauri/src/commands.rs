@@ -52,6 +52,24 @@ pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, String> {
+    let current = taxonomy_db_download_path(&app)?;
+    let start = current
+        .parent()
+        .map(|p| p.to_path_buf())
+        .unwrap_or_default();
+    let picked = FileDialog::new()
+        .set_directory(&start)
+        .set_title("Select folder for taxonomy.db")
+        .pick_folder();
+    let Some(dir) = picked else {
+        return Ok(None);
+    };
+    let db_path = set_taxonomy_db_dir(&app, &dir)?;
+    Ok(Some(db_path.to_string_lossy().into_owned()))
+}
+
+#[tauri::command]
 pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<String, String> {
     if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
         return Err("taxonomy download is already running".to_string());

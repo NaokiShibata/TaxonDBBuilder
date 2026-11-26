@@ -280,6 +280,12 @@ select {
   overflow-wrap: anywhere;
 }
 
+.taxonomy-status #taxonomy-target-change {
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
 .card-marker {
   order: 2;
 }

@@ -30,7 +30,7 @@ test("Download taxonomy DB blocks double runs, reports success, and re-runs the 
 
   await page.fill("#taxon-name-input", "Homo sapiens");
   await expect(page.locator("#taxon-candidates")).toContainText("Homo sapiens : 9606");
-  await expect(page.locator("#taxonomy-status")).toHaveText("Download target: /local/taxonomy.db");
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("Download target: /local/taxonomy.db");
 
   // Button sits beside the input; status renders on the line below it.
   const input = await geometry(page, "#taxon-name-input");
@@ -47,12 +47,12 @@ test("Download taxonomy DB blocks double runs, reports success, and re-runs the 
   await page.click("#taxonomy-download");
   await expect(page.locator("#taxonomy-download")).toBeDisabled();
   await expect(page.locator("#taxonomy-download")).toHaveAttribute("aria-busy", "true");
-  await expect(page.locator("#taxonomy-status")).toHaveText("Downloading taxonomy DB…");
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("Downloading taxonomy DB…");
   await page.click("#taxonomy-download", { force: true });
   expect(await downloadCount(page)).toBe(1);
 
   await page.evaluate(() => window.resolveTaxonomyDownload("/local/taxonomy.db"));
-  await expect(page.locator("#taxonomy-status")).toHaveText("taxonomy.db updated: /local/taxonomy.db");
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("taxonomy.db updated: /local/taxonomy.db");
   await expect(page.locator("#taxonomy-download")).toBeEnabled();
   await expect(page.locator("#taxonomy-download")).toHaveAttribute("aria-busy", "false");
   expect(await downloadCount(page)).toBe(1);
@@ -74,7 +74,7 @@ test("a failed download reports the error and lets the user retry", async ({ pag
   });
 
   await page.click("#taxonomy-download");
-  await expect(page.locator("#taxonomy-status")).toHaveText("Download failed. Target: /local/taxonomy.db");
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("Download failed. Target: /local/taxonomy.db");
   await expect(page.locator("#log-view")).toContainText("taxonomy download failed: Error: network down");
   await expect(page.locator("#taxonomy-download")).toBeEnabled();
   await expect(page.locator("#taxonomy-download")).toHaveAttribute("aria-busy", "false");
@@ -82,4 +82,24 @@ test("a failed download reports the error and lets the user retry", async ({ pag
   await page.click("#taxonomy-download");
   expect(await downloadCount(page)).toBe(2);
   expect(errors).toEqual([]);
+});
+
+test("Change… moves the download target and a cancelled picker keeps it", async ({ page }) => {
+  await openGuiApp(page, {
+    get_taxonomy_db_path: pathStub,
+    choose_taxonomy_db_dir: { value: "/data/taxa/taxonomy.db" },
+  });
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("Download target: /local/taxonomy.db");
+
+  await page.click("#taxonomy-target-change");
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("Download target: /data/taxa/taxonomy.db");
+  await expect(page.locator("#log-view")).toContainText("taxonomy.db target: /data/taxa/taxonomy.db");
+
+  await page.evaluate(() => {
+    const original = window.__TAURI_INTERNALS__.invoke;
+    window.__TAURI_INTERNALS__.invoke = (cmd, args) =>
+      cmd === "choose_taxonomy_db_dir" ? Promise.resolve(null) : original(cmd, args);
+  });
+  await page.click("#taxonomy-target-change");
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("Download target: /data/taxa/taxonomy.db");
 });

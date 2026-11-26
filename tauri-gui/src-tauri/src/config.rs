@@ -803,8 +803,38 @@ pub(crate) fn save_gui_config_internal(app: &AppHandle, config: &GuiConfig) -> R
     write_gui_config(&path, config)
 }
 
-/// The per-user location the "Download taxonomy DB" button writes to.
+/// File holding the user-picked download directory (one path).
+fn taxonomy_db_dir_override_file(app: &AppHandle) -> Result<PathBuf, String> {
+    let dir = app
+        .path()
+        .app_local_data_dir()
+        .map_err(|e| format!("failed to resolve app local data dir: {e}"))?;
+    Ok(dir.join("taxonomy_db_dir"))
+}
+
+/// Remember a user-picked folder; taxonomy.db keeps its fixed file name.
+pub(crate) fn set_taxonomy_db_dir(app: &AppHandle, dir: &std::path::Path) -> Result<PathBuf, String> {
+    let file = taxonomy_db_dir_override_file(app)?;
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+    }
+    // shortcut: lossy path serialization, switch to a bytes/OsStr codec if non-UTF-8 paths must round-trip.
+    fs::write(&file, dir.to_string_lossy().as_bytes())
+        .map_err(|e| format!("failed to save taxonomy db dir to {}: {e}", file.display()))?;
+    Ok(dir.join("taxonomy.db"))
+}
+
+/// The location the "Download taxonomy DB" button writes to (user-picked folder wins).
 pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, String> {
+    if let Ok(file) = taxonomy_db_dir_override_file(app) {
+        if let Ok(raw) = fs::read_to_string(&file) {
+            let trimmed = raw.trim();
+            if !trimmed.is_empty() {
+                return Ok(PathBuf::from(trimmed).join("taxonomy.db"));
+            }
+        }
+    }
     let dir = app
         .path()
         .app_local_data_dir()

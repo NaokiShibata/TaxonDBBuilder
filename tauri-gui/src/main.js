@@ -56,7 +56,8 @@ const els = {
   taxonNameInput: document.querySelector("#taxon-name-input"),
   taxonCandidates: document.querySelector("#taxon-candidates"),
   taxonomyDownload: document.querySelector("#taxonomy-download"),
-  taxonomyStatus: document.querySelector("#taxonomy-status"),
+  taxonomyStatusText: document.querySelector("#taxonomy-status-text"),
+  taxonomyTargetChange: document.querySelector("#taxonomy-target-change"),
   addTaxid: document.querySelector("#add-taxid"),
   clearTaxids: document.querySelector("#clear-taxids"),
   taxidList: document.querySelector("#taxid-list"),
@@ -1128,15 +1129,15 @@ els.taxonNameInput?.addEventListener("input", () => {
 els.taxonomyDownload?.addEventListener("click", async () => {
   els.taxonomyDownload.disabled = true;
   els.taxonomyDownload.setAttribute("aria-busy", "true");
-  els.taxonomyStatus.textContent = "Downloading taxonomy DB…";
+  els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
   try {
     const path = await invoke("download_taxonomy_db");
     state.taxonomyTarget = path;
-    els.taxonomyStatus.textContent = `taxonomy.db updated: ${path}`;
+    els.taxonomyStatusText.textContent = `taxonomy.db updated: ${path}`;
     monitorView.appendLog(`[info] taxonomy.db updated: ${path}`);
     if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
   } catch (error) {
-    els.taxonomyStatus.textContent = state.taxonomyTarget
+    els.taxonomyStatusText.textContent = state.taxonomyTarget
       ? `Download failed. Target: ${state.taxonomyTarget}`
       : "Download failed";
     monitorView.appendLog(`[error] taxonomy download failed: ${error}`);
@@ -1146,13 +1147,25 @@ els.taxonomyDownload?.addEventListener("click", async () => {
   }
 });
 
+els.taxonomyTargetChange?.addEventListener("click", async () => {
+  try {
+    const picked = await invoke("choose_taxonomy_db_dir");
+    if (!picked) return; // picker cancelled: keep the current target.
+    state.taxonomyTarget = picked;
+    els.taxonomyStatusText.textContent = `Download target: ${picked}`;
+    monitorView.appendLog(`[info] taxonomy.db target: ${picked}`);
+  } catch (error) {
+    monitorView.appendLog(`[error] taxonomy target change failed: ${error}`);
+  }
+});
+
 async function initTaxonomyDownloadTarget() {
-  if (!els.taxonomyStatus) return;
+  if (!els.taxonomyStatusText) return;
   try {
     const path = await invoke("get_taxonomy_db_path");
     if (!path) return;
     state.taxonomyTarget = path;
-    els.taxonomyStatus.textContent = `Download target: ${path}`;
+    els.taxonomyStatusText.textContent = `Download target: ${path}`;
   } catch {
     // The click handler surfaces backend errors including this command's.
   }
