@@ -1,5 +1,6 @@
 """Console rendering helpers."""
 
+import sys
 from pathlib import Path
 
 from rich.console import Console
@@ -8,7 +9,10 @@ from rich.table import Table
 
 from .models import BuildSource
 
-console = Console()
+# Piped output (the GUI sidecar) is not a terminal, and rich defaults to 80
+# columns there, folding long paths mid-character for the Realtime Log.
+# Terminals keep rich's own width detection.
+console = Console(width=None if sys.stdout.isatty() else 4096)
 
 
 def print_header() -> None:
