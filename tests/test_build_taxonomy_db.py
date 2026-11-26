@@ -73,9 +73,11 @@ def test_replace_publishes_over_existing_db(tmp_path: Path) -> None:
 
     assert inserted == 2
     assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
+    # The displaced file is kept, never silently destroyed.
+    assert (out_db.parent / "taxonomy.db.old").read_bytes() == b"previous database"
 
 
-def test_replace_aborts_if_the_file_changes_after_confirmation(
+def test_replace_displaces_a_file_swapped_during_the_build(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="swap.tar.gz")
@@ -93,10 +95,12 @@ def test_replace_aborts_if_the_file_changes_after_confirmation(
 
     monkeypatch.setattr(taxonomy_db, "extract_names_dmp", swapping_extract)
 
-    with pytest.raises(RuntimeError, match="changed after the replace confirmation"):
-        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+    inserted = taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
 
-    assert out_db.read_bytes() == b"someone else's database"
+    assert inserted == 2
+    # The mid-build foreign file was displaced to .old, not overwritten in place.
+    assert (out_db.parent / "taxonomy.db.old").read_bytes() == b"someone else's database"
+    assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
 
 
 @pytest.mark.parametrize("stage", ["download", "missing-names", "corrupt-archive", "empty", "duplicate"])

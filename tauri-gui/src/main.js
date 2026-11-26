@@ -1133,26 +1133,57 @@ function setTaxonomyBusy(busy) {
   els.taxonomyDownload?.setAttribute("aria-busy", busy ? "true" : "false");
 }
 
+function setTaxonomyTarget(target) {
+  state.taxonomyTarget = target.path;
+  state.taxonomyToken = target.token;
+}
+
+function invokeTaxonomyDownload(confirmReplace) {
+  return invoke("download_taxonomy_db", {
+    confirmReplace,
+    expectedToken: state.taxonomyToken ?? null,
+  });
+}
+
 els.taxonomyDownload?.addEventListener("click", async () => {
   setTaxonomyBusy(true);
   els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
   try {
-    const path = await invoke("download_taxonomy_db");
-    if (!path) {
-      // Replace declined: nothing was written, restore the target line.
-      els.taxonomyStatusText.textContent = state.taxonomyTarget
-        ? `Download target: ${state.taxonomyTarget}`
-        : "";
-      return;
+    let result;
+    try {
+      result = await invokeTaxonomyDownload(false);
+    } catch (error) {
+      if (!String(error).includes("REPLACE_CONFIRMATION_REQUIRED")) throw error;
+      const ok = window.confirm(
+        `Replace the existing taxonomy.db?\n\n${state.taxonomyTarget}\n\nThe current file is kept as taxonomy.db.old.`
+      );
+      if (!ok) {
+        els.taxonomyStatusText.textContent = state.taxonomyTarget
+          ? `Download target: ${state.taxonomyTarget}`
+          : "";
+        return;
+      }
+      els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
+      result = await invokeTaxonomyDownload(true);
     }
-    state.taxonomyTarget = path;
-    els.taxonomyStatusText.textContent = `taxonomy.db updated: ${path}`;
-    monitorView.appendLog(`[info] taxonomy.db updated: ${path}`);
+    setTaxonomyTarget(result);
+    els.taxonomyStatusText.textContent = `taxonomy.db updated: ${result.path}`;
+    monitorView.appendLog(`[info] taxonomy.db updated: ${result.path}`);
     if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
   } catch (error) {
-    els.taxonomyStatusText.textContent = state.taxonomyTarget
-      ? `Download failed. Target: ${state.taxonomyTarget}`
-      : "Download failed";
+    if (String(error).includes("target changed elsewhere")) {
+      try {
+        const target = await invoke("get_taxonomy_db_path");
+        setTaxonomyTarget(target);
+        els.taxonomyStatusText.textContent = `Target changed — now: ${target.path}`;
+      } catch {
+        els.taxonomyStatusText.textContent = "Download failed";
+      }
+    } else {
+      els.taxonomyStatusText.textContent = state.taxonomyTarget
+        ? `Download failed. Target: ${state.taxonomyTarget}`
+        : "Download failed";
+    }
     monitorView.appendLog(`[error] taxonomy download failed: ${error}`);
   } finally {
     setTaxonomyBusy(false);
@@ -1162,11 +1193,11 @@ els.taxonomyDownload?.addEventListener("click", async () => {
 els.taxonomyTargetChange?.addEventListener("click", async () => {
   setTaxonomyBusy(true);
   try {
-    const picked = await invoke("choose_taxonomy_db_dir");
-    if (!picked) return; // picker cancelled or replace declined: keep the current target.
-    state.taxonomyTarget = picked;
-    els.taxonomyStatusText.textContent = `Download target: ${picked}`;
-    monitorView.appendLog(`[info] taxonomy.db target: ${picked}`);
+    const target = await invoke("choose_taxonomy_db_dir");
+    if (!target) return; // picker cancelled: keep the current target.
+    setTaxonomyTarget(target);
+    els.taxonomyStatusText.textContent = `Download target: ${target.path}`;
+    monitorView.appendLog(`[info] taxonomy.db target: ${target.path}`);
     if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
   } catch (error) {
     els.taxonomyStatusText.textContent = "Target change failed";
@@ -1181,10 +1212,10 @@ async function initTaxonomyDownloadTarget() {
   // Keep both controls locked until the real target is known (review round 2, #3).
   setTaxonomyBusy(true);
   try {
-    const path = await invoke("get_taxonomy_db_path");
-    if (path) {
-      state.taxonomyTarget = path;
-      els.taxonomyStatusText.textContent = `Download target: ${path}`;
+    const target = await invoke("get_taxonomy_db_path");
+    if (target?.path) {
+      setTaxonomyTarget(target);
+      els.taxonomyStatusText.textContent = `Download target: ${target.path}`;
     }
   } catch (error) {
     els.taxonomyStatusText.textContent = "Download target unavailable — use Change… to pick a folder";

@@ -159,22 +159,13 @@ def fetch_and_build(
 
     Without replace, an existing out_db is never touched: publishing uses a
     no-clobber link so a file that appears during the build fails the run.
-    With replace, the verified database is published atomically over out_db.
+    With replace, the entry currently at out_db is atomically displaced to
+    <name>.old and kept there, then the verified database is published.
     Staging happens on the output directory so the final step stays on one
     filesystem.
     """
     out_db = out_db.expanduser()
     out_db.parent.mkdir(parents=True, exist_ok=True)
-
-    def stat_or_none(path: Path):
-        try:
-            return path.stat(follow_symlinks=False)
-        except FileNotFoundError:
-            return None
-
-    # With replace, the consented file's identity is captured now and re-checked
-    # at publish time: a swapped or newly appeared destination aborts the run.
-    consented_stat = stat_or_none(out_db) if replace else None
     with tempfile.TemporaryDirectory(prefix=".taxonomy-fetch-", dir=out_db.parent) as tmp:
         tmp_path = Path(tmp)
         if archive is not None:
@@ -195,28 +186,20 @@ def fetch_and_build(
             raise ValueError(f"generated taxonomy.db failed quick_check: {check}")
         staged = tmp_path / "taxonomy.db"
         if replace:
-            current = stat_or_none(out_db)
-            if consented_stat is not None:
-                same_identity = current is not None and (
-                    current.st_dev,
-                    current.st_ino,
-                    current.st_mtime_ns,
-                    current.st_size,
-                ) == (
-                    consented_stat.st_dev,
-                    consented_stat.st_ino,
-                    consented_stat.st_mtime_ns,
-                    consented_stat.st_size,
-                )
-                if not same_identity:
-                    raise RuntimeError(
-                        f"{out_db} changed after the replace confirmation; nothing was replaced"
-                    )
-            elif current is not None:
+            # Displace the current entry atomically and keep it: whatever the
+            # user confirmed (or something that replaced it meanwhile) is saved
+            # as <name>.old instead of being silently overwritten.
+            try:
+                os.replace(out_db, out_db.with_name(out_db.name + ".old"))
+            except FileNotFoundError:
+                pass
+            try:
+                os.link(staged, out_db)  # exclusive publish: fails if something appeared
+            except FileExistsError:
                 raise RuntimeError(
-                    f"{out_db} appeared during the build; nothing was replaced"
-                )
-            os.replace(staged, out_db)
+                    f"{out_db} appeared during the final publish; nothing was replaced, the previous file is kept as {out_db.name}.old"
+                ) from None
+            os.unlink(staged)
         else:
             try:
                 os.link(staged, out_db)  # exclusive publish: fails if out_db exists

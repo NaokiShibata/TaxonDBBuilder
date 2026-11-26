@@ -869,6 +869,25 @@ pub(crate) fn set_taxonomy_db_dir(app: &AppHandle, dir: &std::path::Path) -> Res
     Ok(dir.join("taxonomy.db"))
 }
 
+/// Changes whenever the download-target setting changes; lets a stale
+/// client request be rejected before anything is written.
+pub(crate) fn taxonomy_db_target_token(app: &AppHandle) -> Result<String, String> {
+    let file = taxonomy_db_dir_override_file(app)?;
+    match fs::metadata(&file) {
+        Ok(meta) => {
+            let ns = meta
+                .modified()
+                .map_err(|e| format!("failed to read mtime of {}: {e}", file.display()))?
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_err(|e| e.to_string())?
+                .as_nanos();
+            Ok(format!("{ns:x}"))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok("default".to_string()),
+        Err(e) => Err(format!("failed to read {}: {e}", file.display())),
+    }
+}
+
 /// The location the "Download taxonomy DB" button writes to (user-picked folder wins).
 /// A corrupt or invalid override is an error, never a silent fallback to the default.
 pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, String> {

@@ -42,24 +42,19 @@ fn take_taxonomy_busy() -> Result<TaxonomyBusyGuard, String> {
 
 /// Ask on the main thread whether replacing an existing taxonomy.db is allowed.
 /// Consent is per attempt: nothing is persisted.
-fn prompt_replace(app: &AppHandle, target: &std::path::Path) -> Result<bool, String> {
-    let (tx, rx) = std::sync::mpsc::channel();
-    let app = app.clone();
-    let description = format!(
-        "{} already exists. Downloading will replace it.",
-        target.display()
-    );
-    app.run_on_main_thread(move || {
-        let answer = rfd::MessageDialog::new()
-            .set_level(rfd::MessageLevel::Warning)
-            .set_title("Replace existing taxonomy.db?")
-            .set_description(&description)
-            .set_buttons(rfd::MessageButtons::YesNo)
-            .show();
-        let _ = tx.send(matches!(answer, rfd::MessageDialogResult::Yes));
+const REPLACE_CONFIRMATION_REQUIRED: &str = "REPLACE_CONFIRMATION_REQUIRED";
+
+#[derive(serde::Serialize)]
+pub(crate) struct TaxonomyTarget {
+    path: String,
+    token: String,
+}
+
+fn taxonomy_target(app: &AppHandle) -> Result<TaxonomyTarget, String> {
+    Ok(TaxonomyTarget {
+        path: taxonomy_db_download_path(app)?.to_string_lossy().into_owned(),
+        token: taxonomy_db_target_token(app)?,
     })
-    .map_err(|e| format!("failed to open the replace prompt: {e}"))?;
-    rx.recv().map_err(|e| format!("replace prompt failed: {e}"))
 }
 
 fn run_taxonomy_fetch_build(app: &AppHandle, db_path: &std::path::Path, replace: bool) -> Result<String, String> {
@@ -87,12 +82,12 @@ fn run_taxonomy_fetch_build(app: &AppHandle, db_path: &std::path::Path, replace:
 }
 
 #[tauri::command]
-pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<String, String> {
-    Ok(taxonomy_db_download_path(&app)?.to_string_lossy().into_owned())
+pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<TaxonomyTarget, String> {
+    taxonomy_target(&app)
 }
 
 #[tauri::command]
-pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, String> {
+pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<TaxonomyTarget>, String> {
     // Same exclusivity as the download: no folder swap while a build runs.
     let _busy = take_taxonomy_busy()?;
     let result = (|| {
@@ -109,27 +104,41 @@ pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, S
             return Ok(None);
         };
         let db_path = set_taxonomy_db_dir(&app, &dir)?;
-        Ok(Some(db_path.to_string_lossy().into_owned()))
+        Ok(Some(TaxonomyTarget {
+            path: db_path.to_string_lossy().into_owned(),
+            token: taxonomy_db_target_token(&app)?,
+        }))
     })();
     result
 }
 
-/// Ok(None) means the user declined the replace prompt: nothing was written.
+/// Err(REPLACE_CONFIRMATION_REQUIRED) means the caller must ask the user and
+/// retry with confirm_replace = true. Nothing is written until then.
 #[tauri::command]
-pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<Option<String>, String> {
+pub(crate) async fn download_taxonomy_db(
+    app: AppHandle,
+    confirm_replace: Option<bool>,
+    expected_token: Option<String>,
+) -> Result<TaxonomyTarget, String> {
     let result = tauri::async_runtime::spawn_blocking(move || {
         // The guard releases the flag on every exit path, including errors.
         let _busy = take_taxonomy_busy()?;
-        // Resolve once: the prompt and the sidecar use this exact destination.
+        // Resolve once: the check and the sidecar use this exact destination.
         let db_path = taxonomy_db_download_path(&app)?;
-        let mut replace = false;
-        if db_path.exists() {
-            if !prompt_replace(&app, &db_path)? {
-                return Ok(None);
+        let token = taxonomy_db_target_token(&app)?;
+        if let Some(expected) = &expected_token {
+            if expected != &token {
+                return Err(
+                    "taxonomy target changed elsewhere; re-read the target line and retry".to_string(),
+                );
             }
-            replace = true;
         }
-        run_taxonomy_fetch_build(&app, &db_path, replace).map(Some)
+        let replace = db_path.exists();
+        if replace && !confirm_replace.unwrap_or(false) {
+            return Err(REPLACE_CONFIRMATION_REQUIRED.to_string());
+        }
+        let path = run_taxonomy_fetch_build(&app, &db_path, replace)?;
+        Ok(TaxonomyTarget { path, token })
     })
     .await
     .map_err(|e| format!("taxonomy download task failed: {e}"))??;
