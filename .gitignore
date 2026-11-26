@@ -56,3 +56,9 @@ taxdump/
 
 # Playwright E2E run output (traces, error contexts)
 tauri-gui/test-results/
+
+# Local scratch downloads (taxdump working copies etc.)
+/tmp/
+
+# Planning/audit notes (local only)
+docs/taxdump-build-plan.md
