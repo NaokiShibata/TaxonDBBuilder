@@ -6,8 +6,9 @@
 
 #![forbid(unsafe_code)]
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::fs;
+use std::io::{BufRead, Read, Seek};
 use std::path::{Path, PathBuf};
 
 const CREATE_TABLE_SQL: &str = "
@@ -82,16 +83,79 @@ fn io_error(e: &std::io::Error, path: &Path) -> String {
     }
 }
 
-/// Read a file as UTF-8 text, as Python's `path.open("r", encoding="utf-8")` does.
-fn read_utf8(path: &PathBuf) -> Result<String, String> {
-    let bytes = fs::read(path).map_err(|e| io_error(&e, path))?;
-    String::from_utf8(bytes).map_err(|e| {
-        let pos = e.utf8_error().valid_up_to();
-        let byte = e.as_bytes()[pos];
-        format!(
-            "UnicodeDecodeError: 'utf-8' codec can't decode byte 0x{byte:02x} in position {pos}: invalid start byte"
-        )
-    })
+/// Read a file as UTF-8 text, as Python's `path.open("r", encoding="utf-8")` does:
+/// streaming, one line at a time, so memory stays bounded and a bad byte mid-file leaves
+/// everything read before it already handled, like the source's line iteration.
+/// Universal newlines are applied per line, as Python's text mode does.
+fn stream_lines(
+    path: &Path,
+    mut on_line: impl FnMut(&str) -> Result<(), String>,
+) -> Result<(), String> {
+    let file = fs::File::open(path).map_err(|e| io_error(&e, path))?;
+    let mut reader = std::io::BufReader::new(file);
+    let mut buf: Vec<u8> = Vec::new();
+    let mut line_start: usize = 0;
+    loop {
+        buf.clear();
+        let n = reader
+            .read_until(b'\n', &mut buf)
+            .map_err(|e| io_error(&e, path))?;
+        if n == 0 {
+            break;
+        }
+        let mut data = &buf[..];
+        let had_nl = data.ends_with(b"\n");
+        if data.ends_with(b"\n") {
+            data = &data[..data.len() - 1];
+        }
+        if data.ends_with(b"\r") {
+            data = &data[..data.len() - 1];
+        }
+        // A bare \r also ends a line in text mode; split it into segments.
+        let mut off: usize = 0;
+        for seg in data.split(|b| *b == b'\r') {
+            let line = std::str::from_utf8(seg)
+                .map_err(|e| decode_error(seg, e, line_start + off, had_nl))
+                .map(str::to_owned)?;
+            on_line(&line)?;
+            off += seg.len() + 1;
+        }
+        line_start += n;
+    }
+    Ok(())
+}
+
+/// Python's `UnicodeDecodeError` for a failed UTF-8 validation of one line, with the
+/// absolute byte position in the file, as `\u{1}`-separated parts the binding turns into
+/// a real `UnicodeDecodeError` (its constructor takes five arguments).
+/// `\r` line breaks never cut a sequence, so an incomplete sequence only occurs at end of input.
+fn decode_error(seg: &[u8], e: std::str::Utf8Error, line_pos: usize, had_nl: bool) -> String {
+    let start = line_pos + e.valid_up_to();
+    match e.error_len() {
+        Some(1) if (0xc0..=0xf7).contains(&seg[e.valid_up_to()]) => format!(
+            "UnicodeDecodeError: \u{1}utf-8\u{1}{start}\u{1}{}\u{1}invalid continuation byte\u{1}{:02x}",
+            start + 1,
+            seg[e.valid_up_to()]
+        ),
+        Some(_) => format!(
+            "UnicodeDecodeError: \u{1}utf-8\u{1}{start}\u{1}{}\u{1}invalid start byte\u{1}{:02x}",
+            start + 1,
+            seg[e.valid_up_to()]
+        ),
+        None => {
+            // An incomplete sequence at end of input: the last decode call only holds
+            // those bytes, so Python reports them at position 0 of that buffer; one cut
+            // by a newline is an invalid continuation at the real position.
+            let rest = &seg[e.valid_up_to()..];
+            let hex: String = rest.iter().map(|b| format!("{b:02x}")).collect();
+            let (start, end, reason) = if had_nl {
+                (start, start + rest.len(), "invalid continuation byte")
+            } else {
+                (0, rest.len(), "unexpected end of data")
+            };
+            format!("UnicodeDecodeError: \u{1}utf-8\u{1}{start}\u{1}{end}\u{1}{reason}\u{1}{hex}")
+        }
+    }
 }
 
 /// `output.parent.mkdir(parents=True, exist_ok=True)` on the path's parent.
@@ -149,63 +213,82 @@ pub fn extract_scientific_names_csv(
         .map_err(|e| format!("OSError: {e}"))?;
 
     let src = path_arg(&names_dmp, "open")?;
-    let content = read_utf8(&src)?;
-    // Python's universal newlines: \r\n, \r and \n all end a line.
-    let lines = content.replace("\r\n", "\n").replace('\r', "\n");
     let mut count: i64 = 0;
-    for line in lines.split('\n') {
+    stream_lines(&src, |line| {
         if line.is_empty() {
-            continue;
+            return Ok(());
         }
         let line = line.strip_suffix("\t|").unwrap_or(line);
         let parts: Vec<&str> = line.split("\t|\t").collect();
         if parts.len() < 4 {
-            continue;
+            return Ok(());
         }
         let tax_id = parts[0].trim();
         let name = parts[1].trim();
         if parts[3].trim() != "scientific name" {
-            continue;
+            return Ok(());
         }
         let Some(digits) = tax_id_digits(tax_id) else {
-            continue;
+            return Ok(());
         };
         if name.is_empty() {
-            continue;
+            return Ok(());
         }
         writer
             .write_record([digits.as_str(), name])
             .map_err(|e| format!("OSError: {e}"))?;
         count += 1;
-    }
+        Ok(())
+    })?;
     writer.flush().map_err(|e| format!("OSError: {e}"))?;
     Ok(count)
 }
 
 /// Port of `iter_csv_rows` + the header validation (`tools/build_taxonomy_db.py:57`),
-/// returning the rows the source yields.
-fn parse_rows(content: &str, src: &Path) -> Result<Vec<(String, String)>, String> {
-    if content.is_empty() {
+/// streaming one record at a time into `on_row`.
+fn stream_rows(
+    src: &Path,
+    mut on_row: impl FnMut(String, &str) -> Result<(), String>,
+) -> Result<(), String> {
+    let file = fs::File::open(src).map_err(|e| io_error(&e, src))?;
+    if file.metadata().map_err(|e| io_error(&e, src))?.len() == 0 {
         return Err(format!("ValueError: CSV has no header: {}", src.display()));
     }
-    let mut reader = csv::ReaderBuilder::new()
+    // DictReader takes the first physical line as fieldnames: a BOM becomes part of the
+    // first header, and a leading blank line yields the header [""]; neither matches.
+    // The csv crate strips a BOM and skips leading blank lines, so reject them here.
+    let mut reader = std::io::BufReader::new(file);
+    let mut head = [0u8; 3];
+    let got = reader.read(&mut head).map_err(|e| io_error(&e, src))?;
+    let head = &head[..got];
+    if head.starts_with(&[0xef, 0xbb, 0xbf]) || matches!(head.first(), Some(b'\n') | Some(b'\r')) {
+        return Err("ValueError: CSV must contain headers: tax_id, scientific_name".to_string());
+    }
+    let mut rdr = csv::ReaderBuilder::new()
         .flexible(true)
-        .from_reader(content.as_bytes());
-    let headers = reader
-        .headers()
-        .map_err(|e| format!("OSError: {e}"))?
-        .clone();
-    // DictReader keys rows by header text; the source picks, per wanted column, the last
-    // header whose stripped text matches, and reads the first column with that exact text.
+        .from_reader(head.chain(reader));
+    let headers = rdr.headers().map_err(|e| csv_error(e, src))?.clone();
+    for h in headers.iter() {
+        check_field_size(h)?;
+    }
+    // `headers = {h.strip(): h for h in fieldnames if h}` keeps the last header whose
+    // stripped text matches; DictReader keys rows by the raw header, so a repeated key
+    // then reads the last column carrying that exact text.
     let find = |want: &str| -> Option<usize> {
         let mut chosen = None;
         for (i, h) in headers.iter().enumerate() {
-            if h.trim() == want {
+            if !h.is_empty() && h.trim() == want {
                 chosen = Some(i);
             }
         }
-        let chosen = chosen?;
-        headers.iter().position(|h| h == &headers[chosen])
+        let text = &headers[chosen?];
+        let mut last = None;
+        for (i, h) in headers.iter().enumerate() {
+            if h == text {
+                last = Some(i);
+            }
+        }
+        last
     };
     let (tax_idx, sci_idx) = match (find("tax_id"), find("scientific_name")) {
         (Some(tax), Some(sci)) => (tax, sci),
@@ -216,20 +299,59 @@ fn parse_rows(content: &str, src: &Path) -> Result<Vec<(String, String)>, String
         }
     };
 
-    let mut rows = Vec::new();
-    for result in reader.records() {
-        let record = result.map_err(|e| format!("OSError: {e}"))?;
-        let tax_id = record.get(tax_idx).unwrap_or("").trim();
-        let name = record.get(sci_idx).unwrap_or("").trim();
-        let Some(digits) = tax_id_digits(tax_id) else {
+    for result in rdr.records() {
+        let record = result.map_err(|e| csv_error(e, src))?;
+        for field in record.iter() {
+            check_field_size(field)?;
+        }
+        // `str(row.get(col, ""))`: a short row reads DictReader's restval None as "None".
+        let cell = |idx: usize| -> String {
+            match record.get(idx) {
+                Some(v) => v.trim().to_string(),
+                None => "None".to_string(),
+            }
+        };
+        let tax_id = cell(tax_idx);
+        let name = cell(sci_idx);
+        let Some(digits) = tax_id_digits(&tax_id) else {
             continue;
         };
         if name.is_empty() {
             continue;
         }
-        rows.push((digits, name.to_string()));
+        on_row(digits, &name)?;
     }
-    Ok(rows)
+    Ok(())
+}
+
+/// `csv.field_size_limit()` defaults to 131072 bytes; the reader raises on any longer
+/// field, checked in read order.
+fn check_field_size(field: &str) -> Result<(), String> {
+    if field.len() > 131072 {
+        return Err("csv.Error: field larger than field limit (131072)".to_string());
+    }
+    Ok(())
+}
+
+/// A csv crate read error as the Python error the source raises for it.
+fn csv_error(e: csv::Error, src: &Path) -> String {
+    if let csv::ErrorKind::Utf8 { pos: Some(p), .. } = e.kind() {
+        // Python names the offending byte; re-read it at the reported position.
+        if let Ok(mut f) = fs::File::open(src)
+            && let Ok(_) = f.seek(std::io::SeekFrom::Start(p.byte()))
+        {
+            let mut b = [0u8; 1];
+            if f.read(&mut b).unwrap_or(0) == 1 {
+                return format!(
+                    "UnicodeDecodeError: \u{1}utf-8\u{1}{}\u{1}{}\u{1}invalid start byte\u{1}{:02x}",
+                    p.byte(),
+                    p.byte() + 1,
+                    b[0]
+                );
+            }
+        }
+    }
+    format!("OSError: {e}")
 }
 
 /// Port of `build_sqlite_from_csv` (`tools/build_taxonomy_db.py:78`).
@@ -246,9 +368,6 @@ pub fn build_sqlite_from_csv(
     conn.execute_batch(CREATE_TABLE_SQL).map_err(sqlite_err)?;
 
     let src = path_arg(&input_csv, "open")?;
-    let content = read_utf8(&src)?;
-    let rows = parse_rows(&content, &src)?;
-
     let mut inserted: i64 = 0;
     {
         let tx = conn.transaction().map_err(sqlite_err)?;
@@ -256,12 +375,13 @@ pub fn build_sqlite_from_csv(
             let mut stmt = tx
                 .prepare("INSERT INTO taxonomy (tax_id, scientific_name) VALUES (?, ?)")
                 .map_err(sqlite_err)?;
-            for (digits, name) in &rows {
-                let tax_id = to_i64(digits)?;
+            stream_rows(&src, |digits, name| {
+                let tax_id = to_i64(&digits)?;
                 stmt.execute(rusqlite::params![tax_id, name])
                     .map_err(sqlite_err)?;
                 inserted += 1;
-            }
+                Ok(())
+            })?;
         }
         tx.execute(INDEX_SQL, []).map_err(sqlite_err)?;
         tx.commit().map_err(sqlite_err)?;
@@ -274,8 +394,8 @@ pub fn build_from_names_dmp(
     names_dmp: serde_json::Value,
     output_csv: serde_json::Value,
     output_db: serde_json::Value,
-) -> Result<serde_json::Value, String> {
+) -> Result<(i64, i64), String> {
     let extracted = extract_scientific_names_csv(names_dmp, output_csv.clone())?;
     let inserted = build_sqlite_from_csv(output_csv, output_db)?;
-    Ok(json!([extracted, inserted]))
+    Ok((extracted, inserted))
 }
