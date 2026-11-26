@@ -1,5 +1,18 @@
 # Changelog
 
+## 3.3.10 (2026-11-26)
+
+### Performance
+- taxonomy.db 生成（`tools/build_taxonomy_db.py`）を Rust 移植。実 taxdump で 10.7秒 → 4.5秒（約2.4倍）。全ファイルをメモリに読み込まなくなり、少ないメモリでも完走する。
+- プライマー除去（`postprep/primer_trim.py`）を Rust 移植。relaxed プロファイルで 27秒 → 1.4秒（最大20倍）。出力（FASTA と TSV/JSONL サイドカー）は元実装とバイト一致。
+- 各移植は `RUST_ANYTHING_UNIT_BUILD_TAXONOMY_DB=original` と `RUST_ANYTHING_UNIT_PRIMER_TRIM=original` で再インストールなしに元の実装へ切り替えられる。
+
+### Added
+- Rust クレート `rust/build-taxonomy-db-rs` と `rust/primer-trim-rs` を追加（pyo3 バインディング。各モジュールの import 時に自動で有効化される）。
+
+### Fixed
+- 移植コードの独立レビューで再現確認した挙動差を修正（両端 trim 交差時のクラッシュ、retained 先が入力と同一ファイル時の入力切り詰め、UnicodeDecodeError の型と位置、DictReader の重複ヘッダ解決、131,072バイト超フィールドの `csv.Error` など）。
+
 ## 3.3.9 (2026-11-09)
 
 ### Fixed
