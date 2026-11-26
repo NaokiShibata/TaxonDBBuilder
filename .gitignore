@@ -62,3 +62,10 @@ tauri-gui/test-results/
 
 # Planning/audit notes (local only)
 docs/taxdump-build-plan.md
+docs/bold-api-diagnostics.md
+docs/bold-cache-audit-v3.3.6.json
+docs/bold-final-review-v3.3.6.md
+docs/frozen-bold-v3.3.6.json
+docs/release-notes-v3.3.6.md
+docs/source-both-partial-failure.md
+docs/tauri-gui-ui-review.md
