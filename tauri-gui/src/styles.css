@@ -1059,8 +1059,12 @@ progress {
   background: #0f1c2a;
   color: #d6f7e4;
 
+  /* Latin monospace first: the CJK font draws box-drawing glyphs (┏ ━ ┃)
+     full-width, which breaks the borders of rich's tables. CJK text still
+     falls back to it at true double width, as rich's column math assumes. */
   font-family:
-    "Noto Sans Mono CJK JP", "Noto Sans Mono", "Liberation Mono", monospace;
+    "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono",
+    "Noto Sans Mono CJK JP", monospace;
   font-size: 12px;
   line-height: 1.45;
 
