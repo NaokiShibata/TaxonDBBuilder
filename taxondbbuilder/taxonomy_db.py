@@ -153,12 +153,15 @@ def fetch_and_build(
     archive: Path | None = None,
     url: str = TAXDUMP_URL,
     timeout: float = 180.0,
+    replace: bool = False,
 ) -> int:
-    """Download (or read) taxdump and atomically (re)build out_db.
+    """Download (or read) taxdump and (re)build out_db.
 
-    The existing database stays untouched unless a complete, verified
-    database was produced; staging happens on the output directory so the
-    final os.replace stays on one filesystem.
+    Without replace, an existing out_db is never touched: publishing uses a
+    no-clobber link so a file that appears during the build fails the run.
+    With replace, the verified database is published atomically over out_db.
+    Staging happens on the output directory so the final step stays on one
+    filesystem.
     """
     out_db = out_db.expanduser()
     out_db.parent.mkdir(parents=True, exist_ok=True)
@@ -180,5 +183,15 @@ def fetch_and_build(
             (check,) = conn.execute("PRAGMA quick_check").fetchone()
         if check != "ok":
             raise ValueError(f"generated taxonomy.db failed quick_check: {check}")
-        os.replace(tmp_path / "taxonomy.db", out_db)
+        staged = tmp_path / "taxonomy.db"
+        if replace:
+            os.replace(staged, out_db)
+        else:
+            try:
+                os.link(staged, out_db)  # exclusive publish: fails if out_db exists
+            except FileExistsError:
+                raise FileExistsError(
+                    f"{out_db} already exists; nothing was replaced (use --replace after user confirmation)"
+                ) from None
+            os.unlink(staged)
     return inserted

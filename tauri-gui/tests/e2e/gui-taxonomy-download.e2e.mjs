@@ -86,6 +86,19 @@ test("a failed download reports the error and lets the user retry", async ({ pag
   expect(errors).toEqual([]);
 });
 
+test("a declined replace prompt (null result) restores the target line", async ({ page }) => {
+  const errors = await openGuiApp(page, {
+    get_taxonomy_db_path: pathStub,
+    download_taxonomy_db: { value: null },
+  });
+
+  await page.click("#taxonomy-download");
+  await expect(page.locator("#taxonomy-status-text")).toHaveText("Download target: /local/taxonomy.db");
+  await expect(page.locator("#log-view")).not.toContainText("taxonomy.db updated");
+  await expect(page.locator("#taxonomy-download")).toBeEnabled();
+  expect(errors).toEqual([]);
+});
+
 test("Change… moves the download target and a cancelled picker keeps it", async ({ page }) => {
   await openGuiApp(page, {
     get_taxonomy_db_path: pathStub,

@@ -51,6 +51,30 @@ def test_fetch_and_build_from_archive_builds_searchable_db(tmp_path: Path) -> No
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["taxonomy.db"]
 
 
+def test_existing_db_never_touched_without_replace(tmp_path: Path) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="keep.tar.gz")
+    out_db = tmp_path / "keep" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"previous database")
+
+    with pytest.raises(FileExistsError, match="nothing was replaced"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive)
+
+    assert out_db.read_bytes() == b"previous database"
+
+
+def test_replace_publishes_over_existing_db(tmp_path: Path) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="repl.tar.gz")
+    out_db = tmp_path / "repl" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"previous database")
+
+    inserted = taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert inserted == 2
+    assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
+
+
 @pytest.mark.parametrize("stage", ["download", "missing-names", "corrupt-archive", "empty", "duplicate"])
 def test_failures_keep_the_existing_db(tmp_path: Path, stage: str, monkeypatch: pytest.MonkeyPatch) -> None:
     out_db = tmp_path / "taxonomy.db"

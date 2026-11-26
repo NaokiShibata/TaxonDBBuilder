@@ -1138,6 +1138,13 @@ els.taxonomyDownload?.addEventListener("click", async () => {
   els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
   try {
     const path = await invoke("download_taxonomy_db");
+    if (!path) {
+      // Replace declined: nothing was written, restore the target line.
+      els.taxonomyStatusText.textContent = state.taxonomyTarget
+        ? `Download target: ${state.taxonomyTarget}`
+        : "";
+      return;
+    }
     state.taxonomyTarget = path;
     els.taxonomyStatusText.textContent = `taxonomy.db updated: ${path}`;
     monitorView.appendLog(`[info] taxonomy.db updated: ${path}`);
@@ -1171,14 +1178,19 @@ els.taxonomyTargetChange?.addEventListener("click", async () => {
 
 async function initTaxonomyDownloadTarget() {
   if (!els.taxonomyStatusText) return;
+  // Keep both controls locked until the real target is known (review round 2, #3).
+  setTaxonomyBusy(true);
   try {
     const path = await invoke("get_taxonomy_db_path");
-    if (!path) return;
-    state.taxonomyTarget = path;
-    els.taxonomyStatusText.textContent = `Download target: ${path}`;
+    if (path) {
+      state.taxonomyTarget = path;
+      els.taxonomyStatusText.textContent = `Download target: ${path}`;
+    }
   } catch (error) {
     els.taxonomyStatusText.textContent = "Download target unavailable — use Change… to pick a folder";
     monitorView.appendLog(`[error] taxonomy target lookup failed: ${error}`);
+  } finally {
+    setTaxonomyBusy(false);
   }
 }
 initTaxonomyDownloadTarget();

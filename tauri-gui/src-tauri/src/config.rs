@@ -829,7 +829,7 @@ fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
 
 #[cfg(not(unix))]
 fn path_to_bytes(path: &std::path::Path) -> Vec<u8> {
-    use std::os::windows::ffi::OsStringExt;
+    use std::os::windows::ffi::OsStrExt;
     path.as_os_str()
         .encode_wide()
         .flat_map(u16::to_ne_bytes)
@@ -850,15 +850,15 @@ fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
 }
 
 /// Save via atomic replacement so an interrupted write cannot corrupt the setting.
+/// The temp name includes the pid so concurrent instances never share it.
 fn write_bytes_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
-    let tmp = path.with_extension("tmp");
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
     fs::write(&tmp, bytes).map_err(|e| format!("failed to write {}: {e}", tmp.display()))?;
     fs::rename(&tmp, path).map_err(|e| format!("failed to update {}: {e}", path.display()))
 }
 
 /// Remember a user-picked folder; taxonomy.db keeps its fixed file name.
-/// The exact target is recorded as approved for replacement (the caller has
-/// already confirmed with the user when a file was present).
+/// No overwrite consent is stored here: the Download prompt decides per attempt.
 pub(crate) fn set_taxonomy_db_dir(app: &AppHandle, dir: &std::path::Path) -> Result<PathBuf, String> {
     let file = taxonomy_db_dir_override_file(app)?;
     if let Some(parent) = file.parent() {
@@ -866,37 +866,7 @@ pub(crate) fn set_taxonomy_db_dir(app: &AppHandle, dir: &std::path::Path) -> Res
             .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
     write_bytes_atomic(&file, &path_to_bytes(dir))?;
-    let target = dir.join("taxonomy.db");
-    authorize_download(app, &target)?;
-    Ok(target)
-}
-
-/// Tracks the exact taxonomy.db whose replacement the user approved via Change….
-fn download_auth_file(app: &AppHandle) -> Result<PathBuf, String> {
-    let dir = app
-        .path()
-        .app_local_data_dir()
-        .map_err(|e| format!("failed to resolve app local data dir: {e}"))?;
-    Ok(dir.join("taxonomy_db_replaced"))
-}
-
-pub(crate) fn download_is_authorized(app: &AppHandle, target: &std::path::Path) -> Result<bool, String> {
-    let file = download_auth_file(app)?;
-    match fs::read(&file) {
-        Ok(bytes) => Ok(path_from_bytes(&bytes).is_some_and(|p| p == target)),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
-        Err(e) => Err(format!("failed to read {}: {e}", file.display())),
-    }
-}
-
-/// Record that replacing this exact taxonomy.db was user-approved.
-pub(crate) fn authorize_download(app: &AppHandle, target: &std::path::Path) -> Result<(), String> {
-    let file = download_auth_file(app)?;
-    if let Some(parent) = file.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
-    }
-    write_bytes_atomic(&file, &path_to_bytes(target))
+    Ok(dir.join("taxonomy.db"))
 }
 
 /// The location the "Download taxonomy DB" button writes to (user-picked folder wins).

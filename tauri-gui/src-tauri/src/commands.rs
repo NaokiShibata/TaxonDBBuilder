@@ -24,21 +24,40 @@ fn completion_status(cancelled: bool, code: i32) -> &'static str {
 
 static TAXONOMY_DB_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
-fn run_taxonomy_fetch_build(app: &AppHandle) -> Result<String, String> {
+/// Ask on the main thread whether replacing an existing taxonomy.db is allowed.
+/// Consent is per attempt: nothing is persisted.
+fn prompt_replace(app: &AppHandle, target: &std::path::Path) -> Result<bool, String> {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let app = app.clone();
+    let description = format!(
+        "{} already exists. Downloading will replace it.",
+        target.display()
+    );
+    app.run_on_main_thread(move || {
+        let answer = rfd::MessageDialog::new()
+            .set_level(rfd::MessageLevel::Warning)
+            .set_title("Replace existing taxonomy.db?")
+            .set_description(&description)
+            .set_buttons(rfd::MessageButtons::YesNo)
+            .show();
+        let _ = tx.send(matches!(answer, rfd::MessageDialogResult::Yes));
+    })
+    .map_err(|e| format!("failed to open the replace prompt: {e}"))?;
+    rx.recv().map_err(|e| format!("replace prompt failed: {e}"))
+}
+
+fn run_taxonomy_fetch_build(app: &AppHandle, replace: bool) -> Result<String, String> {
     let sidecar_path = resolve_sidecar_path(app)?;
     let db_path = taxonomy_db_download_path(app)?;
-    if db_path.exists() && !download_is_authorized(app, &db_path)? {
-        return Err(format!(
-            "{} already exists. Press Change… and confirm replacing it first.",
-            db_path.display()
-        ));
-    }
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
-    let output = std::process::Command::new(&sidecar_path)
-        .args(["taxonomy-fetch-build", "--out-db"])
-        .arg(&db_path)
+    let mut command = std::process::Command::new(&sidecar_path);
+    command.args(["taxonomy-fetch-build", "--out-db"]).arg(&db_path);
+    if replace {
+        command.arg("--replace");
+    }
+    let output = command
         .output()
         .map_err(|e| format!("failed to start {}: {e}", sidecar_path.display()))?;
     if !output.status.success() {
@@ -64,8 +83,11 @@ pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, S
         return Err("taxonomy download is running; pick a folder after it finishes".to_string());
     }
     let result = (|| {
-        let current = taxonomy_db_download_path(&app)?;
-        let start = current.parent().map(|p| p.to_path_buf()).unwrap_or_default();
+        // A broken override must never block the repair path: use it as a hint only.
+        let start = taxonomy_db_download_path(&app)
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_default();
         let Some(dir) = FileDialog::new()
             .set_directory(&start)
             .set_title("Select folder for taxonomy.db")
@@ -73,23 +95,6 @@ pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, S
         else {
             return Ok(None);
         };
-        let target = dir.join("taxonomy.db");
-        if target.exists() && !download_is_authorized(&app, &target)? {
-            let answer = rfd::MessageDialog::new()
-                .set_level(rfd::MessageLevel::Warning)
-                .set_title("Replace existing taxonomy.db?")
-                .set_description(format!(
-                    "{} already exists. Downloading will replace it.",
-                    target.display()
-                ))
-                .show();
-            if !matches!(
-                answer,
-                rfd::MessageDialogResult::Yes | rfd::MessageDialogResult::Ok
-            ) {
-                return Ok(None);
-            }
-        }
         let db_path = set_taxonomy_db_dir(&app, &dir)?;
         Ok(Some(db_path.to_string_lossy().into_owned()))
     })();
@@ -97,16 +102,27 @@ pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<String>, S
     result
 }
 
+/// Ok(None) means the user declined the replace prompt: nothing was written.
 #[tauri::command]
-pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<String, String> {
+pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<Option<String>, String> {
     if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
         return Err("taxonomy download is already running".to_string());
     }
-    let result = tauri::async_runtime::spawn_blocking(move || run_taxonomy_fetch_build(&app))
-        .await
-        .map_err(|e| format!("taxonomy download task failed: {e}"));
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let db_path = taxonomy_db_download_path(&app)?;
+        let mut replace = false;
+        if db_path.exists() {
+            if !prompt_replace(&app, &db_path)? {
+                return Ok(None);
+            }
+            replace = true;
+        }
+        run_taxonomy_fetch_build(&app, replace).map(Some)
+    })
+    .await
+    .map_err(|e| format!("taxonomy download task failed: {e}"))??;
     TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
-    result?
+    Ok(result)
 }
 
 #[tauri::command]

@@ -117,4 +117,4 @@ taxondbbuilder taxonomy-fetch-build --out-db tauri-gui/resources/taxonomy.db
 
 `--archive` を付けると `taxdump.tar.gz` の取得を省略でき、オフラインで再生成できます。
 
-保存先ディレクトリは GUI の **Change…** で変更できます。選択値はアプリのローカルデータ領域の `taxonomy_db_dir` に保存され、以降のダウンロード先と学名検索の最優先場所になります。ファイル名は常に `taxonomy.db` です。
+保存先ディレクトリは GUI の **Change…** で変更できます。選択値はアプリのローカルデータ領域の `taxonomy_db_dir` に保存され、以降のダウンロード先と学名検索の最優先場所になります。ファイル名は常に `taxonomy.db` です。保存先に既存の `taxonomy.db` がある場合、ダウンロード時に置き換えの可否（Yes/No）をその都度尋ねます。No の場合は何も書き換えられません。置き換えは確認した回のみに有効で、記憶されません。
