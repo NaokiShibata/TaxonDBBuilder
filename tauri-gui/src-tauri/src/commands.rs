@@ -190,7 +190,7 @@ pub(crate) fn search_taxonomy(
     limit: Option<usize>,
 ) -> Result<Vec<TaxonReferenceCandidate>, String> {
     let q = query.trim().to_lowercase();
-    if q.len() < 2 {
+    if q.chars().count() < 2 {
         return Ok(Vec::new());
     }
     let max_hits = limit.unwrap_or(10).clamp(1, 50);
@@ -199,10 +199,34 @@ pub(crate) fn search_taxonomy(
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("failed to open taxonomy.db: {e}"))?;
 
+    search_candidates(&conn, &q, max_hits)
+}
+
+fn candidate_from_row(row: &rusqlite::Row) -> rusqlite::Result<TaxonReferenceCandidate> {
+    Ok(TaxonReferenceCandidate {
+        tax_id: row.get::<_, i64>(0)?.to_string(),
+        scientific_name: row.get::<_, String>(1)?,
+    })
+}
+
+fn has_trigram_index(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE name = 'taxonomy_trigram'",
+        [],
+        |_| Ok(true),
+    )
+    .unwrap_or(false)
+}
+
+pub(crate) fn search_candidates(
+    conn: &Connection,
+    q: &str,
+    max_hits: usize,
+) -> Result<Vec<TaxonReferenceCandidate>, String> {
     let mut out: Vec<TaxonReferenceCandidate> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     let limit_i64 = i64::try_from(max_hits).map_err(|e| e.to_string())?;
     let prefix = format!("{q}%");
-    let contains = format!("%{q}%");
 
     let mut stmt = conn
         .prepare(
@@ -213,57 +237,158 @@ pub(crate) fn search_taxonomy(
              LIMIT ?2",
         )
         .map_err(|e| format!("failed to prepare taxonomy prefix query: {e}"))?;
-
     let prefix_rows = stmt
-        .query_map(params![prefix, limit_i64], |row| {
-            Ok(TaxonReferenceCandidate {
-                tax_id: row.get::<_, i64>(0)?.to_string(),
-                scientific_name: row.get::<_, String>(1)?,
-            })
-        })
+        .query_map(params![prefix, limit_i64], candidate_from_row)
         .map_err(|e| format!("failed to query taxonomy prefix: {e}"))?;
-
-    let mut seen: HashSet<String> = HashSet::new();
     for row in prefix_rows {
         let item = row.map_err(|e| e.to_string())?;
         seen.insert(item.tax_id.clone());
         out.push(item);
     }
 
-    if out.len() < max_hits {
+    if out.len() < max_hits && q.chars().count() >= 3 {
         let remain = i64::try_from(max_hits - out.len()).map_err(|e| e.to_string())?;
-        let mut stmt2 = conn
-            .prepare(
-                "SELECT tax_id, scientific_name
-                 FROM taxonomy
-                 WHERE scientific_name LIKE ?1 COLLATE NOCASE
-                   AND scientific_name NOT LIKE ?2 COLLATE NOCASE
-                 ORDER BY scientific_name COLLATE NOCASE
-                 LIMIT ?3",
-            )
-            .map_err(|e| format!("failed to prepare taxonomy contains query: {e}"))?;
-
-        let rows2 = stmt2
-            .query_map(params![contains, prefix, remain], |row| {
-                Ok(TaxonReferenceCandidate {
-                    tax_id: row.get::<_, i64>(0)?.to_string(),
-                    scientific_name: row.get::<_, String>(1)?,
-                })
-            })
-            .map_err(|e| format!("failed to query taxonomy contains: {e}"))?;
-
-        for row in rows2 {
-            let item = row.map_err(|e| e.to_string())?;
-            if seen.insert(item.tax_id.clone()) {
-                out.push(item);
+        if has_trigram_index(conn) {
+            // Trigram FTS answers "contains" from the index; the LIKE scan on
+            // ~3M rows costs ~700 ms and makes typing feel stuck.
+            let phrase = format!("\"{}\"", q.replace('"', "\"\""));
+            let mut stmt = conn
+                .prepare(
+                    "SELECT tax_id, scientific_name
+                     FROM taxonomy_trigram
+                     WHERE taxonomy_trigram MATCH ?1
+                     ORDER BY scientific_name
+                     LIMIT ?2",
+                )
+                .map_err(|e| format!("failed to prepare taxonomy trigram query: {e}"))?;
+            let rows = stmt
+                .query_map(params![phrase, remain], candidate_from_row)
+                .map_err(|e| format!("failed to query taxonomy trigram: {e}"))?;
+            for row in rows {
+                let item = row.map_err(|e| e.to_string())?;
+                if seen.insert(item.tax_id.clone()) {
+                    out.push(item);
+                }
+                if out.len() >= max_hits {
+                    break;
+                }
             }
-            if out.len() >= max_hits {
-                break;
+        } else {
+            // Databases built before the trigram index keep the LIKE scan.
+            let contains = format!("%{q}%");
+            let mut stmt = conn
+                .prepare(
+                    "SELECT tax_id, scientific_name
+                     FROM taxonomy
+                     WHERE scientific_name LIKE ?1 COLLATE NOCASE
+                       AND scientific_name NOT LIKE ?2 COLLATE NOCASE
+                     ORDER BY scientific_name COLLATE NOCASE
+                     LIMIT ?3",
+                )
+                .map_err(|e| format!("failed to prepare taxonomy contains query: {e}"))?;
+            let rows = stmt
+                .query_map(params![contains, prefix, remain], candidate_from_row)
+                .map_err(|e| format!("failed to query taxonomy contains: {e}"))?;
+            for row in rows {
+                let item = row.map_err(|e| e.to_string())?;
+                if seen.insert(item.tax_id.clone()) {
+                    out.push(item);
+                }
+                if out.len() >= max_hits {
+                    break;
+                }
             }
         }
     }
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod taxonomy_search_tests {
+    use super::*;
+
+    fn sample_db(with_trigram: bool) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE taxonomy (tax_id INTEGER PRIMARY KEY, scientific_name TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+        for (id, name) in [
+            (1, "Salmo salar"),
+            (2, "Salvelinus namaycush"),
+            (3, "Oncorhynchus kisutch"),
+            (4, "Homo sapiens"),
+        ] {
+            conn.execute(
+                "INSERT INTO taxonomy VALUES (?1, ?2)",
+                params![id, name],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "CREATE INDEX idx_taxonomy_scientific_name_nocase ON taxonomy(scientific_name COLLATE NOCASE)",
+            [],
+        )
+        .unwrap();
+        if with_trigram {
+            conn.execute(
+                "CREATE VIRTUAL TABLE taxonomy_trigram USING fts5(scientific_name, tax_id UNINDEXED, tokenize='trigram case_sensitive 0')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO taxonomy_trigram SELECT scientific_name, tax_id FROM taxonomy",
+                [],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    fn names(hits: &[TaxonReferenceCandidate]) -> Vec<&str> {
+        hits.iter().map(|h| h.scientific_name.as_str()).collect()
+    }
+
+    #[test]
+    fn substring_hits_come_from_the_trigram_index() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "velin", 10).unwrap();
+        assert!(names(&hits).contains(&"Salvelinus namaycush"));
+    }
+
+    #[test]
+    fn substring_still_works_on_a_database_without_the_trigram_table() {
+        let conn = sample_db(false);
+        let hits = search_candidates(&conn, "velin", 10).unwrap();
+        assert!(names(&hits).contains(&"Salvelinus namaycush"));
+    }
+
+    #[test]
+    fn prefix_results_precede_substring_hits_and_stay_unique() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "salmo", 10).unwrap();
+        assert_eq!(names(&hits).first().copied(), Some("Salmo salar"));
+        let ids: Vec<&str> = hits.iter().map(|h| h.tax_id.as_str()).collect();
+        let unique: HashSet<&str> = ids.iter().copied().collect();
+        assert_eq!(ids.len(), unique.len());
+    }
+
+    #[test]
+    fn two_character_queries_use_prefix_only() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "sa", 10).unwrap();
+        assert!(names(&hits).contains(&"Salmo salar"));
+        assert!(!names(&hits).contains(&"Homo sapiens"));
+    }
+
+    #[test]
+    fn limit_is_respected() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "sa", 1).unwrap();
+        assert_eq!(hits.len(), 1);
+    }
 }
 
 #[tauri::command]

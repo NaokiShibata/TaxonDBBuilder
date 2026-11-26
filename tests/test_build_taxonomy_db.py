@@ -250,3 +250,24 @@ def test_cli_taxonomy_fetch_build_reports_and_exits(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["taxonomy-fetch-build", "--out-db", str(out_db), "--archive", str(bad)])
     assert result.exit_code == 1
     assert "taxonomy build failed" in result.stderr
+
+
+def test_build_creates_trigram_index_for_substring_search(tmp_path):
+    import sqlite3
+
+    from taxondbbuilder.taxonomy_db import build_sqlite_from_csv
+
+    csv_path = tmp_path / "names.csv"
+    csv_path.write_text(
+        "tax_id,scientific_name\n1,Salmo salar\n2,Salvelinus namaycush\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "taxonomy.db"
+    assert build_sqlite_from_csv(csv_path, db_path) == 2
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT tax_id, scientific_name FROM taxonomy_trigram "
+        "WHERE taxonomy_trigram MATCH '\"velin\"' ORDER BY scientific_name"
+    ).fetchall()
+    assert rows == [(2, "Salvelinus namaycush")]

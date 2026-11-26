@@ -109,6 +109,20 @@ def build_sqlite_from_csv(input_csv: Path, output_db: Path) -> int:
             "CREATE INDEX idx_taxonomy_scientific_name_nocase "
             "ON taxonomy(scientific_name COLLATE NOCASE)"
         )
+        # Substring search otherwise scans all ~3M rows (~700 ms). A trigram
+        # FTS index answers "contains" queries from the index; SQLite builds
+        # it only when trigram support exists, so keep working without it.
+        try:
+            cur.execute(
+                "CREATE VIRTUAL TABLE taxonomy_trigram USING fts5("
+                "scientific_name, tax_id UNINDEXED, tokenize='trigram case_sensitive 0')"
+            )
+            cur.execute(
+                "INSERT INTO taxonomy_trigram(scientific_name, tax_id) "
+                "SELECT scientific_name, tax_id FROM taxonomy"
+            )
+        except sqlite3.OperationalError:
+            cur.execute("DROP TABLE IF EXISTS taxonomy_trigram")
         conn.commit()
     finally:
         conn.close()

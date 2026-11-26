@@ -467,10 +467,12 @@ function scheduleTaxonSearch() {
   if (state.taxonSearchTimer) {
     clearTimeout(state.taxonSearchTimer);
   }
+  // Trigram search is index-fast, so type feels laggy at 250 ms; 120 ms keeps
+  // candidates close to realtime without firing per keystroke.
   state.taxonSearchTimer = setTimeout(() => {
     state.taxonSearchTimer = null;
     searchTaxonCandidatesNow();
-  }, 250);
+  }, 120);
 }
 
 function renderMarkers() {
