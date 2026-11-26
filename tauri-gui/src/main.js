@@ -1175,7 +1175,7 @@ els.taxonomyDownload?.addEventListener("click", async () => {
     } catch (error) {
       if (!String(error).includes("REPLACE_CONFIRMATION_REQUIRED")) throw error;
       const ok = window.confirm(
-        `Replace the existing taxonomy.db?\n\n${state.taxonomyTarget}\n\nThe current file is kept as taxonomy.db.old.`
+        `Replace the existing taxonomy.db?\n\n${state.taxonomyTarget}\n\nThe current file is kept as taxonomy.db.old-… (a unique suffix).`
       );
       if (!ok) {
         els.taxonomyStatusText.textContent = state.taxonomyTarget
