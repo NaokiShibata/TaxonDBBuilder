@@ -1,0 +1,115 @@
+{
+  "schema": "rust-anything/bridge@1",
+  "root": "/home/naoki/ghq/github.com/NaokiShibata/taxondb-rust-port",
+  "unit": "tools/build_taxonomy_db.py",
+  "language": "python",
+  "kind": "pyo3",
+  "crate_name": "build-taxonomy-db-rs",
+  "exports": [
+    {
+      "name": "extract_scientific_names_csv",
+      "file": "tools/build_taxonomy_db.py",
+      "line": 45,
+      "params": [
+        {
+          "name": "names_dmp",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "output_csv",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "build_sqlite_from_csv",
+      "file": "tools/build_taxonomy_db.py",
+      "line": 78,
+      "params": [
+        {
+          "name": "input_csv",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "output_db",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "int",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    },
+    {
+      "name": "build_from_names_dmp",
+      "file": "tools/build_taxonomy_db.py",
+      "line": 113,
+      "params": [
+        {
+          "name": "names_dmp",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "output_csv",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        },
+        {
+          "name": "output_db",
+          "ts_type": "Path",
+          "optional": false,
+          "rest": false
+        }
+      ],
+      "returns": "tuple",
+      "is_async": false,
+      "is_generator": false,
+      "type_params": [],
+      "uses_instanceof": false
+    }
+  ],
+  "classes": [],
+  "js_only": [
+    {
+      "name": "iter_scientific_names",
+      "file": "tools/build_taxonomy_db.py",
+      "line": 20,
+      "reason": "generator: returns a lazy iterator"
+    },
+    {
+      "name": "iter_csv_rows",
+      "file": "tools/build_taxonomy_db.py",
+      "line": 57,
+      "reason": "generator: returns a lazy iterator"
+    },
+    {
+      "name": "parse_args",
+      "file": "tools/build_taxonomy_db.py",
+      "line": 121,
+      "reason": "argparse CLI parsing, reads sys.argv, not hot code"
+    },
+    {
+      "name": "main",
+      "file": "tools/build_taxonomy_db.py",
+      "line": 155,
+      "reason": "a command-line entry point: it stays in Python, and `app front-door` takes the command line over when the whole app moves"
+    }
+  ]
+}

@@ -1,0 +1,365 @@
+{"fn": "extract_scientific_names_csv", "args": ["x", []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [0, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{}, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": {"b": "c"}}, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [{"a": "b"}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [null, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [[], 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [["a", 1], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": [true, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "extract_scientific_names_csv", "args": ["x", "X"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", "X"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": "b"}, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{"a": {"b": "c"}}, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [true, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [0, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [null, "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["x", ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [{}, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [["a", 1], true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": [[], true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_sqlite_from_csv", "args": ["X", "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": "b"}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, [], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, null, {"a": {"b": "c"}}], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], 0, null], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], "x", []], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, {}, true], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], true, {}], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", ["a", 1], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, [], {}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, {"a": {"b": "c"}}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": {"b": "c"}}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, ["a", 1], 0], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, null, 0], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, {"a": "b"}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", true, {"a": "b"}], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], [], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", null, 0], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, true, {"a": "b"}], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, true, null], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, {"a": "b"}, true], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, "x", 0], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {"a": "b"}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], {"a": {"b": "c"}}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, null, []], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, [], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, null, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, {"a": "b"}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, ["a", 1], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {"a": "b"}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, [], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": "b"}, true], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, ["a", 1], null], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, null, "x"], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": {"b": "c"}}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], [], {}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, "x", "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": {"b": "c"}}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], ["a", 1], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {"a": {"b": "c"}}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", {"a": {"b": "c"}}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, 0, {"a": {"b": "c"}}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, [], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {"a": "b"}, null], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, 0, true], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, 0, {}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, ["a", 1], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], 0, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": "b"}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], ["a", 1], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": "b"}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], "x", {"a": "b"}], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", [], "x"], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, 0, null], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], 0, true], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, "x", null], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, {"a": {"b": "c"}}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, null, {}], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], true, {"a": "b"}], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, null, 0], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, {"a": {"b": "c"}}, 0], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], true, true], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, [], 0], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, null, ["a", 1]], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, "X", "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", "x", []], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], "x", {"a": {"b": "c"}}], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], {"a": {"b": "c"}}, true], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {"a": "b"}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, [], "x"], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, 0, null], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], {}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": {"b": "c"}}, true], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, ["a", 1], {"a": "b"}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": "b"}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], ["a", 1], 0], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, null, []], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, null, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], ["a", 1], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, {"a": "b"}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], null, {"a": {"b": "c"}}], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, 0, ["a", 1]], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", null, null], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, {}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], 0, "x"], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, [], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", true, 0], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, ["a", 1], null], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, "x", "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, "x", {"a": "b"}], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, null, "x"], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {}, 0], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": {"b": "c"}}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, 0, {}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, "x", []], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", ["a", 1], {"a": "b"}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, "x", null], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], null, []], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {"a": "b"}, 0], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", {"a": {"b": "c"}}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], "x", {}], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {"a": "b"}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", null, []], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, "x", {"a": {"b": "c"}}], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], ["a", 1], {}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {"a": "b"}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, null, "x"], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, {"a": {"b": "c"}}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, 0, {"a": "b"}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], "x", true], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, ["a", 1], null], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, {"a": "b"}, null], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, 0, {"a": "b"}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, "x", ["a", 1]], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], 0, {"a": "b"}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, true, null], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, ["a", 1], {}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", ["a", 1], "x"], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, true, 0], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, {"a": {"b": "c"}}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, [], {"a": "b"}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": {"b": "c"}}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], "x", true], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, [], {"a": "b"}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], {"a": "b"}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, true, 0], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, "x", ["a", 1]], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {}, null], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], [], 0], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], "x", 0], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], [], {"a": {"b": "c"}}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": "b"}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, ["a", 1], true], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], true, null], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, [], null], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, [], {"a": {"b": "c"}}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], "x", []], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", {"a": {"b": "c"}}, 0], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": "b"}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {"a": "b"}, true], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, "x", "x"], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, {"a": "b"}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", "x", ["a", 1]], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], 0, ["a", 1]], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], 0, ["a", 1]], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], true, 0], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, ["a", 1], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", {}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, null, true], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, 0, true], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", {"a": {"b": "c"}}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, true, "x"], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], {}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, true, 0], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [[], 0, {"a": "b"}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", 0, null], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, {}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, ["a", 1], 0], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, [], ["a", 1]], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, null, {"a": "b"}], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, true, {"a": {"b": "c"}}], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, "x", {}], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", {"a": "b"}, ["a", 1]], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, ["a", 1], {}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": "b"}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, 0, ["a", 1]], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, 0, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, true, ["a", 1]], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, "x", ["a", 1]], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], {"a": {"b": "c"}}, null], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", [], {}], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, null, ["a", 1]], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", true, {"a": {"b": "c"}}], "error": "AttributeError: 'bool' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, {}, "x"], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {"a": {"b": "c"}}, null], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], ["a", 1], null], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, 0, null], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, "x", 0], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, {}, []], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": "b"}, 0], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, {"a": {"b": "c"}}, {"a": "b"}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, "x", {}], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, null, []], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [["a", 1], "x", null], "error": "AttributeError: 'str' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [null, 0, 0], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, 0, {"a": {"b": "c"}}], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, {}, null], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [0, {"a": {"b": "c"}}, {}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, [], "x"], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": ["x", null, {"a": "b"}], "error": "AttributeError: 'NoneType' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": "b"}, 0, null], "error": "AttributeError: 'int' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [true, {"a": {"b": "c"}}, {"a": {"b": "c"}}], "error": "AttributeError: 'dict' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{}, [], []], "error": "AttributeError: 'list' object has no attribute 'parent'"}
+{"fn": "build_from_names_dmp", "args": [{"a": {"b": "c"}}, 0, "x"], "error": "AttributeError: 'int' object has no attribute 'parent'"}
