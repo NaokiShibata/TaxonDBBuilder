@@ -257,6 +257,29 @@ select {
   align-content: start;
 }
 
+.taxon-search-row {
+  display: flex;
+  align-items: stretch;
+  gap: 6px;
+}
+
+.taxon-search-row #taxon-name-input {
+  flex: 1;
+  min-width: 0;
+}
+
+.taxon-search-row #taxonomy-download {
+  white-space: nowrap;
+  padding: 6px 10px;
+}
+
+.taxonomy-status {
+  margin: 0;
+  font-size: 11px;
+  color: #7f97aa;
+  overflow-wrap: anywhere;
+}
+
 .card-marker {
   order: 2;
 }

@@ -47,6 +47,11 @@ fn run_taxonomy_fetch_build(app: &AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
+pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<String, String> {
+    Ok(taxonomy_db_download_path(&app)?.to_string_lossy().into_owned())
+}
+
+#[tauri::command]
 pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<String, String> {
     if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
         return Err("taxonomy download is already running".to_string());

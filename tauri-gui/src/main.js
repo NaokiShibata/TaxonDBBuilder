@@ -1131,17 +1131,33 @@ els.taxonomyDownload?.addEventListener("click", async () => {
   els.taxonomyStatus.textContent = "Downloading taxonomy DB…";
   try {
     const path = await invoke("download_taxonomy_db");
-    els.taxonomyStatus.textContent = "taxonomy.db updated";
+    state.taxonomyTarget = path;
+    els.taxonomyStatus.textContent = `taxonomy.db updated: ${path}`;
     monitorView.appendLog(`[info] taxonomy.db updated: ${path}`);
     if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
   } catch (error) {
-    els.taxonomyStatus.textContent = "Download failed";
+    els.taxonomyStatus.textContent = state.taxonomyTarget
+      ? `Download failed. Target: ${state.taxonomyTarget}`
+      : "Download failed";
     monitorView.appendLog(`[error] taxonomy download failed: ${error}`);
   } finally {
     els.taxonomyDownload.disabled = false;
     els.taxonomyDownload.setAttribute("aria-busy", "false");
   }
 });
+
+async function initTaxonomyDownloadTarget() {
+  if (!els.taxonomyStatus) return;
+  try {
+    const path = await invoke("get_taxonomy_db_path");
+    if (!path) return;
+    state.taxonomyTarget = path;
+    els.taxonomyStatus.textContent = `Download target: ${path}`;
+  } catch {
+    // The click handler surfaces backend errors including this command's.
+  }
+}
+initTaxonomyDownloadTarget();
 
 els.taxonNameInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
