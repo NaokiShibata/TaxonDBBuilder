@@ -280,6 +280,12 @@ select {
   overflow-wrap: anywhere;
 }
 
+.taxonomy-status #taxonomy-target-change {
+  margin-left: 6px;
+  font-size: 11px;
+  padding: 2px 8px;
+}
+
 .card-marker {
   order: 2;
 }
@@ -1039,6 +1045,13 @@ progress {
   }
 }
 
+.logs-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 #log-view {
   height: clamp(260px, 62vh, 460px);
 
@@ -1053,13 +1066,19 @@ progress {
   background: #0f1c2a;
   color: #d6f7e4;
 
+  /* Latin monospace first: the CJK font draws box-drawing glyphs (┏ ━ ┃)
+     full-width, which breaks the borders of rich's tables. CJK text still
+     falls back to it at true double width, as rich's column math assumes. */
   font-family:
-    "Noto Sans Mono CJK JP", "Noto Sans Mono", "Liberation Mono", monospace;
+    "DejaVu Sans Mono", "Liberation Mono", "Noto Sans Mono",
+    "Noto Sans Mono CJK JP", monospace;
   font-size: 12px;
   line-height: 1.45;
 
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
+  /* rich renders the Run Summary as a bordered table; wrapping it breaks the
+     borders mid-character, so keep lines raw and scroll horizontally. */
+  white-space: pre;
+  overflow-wrap: normal;
   tab-size: 2;
   scrollbar-gutter: stable;
 }

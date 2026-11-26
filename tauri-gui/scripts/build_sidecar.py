@@ -63,9 +63,20 @@ def main() -> int:
 
     fingerprint = sidecar_fingerprint(repo_root, target_triple)
     fingerprint_path = target_dir / f".{bundled_name}.sha256"
+    # tauri dev runs the GUI from src-tauri/target/debug and resolves the
+    # sidecar next to the executable first; unless that copy is refreshed too,
+    # dev keeps silently launching the stale build.
+    dev_dest = tauri_root / "src-tauri" / "target" / "debug" / bin_name
+
+    def sync_dev_copy() -> None:
+        if dev_dest.parent.is_dir():
+            shutil.copy2(dest_bin, dev_dest)
+            print(f"synced dev copy: {dev_dest}")
+
     if dest_bin.is_file() and fingerprint_path.is_file():
         if fingerprint_path.read_text(encoding="ascii").strip() == fingerprint:
             print(f"sidecar unchanged, reusing: {dest_bin}")
+            sync_dev_copy()
             return 0
 
     try:
@@ -91,6 +102,7 @@ def main() -> int:
 
     shutil.copy2(dist_bin, dest_bin)
     fingerprint_path.write_text(fingerprint + "\n", encoding="ascii")
+    sync_dev_copy()
     print(f"built sidecar: {dest_bin}")
 
     return 0

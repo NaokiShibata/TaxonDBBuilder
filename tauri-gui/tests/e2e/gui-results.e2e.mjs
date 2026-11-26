@@ -376,3 +376,16 @@ test("the exported SVG keeps label and support styling without CSS", async ({ pa
   expect(labelAlone).toBe(labelInApp);
   expect(errors).toEqual([]);
 });
+
+test("a run without any tree in its file list shows no load error", async ({ page }) => {
+  // MSA tree mode "Do not run": the run publishes its file list and none of
+  // the files is a .tree.nwk, so the tree panel must stay quiet, not guess.
+  const errors = await runToResults(
+    page,
+    runCommands(readTreeAndMsa()),
+    ["/srv/out/Results/donko.fasta", "/srv/out/Results/donko.fasta.manifest.json"],
+  );
+  await expect(page.locator("#tree-view-status")).toHaveText("No phylogenetic tree file found.");
+  await expect(page.locator("#log-view")).not.toContainText("Failed to load tree");
+  expect(errors).toEqual([]);
+});

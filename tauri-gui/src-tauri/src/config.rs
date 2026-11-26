@@ -803,13 +803,114 @@ pub(crate) fn save_gui_config_internal(app: &AppHandle, config: &GuiConfig) -> R
     write_gui_config(&path, config)
 }
 
-/// The per-user location the "Download taxonomy DB" button writes to.
-pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, String> {
+/// File holding the user-picked download directory (exact native path bytes).
+fn taxonomy_db_dir_override_file(app: &AppHandle) -> Result<PathBuf, String> {
     let dir = app
         .path()
         .app_local_data_dir()
         .map_err(|e| format!("failed to resolve app local data dir: {e}"))?;
-    Ok(dir.join("taxonomy.db"))
+    Ok(dir.join("taxonomy_db_dir"))
+}
+
+#[cfg(unix)]
+fn path_to_bytes(path: &std::path::Path) -> Vec<u8> {
+    use std::os::unix::ffi::OsStrExt;
+    path.as_os_str().as_bytes().to_vec()
+}
+
+#[cfg(unix)]
+fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
+    use std::os::unix::ffi::OsStrExt;
+    if bytes.contains(&0) {
+        return None;
+    }
+    Some(PathBuf::from(std::ffi::OsStr::from_bytes(bytes)))
+}
+
+#[cfg(not(unix))]
+fn path_to_bytes(path: &std::path::Path) -> Vec<u8> {
+    use std::os::windows::ffi::OsStrExt;
+    path.as_os_str()
+        .encode_wide()
+        .flat_map(u16::to_ne_bytes)
+        .collect()
+}
+
+#[cfg(not(unix))]
+fn path_from_bytes(bytes: &[u8]) -> Option<PathBuf> {
+    use std::os::windows::ffi::OsStringExt;
+    if bytes.len() % 2 != 0 {
+        return None;
+    }
+    let wide: Vec<u16> = bytes.chunks_exact(2).map(|c| u16::from_ne_bytes([c[0], c[1]])).collect();
+    if wide.iter().any(|unit| *unit == 0) {
+        return None;
+    }
+    Some(PathBuf::from(std::ffi::OsString::from_wide(&wide)))
+}
+
+/// Save via atomic replacement so an interrupted write cannot corrupt the setting.
+/// The temp name includes the pid so concurrent instances never share it.
+fn write_bytes_atomic(path: &std::path::Path, bytes: &[u8]) -> Result<(), String> {
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    fs::write(&tmp, bytes).map_err(|e| format!("failed to write {}: {e}", tmp.display()))?;
+    fs::rename(&tmp, path).map_err(|e| format!("failed to update {}: {e}", path.display()))
+}
+
+/// Remember a user-picked folder; taxonomy.db keeps its fixed file name.
+/// Returns the target together with the token derived from the stored bytes.
+pub(crate) fn set_taxonomy_db_dir(app: &AppHandle, dir: &std::path::Path) -> Result<(PathBuf, String), String> {
+    let file = taxonomy_db_dir_override_file(app)?;
+    if let Some(parent) = file.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
+    }
+    let bytes = path_to_bytes(dir);
+    write_bytes_atomic(&file, &bytes)?;
+    Ok((dir.join("taxonomy.db"), format!("{:x}", fnv1a64(&bytes))))
+}
+
+fn fnv1a64(bytes: &[u8]) -> u64 {
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in bytes {
+        hash ^= *byte as u64;
+        hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    hash
+}
+
+/// The download target and a token derived from the SAME read of the setting.
+/// Token equality proves the path is the one the client was shown; it changes
+/// exactly when the stored directory bytes change.
+pub(crate) fn taxonomy_db_target(app: &AppHandle) -> Result<(PathBuf, String), String> {
+    let file = taxonomy_db_dir_override_file(app)?;
+    match fs::read(&file) {
+        Ok(bytes) => {
+            let dir = path_from_bytes(&bytes)
+                .ok_or_else(|| format!("invalid taxonomy db dir setting in {}", file.display()))?;
+            if dir.as_os_str().is_empty() || !dir.is_absolute() {
+                return Err(format!(
+                    "taxonomy db dir setting is not an absolute path: {}",
+                    file.display()
+                ));
+            }
+            Ok((dir.join("taxonomy.db"), format!("{:x}", fnv1a64(&bytes))))
+        }
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            let dir = app
+                .path()
+                .app_local_data_dir()
+                .map_err(|e| format!("failed to resolve app local data dir: {e}"))?;
+            Ok((dir.join("taxonomy.db"), "default".to_string()))
+        }
+        Err(e) => Err(format!("failed to read {}: {e}", file.display())),
+    }
+}
+
+/// The location the "Download taxonomy DB" button writes to (user-picked folder wins).
+/// A corrupt or invalid override is an error, never a silent fallback to the default.
+pub(crate) fn taxonomy_db_download_path(app: &AppHandle) -> Result<PathBuf, String> {
+    taxonomy_db_target(app).map(|(path, _token)| path)
 }
 
 pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -818,6 +919,14 @@ pub(crate) fn resolve_taxonomy_db_path(app: &AppHandle) -> Result<PathBuf, Strin
     // A DB downloaded through the GUI takes precedence over bundled copies.
     if let Ok(downloaded) = taxonomy_db_download_path(app) {
         candidates.push(downloaded);
+    }
+
+    // Keep the default app-local DB as fallback even after the target moved.
+    if let Ok(dir) = app.path().app_local_data_dir() {
+        let default_db = dir.join("taxonomy.db");
+        if !candidates.contains(&default_db) {
+            candidates.push(default_db);
+        }
     }
 
     if let Ok(resource_dir) = app.path().resource_dir() {

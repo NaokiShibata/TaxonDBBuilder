@@ -113,7 +113,10 @@
                       Download taxonomy DB
                     </button>
                   </div>
-                  <p id="taxonomy-status" class="taxonomy-status" role="status"></p>
+                  <p id="taxonomy-status" class="taxonomy-status" role="status">
+                    <span id="taxonomy-status-text"></span>
+                    <button id="taxonomy-target-change" type="button">Change…</button>
+                  </p>
                   <ul id="taxon-candidates" class="taxon-candidate-list"></ul>
                   <label
                     for="taxid-input"
@@ -565,6 +568,7 @@
                         type="radio"
                         name="msa-tree-mode"
                         value="disabled"
+                        checked
                       />
                       Do not run</label
                     >
@@ -583,7 +587,6 @@
                         type="radio"
                         name="msa-tree-mode"
                         value="per_taxid"
-                        checked
                       />
                       One tree per TaxID</label
                     >
@@ -600,7 +603,6 @@
                         class="post-step"
                         value="length_filter"
                         type="checkbox"
-                        checked
                       />
                       length_filter</label
                     >
@@ -636,7 +638,6 @@
                         class="post-step"
                         value="quality_filter"
                         type="checkbox"
-                        checked
                       />
                       quality_filter</label
                     >
@@ -717,7 +718,10 @@
           </details>
 
           <div class="card logs">
-            <h3>Realtime Log</h3>
+            <div class="logs-head">
+              <h3>Realtime Log</h3>
+              <button id="copy-log" class="link-button" type="button">Copy</button>
+            </div>
             <pre id="log-view" role="log" aria-live="polite" aria-relevant="additions text"></pre>
           </div>
 

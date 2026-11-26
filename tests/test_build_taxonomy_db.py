@@ -51,6 +51,146 @@ def test_fetch_and_build_from_archive_builds_searchable_db(tmp_path: Path) -> No
     assert sorted(p.name for p in (tmp_path / "out").iterdir()) == ["taxonomy.db"]
 
 
+def test_existing_db_never_touched_without_replace(tmp_path: Path) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="keep.tar.gz")
+    out_db = tmp_path / "keep" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"previous database")
+
+    with pytest.raises(FileExistsError, match="nothing was replaced"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive)
+
+    assert out_db.read_bytes() == b"previous database"
+
+
+def test_replace_publishes_over_existing_db(tmp_path: Path) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="repl.tar.gz")
+    out_db = tmp_path / "repl" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"previous database")
+
+    inserted = taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert inserted == 2
+    assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
+    # The displaced file is kept under a unique .old-* name, never clobbered.
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"previous database"
+
+
+def test_replace_never_clobbers_an_existing_backup(tmp_path: Path) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="keepold.tar.gz")
+    out_db = tmp_path / "keepold" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"active database")
+    existing_backup = out_db.parent / "taxonomy.db.old"
+    existing_backup.write_bytes(b"earlier backup")
+
+    taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert existing_backup.read_bytes() == b"earlier backup"
+
+
+def test_failed_publish_restores_the_active_db(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="restore.tar.gz")
+    out_db = tmp_path / "restore" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"active database")
+
+    real_link = taxonomy_db.os.link
+
+    def failing_publish_link(src, dst, *args, **kwargs):
+        # Only the staged publish fails; the filesystem still supports links.
+        if ".taxonomy-fetch-" in str(src):
+            raise OSError("no space left on device")
+        return real_link(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(taxonomy_db.os, "link", failing_publish_link)
+
+    with pytest.raises(RuntimeError, match="publishing .* failed"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert out_db.read_bytes() == b"active database"
+    assert not [p for p in out_db.parent.iterdir() if ".old-" in p.name]
+
+
+def test_no_link_filesystem_keeps_backup_and_reports_path(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="exfat.tar.gz")
+    out_db = tmp_path / "exfat" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"active database")
+
+    def failing_link(*args, **kwargs):
+        raise OSError("hard links are not supported on this filesystem")
+
+    monkeypatch.setattr(taxonomy_db.os, "link", failing_link)
+
+    with pytest.raises(RuntimeError, match=r"kept as .*taxonomy\.db\.old-"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"active database"
+
+
+def test_replace_displaces_a_file_swapped_during_the_build(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="swap.tar.gz")
+    out_db = tmp_path / "swap" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"consented database")
+
+    original = taxonomy_db.extract_names_dmp
+
+    def swapping_extract(*args, **kwargs):
+        result = original(*args, **kwargs)
+        out_db.unlink()
+        out_db.write_bytes(b"someone else's database")
+        return result
+
+    monkeypatch.setattr(taxonomy_db, "extract_names_dmp", swapping_extract)
+
+    inserted = taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    assert inserted == 2
+    # The mid-build foreign file was displaced to a unique backup, not overwritten.
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"someone else's database"
+    assert search(out_db, "homo%") == [(9606, "Homo sapiens")]
+
+
+def test_rollback_keeps_both_files_when_destination_reappears(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    archive = make_taxdump(tmp_path, SCIENTIFIC_ROWS, name="gap.tar.gz")
+    out_db = tmp_path / "gap" / "taxonomy.db"
+    out_db.parent.mkdir(parents=True)
+    out_db.write_bytes(b"consented database")
+
+    real_link = taxonomy_db.os.link
+    publish_calls: list[str] = []
+
+    def racing_link(src, dst, *args, **kwargs):
+        # The publish link loses the race: another writer claims the slot.
+        publish_calls.append(str(dst))
+        if len(publish_calls) == 1:
+            Path(dst).write_bytes(b"republished by another writer")
+            raise FileExistsError(17, "File exists", str(dst))
+        return real_link(src, dst, *args, **kwargs)
+
+    monkeypatch.setattr(taxonomy_db.os, "link", racing_link)
+
+    with pytest.raises(RuntimeError, match="appeared during the final publish"):
+        taxonomy_db.fetch_and_build(out_db, archive=archive, replace=True)
+
+    # The other writer's DB stays in place; the consented DB survives as backup.
+    assert out_db.read_bytes() == b"republished by another writer"
+    olds = [p for p in out_db.parent.iterdir() if p.name.startswith("taxonomy.db.old-")]
+    assert len(olds) == 1 and olds[0].read_bytes() == b"consented database"
+
+
 @pytest.mark.parametrize("stage", ["download", "missing-names", "corrupt-archive", "empty", "duplicate"])
 def test_failures_keep_the_existing_db(tmp_path: Path, stage: str, monkeypatch: pytest.MonkeyPatch) -> None:
     out_db = tmp_path / "taxonomy.db"
@@ -110,3 +250,24 @@ def test_cli_taxonomy_fetch_build_reports_and_exits(tmp_path: Path) -> None:
     result = CliRunner().invoke(app, ["taxonomy-fetch-build", "--out-db", str(out_db), "--archive", str(bad)])
     assert result.exit_code == 1
     assert "taxonomy build failed" in result.stderr
+
+
+def test_build_creates_trigram_index_for_substring_search(tmp_path):
+    import sqlite3
+
+    from taxondbbuilder.taxonomy_db import build_sqlite_from_csv
+
+    csv_path = tmp_path / "names.csv"
+    csv_path.write_text(
+        "tax_id,scientific_name\n1,Salmo salar\n2,Salvelinus namaycush\n",
+        encoding="utf-8",
+    )
+    db_path = tmp_path / "taxonomy.db"
+    assert build_sqlite_from_csv(csv_path, db_path) == 2
+
+    conn = sqlite3.connect(db_path)
+    rows = conn.execute(
+        "SELECT tax_id, scientific_name FROM taxonomy_trigram "
+        "WHERE taxonomy_trigram MATCH '\"velin\"' ORDER BY scientific_name"
+    ).fetchall()
+    assert rows == [(2, "Salvelinus namaycush")]

@@ -938,12 +938,17 @@ def taxonomy_fetch_build(
         "--archive",
         help="Use a local taxdump.tar.gz instead of downloading from NCBI.",
     ),
+    replace: bool = typer.Option(
+        False,
+        "--replace",
+        help="Replace --out-db if it exists (only after the user confirmed).",
+    ),
 ) -> None:
     """
-    Download NCBI taxdump and build taxonomy.db atomically (used by the GUI).
+    Download NCBI taxdump and build taxonomy.db (used by the GUI).
     """
     try:
-        inserted = fetch_and_build(out_db, archive)
+        inserted = fetch_and_build(out_db, archive, replace=replace)
     except Exception as exc:
         typer.secho(f"taxonomy build failed: {exc}", fg="red", err=True)
         raise typer.Exit(code=1)

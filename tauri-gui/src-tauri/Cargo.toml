@@ -1,6 +1,6 @@
 [package]
 name = "taxondbbuilder-gui"
-version = "3.3.10"
+version = "3.4.0"
 description = "TaxonDBBuilder GUI (Tauri)"
 authors = ["TaxonDBBuilder contributors"]
 license = "MIT"
@@ -12,9 +12,11 @@ tauri-build = { version = "2", features = [] }
 [dependencies]
 chrono = { version = "0.4", features = ["clock", "serde"] }
 open = "5"
+# Default (xdg-portal) backend: proven non-blocking on the Tauri UI thread.
+# Replace confirmations use an in-app dialog instead of rfd message dialogs.
 rfd = "0.15"
-rusqlite = { version = "0.32", features = ["bundled"] }
+rusqlite = { version = "0.43", features = ["bundled"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tauri = { version = "2", features = [] }
-toml = "0.8"
+toml = "1"

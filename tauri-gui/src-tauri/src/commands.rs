@@ -24,15 +24,51 @@ fn completion_status(cancelled: bool, code: i32) -> &'static str {
 
 static TAXONOMY_DB_DOWNLOADING: AtomicBool = AtomicBool::new(false);
 
-fn run_taxonomy_fetch_build(app: &AppHandle) -> Result<String, String> {
+/// Clears the busy flag on any exit path, including early error returns.
+struct TaxonomyBusyGuard;
+
+impl Drop for TaxonomyBusyGuard {
+    fn drop(&mut self) {
+        TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
+    }
+}
+
+fn take_taxonomy_busy() -> Result<TaxonomyBusyGuard, String> {
+    if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
+        return Err("taxonomy download is already running".to_string());
+    }
+    Ok(TaxonomyBusyGuard)
+}
+
+/// Ask on the main thread whether replacing an existing taxonomy.db is allowed.
+/// Consent is per attempt: nothing is persisted.
+const REPLACE_CONFIRMATION_REQUIRED: &str = "REPLACE_CONFIRMATION_REQUIRED";
+
+#[derive(serde::Serialize)]
+pub(crate) struct TaxonomyTarget {
+    path: String,
+    token: String,
+}
+
+fn taxonomy_target(app: &AppHandle) -> Result<TaxonomyTarget, String> {
+    let (path, token) = taxonomy_db_target(app)?;
+    Ok(TaxonomyTarget {
+        path: path.to_string_lossy().into_owned(),
+        token,
+    })
+}
+
+fn run_taxonomy_fetch_build(app: &AppHandle, db_path: &std::path::Path, replace: bool) -> Result<String, String> {
     let sidecar_path = resolve_sidecar_path(app)?;
-    let db_path = taxonomy_db_download_path(app)?;
     if let Some(parent) = db_path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("failed to create {}: {e}", parent.display()))?;
     }
-    let output = std::process::Command::new(&sidecar_path)
-        .args(["taxonomy-fetch-build", "--out-db"])
-        .arg(&db_path)
+    let mut command = std::process::Command::new(&sidecar_path);
+    command.args(["taxonomy-fetch-build", "--out-db"]).arg(db_path);
+    if replace {
+        command.arg("--replace");
+    }
+    let output = command
         .output()
         .map_err(|e| format!("failed to start {}: {e}", sidecar_path.display()))?;
     if !output.status.success() {
@@ -47,20 +83,69 @@ fn run_taxonomy_fetch_build(app: &AppHandle) -> Result<String, String> {
 }
 
 #[tauri::command]
-pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<String, String> {
-    Ok(taxonomy_db_download_path(&app)?.to_string_lossy().into_owned())
+pub(crate) fn get_taxonomy_db_path(app: AppHandle) -> Result<TaxonomyTarget, String> {
+    taxonomy_target(&app)
 }
 
 #[tauri::command]
-pub(crate) async fn download_taxonomy_db(app: AppHandle) -> Result<String, String> {
-    if TAXONOMY_DB_DOWNLOADING.swap(true, Ordering::SeqCst) {
-        return Err("taxonomy download is already running".to_string());
-    }
-    let result = tauri::async_runtime::spawn_blocking(move || run_taxonomy_fetch_build(&app))
-        .await
-        .map_err(|e| format!("taxonomy download task failed: {e}"));
-    TAXONOMY_DB_DOWNLOADING.store(false, Ordering::SeqCst);
-    result?
+pub(crate) fn choose_taxonomy_db_dir(app: AppHandle) -> Result<Option<TaxonomyTarget>, String> {
+    // Same exclusivity as the download: no folder swap while a build runs.
+    let _busy = take_taxonomy_busy()?;
+    let result = (|| {
+        // A broken override must never block the repair path: use it as a hint only.
+        let start = taxonomy_db_download_path(&app)
+            .ok()
+            .and_then(|p| p.parent().map(|p| p.to_path_buf()))
+            .unwrap_or_default();
+        let Some(dir) = FileDialog::new()
+            .set_directory(&start)
+            .set_title("Select folder for taxonomy.db")
+            .pick_folder()
+        else {
+            return Ok(None);
+        };
+        let (db_path, token) = set_taxonomy_db_dir(&app, &dir)?;
+        Ok(Some(TaxonomyTarget {
+            path: db_path.to_string_lossy().into_owned(),
+            token,
+        }))
+    })();
+    result
+}
+
+/// Err(REPLACE_CONFIRMATION_REQUIRED) means the caller must ask the user and
+/// retry with confirm_replace = true. Nothing is written until then.
+/// expected_token must match the target the caller was shown; a mismatch
+/// means another instance changed the setting and nothing is written.
+#[tauri::command]
+pub(crate) async fn download_taxonomy_db(
+    app: AppHandle,
+    confirm_replace: Option<bool>,
+    expected_token: String,
+) -> Result<TaxonomyTarget, String> {
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        // The guard releases the flag on every exit path, including errors.
+        let _busy = take_taxonomy_busy()?;
+        // One read yields path + token; the check and the sidecar use them.
+        let (db_path, token) = taxonomy_db_target(&app)?;
+        if expected_token != token {
+            return Err(
+                "taxonomy target changed elsewhere; re-read the target line and retry".to_string(),
+            );
+        }
+        let replace = db_path.exists();
+        if replace && !confirm_replace.unwrap_or(false) {
+            return Err(REPLACE_CONFIRMATION_REQUIRED.to_string());
+        }
+        let path = run_taxonomy_fetch_build(&app, &db_path, replace)?;
+        Ok(TaxonomyTarget {
+            path,
+            token,
+        })
+    })
+    .await
+    .map_err(|e| format!("taxonomy download task failed: {e}"))??;
+    Ok(result)
 }
 
 #[tauri::command]
@@ -105,7 +190,7 @@ pub(crate) fn search_taxonomy(
     limit: Option<usize>,
 ) -> Result<Vec<TaxonReferenceCandidate>, String> {
     let q = query.trim().to_lowercase();
-    if q.len() < 2 {
+    if q.chars().count() < 2 {
         return Ok(Vec::new());
     }
     let max_hits = limit.unwrap_or(10).clamp(1, 50);
@@ -114,10 +199,34 @@ pub(crate) fn search_taxonomy(
     let conn = Connection::open_with_flags(db_path, OpenFlags::SQLITE_OPEN_READ_ONLY)
         .map_err(|e| format!("failed to open taxonomy.db: {e}"))?;
 
+    search_candidates(&conn, &q, max_hits)
+}
+
+fn candidate_from_row(row: &rusqlite::Row) -> rusqlite::Result<TaxonReferenceCandidate> {
+    Ok(TaxonReferenceCandidate {
+        tax_id: row.get::<_, i64>(0)?.to_string(),
+        scientific_name: row.get::<_, String>(1)?,
+    })
+}
+
+fn has_trigram_index(conn: &Connection) -> bool {
+    conn.query_row(
+        "SELECT 1 FROM sqlite_master WHERE name = 'taxonomy_trigram'",
+        [],
+        |_| Ok(true),
+    )
+    .unwrap_or(false)
+}
+
+pub(crate) fn search_candidates(
+    conn: &Connection,
+    q: &str,
+    max_hits: usize,
+) -> Result<Vec<TaxonReferenceCandidate>, String> {
     let mut out: Vec<TaxonReferenceCandidate> = Vec::new();
+    let mut seen: HashSet<String> = HashSet::new();
     let limit_i64 = i64::try_from(max_hits).map_err(|e| e.to_string())?;
     let prefix = format!("{q}%");
-    let contains = format!("%{q}%");
 
     let mut stmt = conn
         .prepare(
@@ -128,57 +237,158 @@ pub(crate) fn search_taxonomy(
              LIMIT ?2",
         )
         .map_err(|e| format!("failed to prepare taxonomy prefix query: {e}"))?;
-
     let prefix_rows = stmt
-        .query_map(params![prefix, limit_i64], |row| {
-            Ok(TaxonReferenceCandidate {
-                tax_id: row.get::<_, i64>(0)?.to_string(),
-                scientific_name: row.get::<_, String>(1)?,
-            })
-        })
+        .query_map(params![prefix, limit_i64], candidate_from_row)
         .map_err(|e| format!("failed to query taxonomy prefix: {e}"))?;
-
-    let mut seen: HashSet<String> = HashSet::new();
     for row in prefix_rows {
         let item = row.map_err(|e| e.to_string())?;
         seen.insert(item.tax_id.clone());
         out.push(item);
     }
 
-    if out.len() < max_hits {
+    if out.len() < max_hits && q.chars().count() >= 3 {
         let remain = i64::try_from(max_hits - out.len()).map_err(|e| e.to_string())?;
-        let mut stmt2 = conn
-            .prepare(
-                "SELECT tax_id, scientific_name
-                 FROM taxonomy
-                 WHERE scientific_name LIKE ?1 COLLATE NOCASE
-                   AND scientific_name NOT LIKE ?2 COLLATE NOCASE
-                 ORDER BY scientific_name COLLATE NOCASE
-                 LIMIT ?3",
-            )
-            .map_err(|e| format!("failed to prepare taxonomy contains query: {e}"))?;
-
-        let rows2 = stmt2
-            .query_map(params![contains, prefix, remain], |row| {
-                Ok(TaxonReferenceCandidate {
-                    tax_id: row.get::<_, i64>(0)?.to_string(),
-                    scientific_name: row.get::<_, String>(1)?,
-                })
-            })
-            .map_err(|e| format!("failed to query taxonomy contains: {e}"))?;
-
-        for row in rows2 {
-            let item = row.map_err(|e| e.to_string())?;
-            if seen.insert(item.tax_id.clone()) {
-                out.push(item);
+        if has_trigram_index(conn) {
+            // Trigram FTS answers "contains" from the index; the LIKE scan on
+            // ~3M rows costs ~700 ms and makes typing feel stuck.
+            let phrase = format!("\"{}\"", q.replace('"', "\"\""));
+            let mut stmt = conn
+                .prepare(
+                    "SELECT tax_id, scientific_name
+                     FROM taxonomy_trigram
+                     WHERE taxonomy_trigram MATCH ?1
+                     ORDER BY scientific_name
+                     LIMIT ?2",
+                )
+                .map_err(|e| format!("failed to prepare taxonomy trigram query: {e}"))?;
+            let rows = stmt
+                .query_map(params![phrase, remain], candidate_from_row)
+                .map_err(|e| format!("failed to query taxonomy trigram: {e}"))?;
+            for row in rows {
+                let item = row.map_err(|e| e.to_string())?;
+                if seen.insert(item.tax_id.clone()) {
+                    out.push(item);
+                }
+                if out.len() >= max_hits {
+                    break;
+                }
             }
-            if out.len() >= max_hits {
-                break;
+        } else {
+            // Databases built before the trigram index keep the LIKE scan.
+            let contains = format!("%{q}%");
+            let mut stmt = conn
+                .prepare(
+                    "SELECT tax_id, scientific_name
+                     FROM taxonomy
+                     WHERE scientific_name LIKE ?1 COLLATE NOCASE
+                       AND scientific_name NOT LIKE ?2 COLLATE NOCASE
+                     ORDER BY scientific_name COLLATE NOCASE
+                     LIMIT ?3",
+                )
+                .map_err(|e| format!("failed to prepare taxonomy contains query: {e}"))?;
+            let rows = stmt
+                .query_map(params![contains, prefix, remain], candidate_from_row)
+                .map_err(|e| format!("failed to query taxonomy contains: {e}"))?;
+            for row in rows {
+                let item = row.map_err(|e| e.to_string())?;
+                if seen.insert(item.tax_id.clone()) {
+                    out.push(item);
+                }
+                if out.len() >= max_hits {
+                    break;
+                }
             }
         }
     }
 
     Ok(out)
+}
+
+#[cfg(test)]
+mod taxonomy_search_tests {
+    use super::*;
+
+    fn sample_db(with_trigram: bool) -> Connection {
+        let conn = Connection::open_in_memory().unwrap();
+        conn.execute(
+            "CREATE TABLE taxonomy (tax_id INTEGER PRIMARY KEY, scientific_name TEXT NOT NULL)",
+            [],
+        )
+        .unwrap();
+        for (id, name) in [
+            (1, "Salmo salar"),
+            (2, "Salvelinus namaycush"),
+            (3, "Oncorhynchus kisutch"),
+            (4, "Homo sapiens"),
+        ] {
+            conn.execute(
+                "INSERT INTO taxonomy VALUES (?1, ?2)",
+                params![id, name],
+            )
+            .unwrap();
+        }
+        conn.execute(
+            "CREATE INDEX idx_taxonomy_scientific_name_nocase ON taxonomy(scientific_name COLLATE NOCASE)",
+            [],
+        )
+        .unwrap();
+        if with_trigram {
+            conn.execute(
+                "CREATE VIRTUAL TABLE taxonomy_trigram USING fts5(scientific_name, tax_id UNINDEXED, tokenize='trigram case_sensitive 0')",
+                [],
+            )
+            .unwrap();
+            conn.execute(
+                "INSERT INTO taxonomy_trigram SELECT scientific_name, tax_id FROM taxonomy",
+                [],
+            )
+            .unwrap();
+        }
+        conn
+    }
+
+    fn names(hits: &[TaxonReferenceCandidate]) -> Vec<&str> {
+        hits.iter().map(|h| h.scientific_name.as_str()).collect()
+    }
+
+    #[test]
+    fn substring_hits_come_from_the_trigram_index() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "velin", 10).unwrap();
+        assert!(names(&hits).contains(&"Salvelinus namaycush"));
+    }
+
+    #[test]
+    fn substring_still_works_on_a_database_without_the_trigram_table() {
+        let conn = sample_db(false);
+        let hits = search_candidates(&conn, "velin", 10).unwrap();
+        assert!(names(&hits).contains(&"Salvelinus namaycush"));
+    }
+
+    #[test]
+    fn prefix_results_precede_substring_hits_and_stay_unique() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "salmo", 10).unwrap();
+        assert_eq!(names(&hits).first().copied(), Some("Salmo salar"));
+        let ids: Vec<&str> = hits.iter().map(|h| h.tax_id.as_str()).collect();
+        let unique: HashSet<&str> = ids.iter().copied().collect();
+        assert_eq!(ids.len(), unique.len());
+    }
+
+    #[test]
+    fn two_character_queries_use_prefix_only() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "sa", 10).unwrap();
+        assert!(names(&hits).contains(&"Salmo salar"));
+        assert!(!names(&hits).contains(&"Homo sapiens"));
+    }
+
+    #[test]
+    fn limit_is_respected() {
+        let conn = sample_db(true);
+        let hits = search_candidates(&conn, "sa", 1).unwrap();
+        assert_eq!(hits.len(), 1);
+    }
 }
 
 #[tauri::command]

@@ -13,6 +13,7 @@ import shutil
 import sqlite3
 import tarfile
 import tempfile
+import time
 import urllib.request
 from collections.abc import Iterator
 from itertools import batched
@@ -108,6 +109,20 @@ def build_sqlite_from_csv(input_csv: Path, output_db: Path) -> int:
             "CREATE INDEX idx_taxonomy_scientific_name_nocase "
             "ON taxonomy(scientific_name COLLATE NOCASE)"
         )
+        # Substring search otherwise scans all ~3M rows (~700 ms). A trigram
+        # FTS index answers "contains" queries from the index; SQLite builds
+        # it only when trigram support exists, so keep working without it.
+        try:
+            cur.execute(
+                "CREATE VIRTUAL TABLE taxonomy_trigram USING fts5("
+                "scientific_name, tax_id UNINDEXED, tokenize='trigram case_sensitive 0')"
+            )
+            cur.execute(
+                "INSERT INTO taxonomy_trigram(scientific_name, tax_id) "
+                "SELECT scientific_name, tax_id FROM taxonomy"
+            )
+        except sqlite3.OperationalError:
+            cur.execute("DROP TABLE IF EXISTS taxonomy_trigram")
         conn.commit()
     finally:
         conn.close()
@@ -153,12 +168,17 @@ def fetch_and_build(
     archive: Path | None = None,
     url: str = TAXDUMP_URL,
     timeout: float = 180.0,
+    replace: bool = False,
 ) -> int:
-    """Download (or read) taxdump and atomically (re)build out_db.
+    """Download (or read) taxdump and (re)build out_db.
 
-    The existing database stays untouched unless a complete, verified
-    database was produced; staging happens on the output directory so the
-    final os.replace stays on one filesystem.
+    Without replace, an existing out_db is never touched: publishing uses a
+    no-clobber link so a file that appears during the build fails the run.
+    With replace, the entry currently at out_db is atomically displaced to a
+    unique .old-<pid>-<ns> name and kept there, then the verified database is
+    published; a failed publish restores the displaced file first.
+    Staging happens on the output directory so the final step stays on one
+    filesystem.
     """
     out_db = out_db.expanduser()
     out_db.parent.mkdir(parents=True, exist_ok=True)
@@ -180,5 +200,47 @@ def fetch_and_build(
             (check,) = conn.execute("PRAGMA quick_check").fetchone()
         if check != "ok":
             raise ValueError(f"generated taxonomy.db failed quick_check: {check}")
-        os.replace(tmp_path / "taxonomy.db", out_db)
+        staged = tmp_path / "taxonomy.db"
+        displaced: Path | None = None
+        if replace:
+            # Displace the current entry to a unique, unoccupied name and keep
+            # it; a pre-existing backup is never clobbered. On any failure the
+            # active database is restored before the error propagates.
+            try:
+                displaced = out_db.with_name(
+                    f"{out_db.name}.old-{os.getpid()}-{time.time_ns()}"
+                )
+                os.replace(out_db, displaced)
+            except FileNotFoundError:
+                displaced = None
+        try:
+            os.link(staged, out_db)  # exclusive publish: fails if something is there
+        except Exception as exc:
+            if displaced is not None:
+                # Restore only into an empty destination: os.rename would
+                # clobber whatever another publisher just wrote. If the
+                # destination is occupied (or links are unsupported), keep
+                # the backup and report its path instead.
+                try:
+                    os.link(displaced, out_db)  # exclusive restore
+                    os.unlink(displaced)
+                    displaced = None
+                except OSError:
+                    pass
+            if isinstance(exc, FileExistsError):
+                if not replace:
+                    raise FileExistsError(
+                        f"{out_db} already exists; nothing was replaced (use --replace after user confirmation)"
+                    ) from None
+                raise RuntimeError(
+                    f"{out_db} appeared during the final publish; nothing was replaced"
+                    + (f", the previous file is kept as {displaced}" if displaced else "")
+                ) from None
+            raise RuntimeError(
+                f"publishing {out_db} failed: {exc}"
+                + (f"; the previous file is kept as {displaced}" if displaced else "")
+            ) from exc
+        if displaced is not None:
+            print(f"previous taxonomy.db kept as {displaced}")
+        os.unlink(staged)
     return inserted

@@ -169,3 +169,15 @@ test("progress percentages stay within bounds and ignore non-finite values", asy
     expect(await page.locator("#progress").evaluate((el) => el.value)).toBe(expected);
   }
 });
+
+test("Copy puts the Realtime Log on the clipboard", async ({ page, context }) => {
+  await context.grantPermissions(["clipboard-read", "clipboard-write"]);
+  await ready(page);
+  await page.click("#run");
+  await expect(page.locator("#log-view")).toContainText("job dir:");
+  await page.click("#copy-log");
+  await expect(page.locator("#copy-log")).toHaveText("Copied");
+  const clip = await page.evaluate(() => navigator.clipboard.readText());
+  expect(clip).toContain("job dir:");
+  await expect(page.locator("#copy-log")).toHaveText("Copy", { timeout: 3000 });
+});

@@ -17,6 +17,22 @@ import {
   renderTreeSVG
 } from "./tree-view.js";
 
+// Tauri's init script can finish after this module starts running
+// (tauri#12348), leaving __TAURI_INTERNALS__ undefined for the startup
+// invokes below. Wait for the bridge instead of failing with
+// "Cannot read properties of undefined (reading 'invoke')".
+if (typeof window.__TAURI_INTERNALS__ === "undefined") {
+  await new Promise((resolve) => {
+    const deadline = Date.now() + 5000;
+    const timer = setInterval(() => {
+      if (typeof window.__TAURI_INTERNALS__ !== "undefined" || Date.now() > deadline) {
+        clearInterval(timer);
+        resolve();
+      }
+    }, 25);
+  });
+}
+
 const els = {
   tabSetup: document.querySelector("#tab-setup"),
   tabMonitor: document.querySelector("#tab-monitor"),
@@ -34,6 +50,7 @@ const els = {
   progress: document.querySelector("#progress"),
   progressDetail: document.querySelector("#progress-detail"),
   logs: document.querySelector("#log-view"),
+  copyLog: document.querySelector("#copy-log"),
   metricsList: document.querySelector("#metrics-list"),
   resultFiles: document.querySelector("#result-files"),
   openJobDir: document.querySelector("#open-job-dir"),
@@ -56,7 +73,8 @@ const els = {
   taxonNameInput: document.querySelector("#taxon-name-input"),
   taxonCandidates: document.querySelector("#taxon-candidates"),
   taxonomyDownload: document.querySelector("#taxonomy-download"),
-  taxonomyStatus: document.querySelector("#taxonomy-status"),
+  taxonomyStatusText: document.querySelector("#taxonomy-status-text"),
+  taxonomyTargetChange: document.querySelector("#taxonomy-target-change"),
   addTaxid: document.querySelector("#add-taxid"),
   clearTaxids: document.querySelector("#clear-taxids"),
   taxidList: document.querySelector("#taxid-list"),
@@ -449,10 +467,12 @@ function scheduleTaxonSearch() {
   if (state.taxonSearchTimer) {
     clearTimeout(state.taxonSearchTimer);
   }
+  // Trigram search is index-fast, so type feels laggy at 250 ms; 120 ms keeps
+  // candidates close to realtime without firing per keystroke.
   state.taxonSearchTimer = setTimeout(() => {
     state.taxonSearchTimer = null;
     searchTaxonCandidatesNow();
-  }, 250);
+  }, 120);
 }
 
 function renderMarkers() {
@@ -697,6 +717,9 @@ function setTreeViewControlsEnabled(enabled) {
 function collectTreePaths() {
   const collected = state.files.filter((path) => path.toLowerCase().endsWith(".tree.nwk"));
   if (collected.length) return collected;
+  // A finished run sends its file list; without a .tree.nwk in it (MSA set to
+  // Do not run) guessing `${outputPath}.tree.nwk` only produces a load error.
+  if (state.files.length) return [];
   return state.outputPath ? [`${state.outputPath}.tree.nwk`] : [];
 }
 
@@ -1038,8 +1061,8 @@ function resetForm() {
   els.postEnableInput.checked = true;
   setPrimerCandidateSelection(["mifish_unity"]);
   syncPrimerSetFromCandidates();
-  setMsaTreeMode("per_taxid");
-  setPostPrepStepSelection(["primer_trim", "length_filter", "quality_filter"]);
+  setMsaTreeMode("disabled");
+  setPostPrepStepSelection(["primer_trim"]);
   setOutputExportFormatSelection([]);
   state.baseConfigPath = "";
   els.loadedDbTomlPath.textContent = "";
@@ -1058,6 +1081,25 @@ els.form.addEventListener("submit", async (event) => {
 
 els.reset.addEventListener("click", () => {
   resetForm();
+});
+
+els.copyLog.addEventListener("click", async () => {
+  const text = els.logs.innerText;
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch {
+    // The webview may not expose the async clipboard; the classic path works there.
+    const area = document.createElement("textarea");
+    area.value = text;
+    document.body.append(area);
+    area.select();
+    document.execCommand("copy");
+    area.remove();
+  }
+  els.copyLog.textContent = "Copied";
+  setTimeout(() => {
+    els.copyLog.textContent = "Copy";
+  }, 1200);
 });
 
 els.cancel.addEventListener("click", async () => {
@@ -1109,6 +1151,12 @@ els.addTaxid.addEventListener("click", () => {
 });
 
 els.taxidInput.addEventListener("input", () => {
+  // TaxIDs are numeric; keep non-digits out of the field as they are typed
+  // or pasted. Comma, semicolon, and space stay as list separators.
+  const filtered = els.taxidInput.value.replace(/[^0-9,;\s]/g, "");
+  if (filtered !== els.taxidInput.value) {
+    els.taxidInput.value = filtered;
+  }
   els.taxidInput.setCustomValidity("");
   updateGuidanceState();
 });
@@ -1125,36 +1173,106 @@ els.taxonNameInput?.addEventListener("input", () => {
   scheduleTaxonSearch();
 });
 
+function setTaxonomyBusy(busy) {
+  for (const el of [els.taxonomyDownload, els.taxonomyTargetChange]) {
+    if (el) el.disabled = busy;
+  }
+  els.taxonomyDownload?.setAttribute("aria-busy", busy ? "true" : "false");
+}
+
+function setTaxonomyTarget(target) {
+  state.taxonomyTarget = target.path;
+  state.taxonomyToken = target.token;
+}
+
+function invokeTaxonomyDownload(confirmReplace) {
+  return invoke("download_taxonomy_db", {
+    confirmReplace,
+    expectedToken: state.taxonomyToken,
+  });
+}
+
 els.taxonomyDownload?.addEventListener("click", async () => {
-  els.taxonomyDownload.disabled = true;
-  els.taxonomyDownload.setAttribute("aria-busy", "true");
-  els.taxonomyStatus.textContent = "Downloading taxonomy DB…";
+  if (!state.taxonomyToken) {
+    els.taxonomyStatusText.textContent = "Download target unavailable — use Change… first";
+    return;
+  }
+  setTaxonomyBusy(true);
+  els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
   try {
-    const path = await invoke("download_taxonomy_db");
-    state.taxonomyTarget = path;
-    els.taxonomyStatus.textContent = `taxonomy.db updated: ${path}`;
-    monitorView.appendLog(`[info] taxonomy.db updated: ${path}`);
+    let result;
+    try {
+      result = await invokeTaxonomyDownload(false);
+    } catch (error) {
+      if (!String(error).includes("REPLACE_CONFIRMATION_REQUIRED")) throw error;
+      const ok = window.confirm(
+        `Replace the existing taxonomy.db?\n\n${state.taxonomyTarget}\n\nThe current file is kept as taxonomy.db.old-… (a unique suffix).`
+      );
+      if (!ok) {
+        els.taxonomyStatusText.textContent = state.taxonomyTarget
+          ? `Download target: ${state.taxonomyTarget}`
+          : "";
+        return;
+      }
+      els.taxonomyStatusText.textContent = "Downloading taxonomy DB…";
+      result = await invokeTaxonomyDownload(true);
+    }
+    setTaxonomyTarget(result);
+    els.taxonomyStatusText.textContent = `taxonomy.db updated: ${result.path}`;
+    monitorView.appendLog(`[info] taxonomy.db updated: ${result.path}`);
     if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
   } catch (error) {
-    els.taxonomyStatus.textContent = state.taxonomyTarget
-      ? `Download failed. Target: ${state.taxonomyTarget}`
-      : "Download failed";
+    if (String(error).includes("target changed elsewhere")) {
+      try {
+        const target = await invoke("get_taxonomy_db_path");
+        setTaxonomyTarget(target);
+        els.taxonomyStatusText.textContent = `Target changed — now: ${target.path}`;
+      } catch {
+        els.taxonomyStatusText.textContent = "Download failed";
+      }
+    } else {
+      els.taxonomyStatusText.textContent = state.taxonomyTarget
+        ? `Download failed. Target: ${state.taxonomyTarget}`
+        : "Download failed";
+    }
     monitorView.appendLog(`[error] taxonomy download failed: ${error}`);
   } finally {
-    els.taxonomyDownload.disabled = false;
-    els.taxonomyDownload.setAttribute("aria-busy", "false");
+    setTaxonomyBusy(false);
+  }
+});
+
+els.taxonomyTargetChange?.addEventListener("click", async () => {
+  setTaxonomyBusy(true);
+  try {
+    const target = await invoke("choose_taxonomy_db_dir");
+    if (!target) return; // picker cancelled: keep the current target.
+    setTaxonomyTarget(target);
+    els.taxonomyStatusText.textContent = `Download target: ${target.path}`;
+    monitorView.appendLog(`[info] taxonomy.db target: ${target.path}`);
+    if ((els.taxonNameInput?.value?.trim() || "").length >= 2) scheduleTaxonSearch();
+  } catch (error) {
+    els.taxonomyStatusText.textContent = "Target change failed";
+    monitorView.appendLog(`[error] taxonomy target change failed: ${error}`);
+  } finally {
+    setTaxonomyBusy(false);
   }
 });
 
 async function initTaxonomyDownloadTarget() {
-  if (!els.taxonomyStatus) return;
+  if (!els.taxonomyStatusText) return;
+  // Keep both controls locked until the real target is known (review round 2, #3).
+  setTaxonomyBusy(true);
   try {
-    const path = await invoke("get_taxonomy_db_path");
-    if (!path) return;
-    state.taxonomyTarget = path;
-    els.taxonomyStatus.textContent = `Download target: ${path}`;
-  } catch {
-    // The click handler surfaces backend errors including this command's.
+    const target = await invoke("get_taxonomy_db_path");
+    if (target?.path) {
+      setTaxonomyTarget(target);
+      els.taxonomyStatusText.textContent = `Download target: ${target.path}`;
+    }
+  } catch (error) {
+    els.taxonomyStatusText.textContent = "Download target unavailable — use Change… to pick a folder";
+    monitorView.appendLog(`[error] taxonomy target lookup failed: ${error}`);
+  } finally {
+    setTaxonomyBusy(false);
   }
 }
 initTaxonomyDownloadTarget();

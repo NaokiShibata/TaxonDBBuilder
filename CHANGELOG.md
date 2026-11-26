@@ -1,5 +1,27 @@
 # Changelog
 
+## 3.4.0 (2026-11-26)
+
+### Added
+- Download taxonomy DB ボタン: NCBI taxdump 取得から taxonomy.db 構築・保存までを GUI から実行。Change… で保存先ディレクトリ指定、保存先パスと状態を常時表示
+- 既存 DB への上書きは毎回アプリ内確認。旧 DB は `taxonomy.db.old-<pid>-<時刻>` に退避して保持し、排他的リンクによる公開と失敗時復元（no-clobber）
+- Realtime Log の Copy ボタン（クリップボードへ全文コピー）
+- 学名検索に trigram FTS5 索引。部分一致が実 DB 304万行で 716ms → 1-14ms。索引の無い旧 DB は従来経路にフォールバック
+- TaxID 入力欄は数値・区切り文字以外は入力段階で除去（ペースト含む）
+
+### Changed
+- デフォルト変更: length_filter と quality_filter をオフ、MSA ツリーを Do not run に
+- 入力デバウンス 250ms → 120ms
+
+### Fixed
+- Tauri ブリッジ注入前の起動時 invoke 競合を解消（tauri#12348）
+- tauri dev が実際に起動する sidecar コピー（target/debug）をビルドで同期
+- パイプ出力の rich Console を広幅に固定し、長いパスの折り返しを解消。ログ欄は折り返しをやめ欧文モノスペース優先で表の罫線を整合
+- ファイル一覧にツリーが無い Run で存在しない .tree.nwk を推測読み込みしない
+
+### Dependencies
+- tauri 2.10→2.12（@tauri-apps api/cli 同版）、rusqlite 0.32→0.43、toml 0.8→1、宣言内のパッチ更新
+
 ## 3.3.10 (2026-11-26)
 
 ### Performance
