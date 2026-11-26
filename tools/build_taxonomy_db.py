@@ -184,15 +184,22 @@ def _rust_anything_build_taxonomy_db_rs():
         return
     at = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "../rust/build-taxonomy-db-rs/python"))
     sys.path.insert(0, at)
+    # A wrapper cached from another checkout would shadow the path insert above.
+    for stale in ("build_taxonomy_db_rs", "build_taxonomy_db_rs._native"):
+        sys.modules.pop(stale, None)
     try:
         native = importlib.import_module("build_taxonomy_db_rs")
-    except ImportError:
+        names = ["extract_scientific_names_csv", "build_sqlite_from_csv", "build_from_names_dmp"]
+        impls = {name: getattr(native, name) for name in names}
+        if not all(callable(f) for f in impls.values()):
+            raise ImportError("build_taxonomy_db_rs exports are not callable")
+    except (ImportError, AttributeError):
+        sys.path.remove(at)
         if mode == "new":
             raise
         return
-    finally:
-        sys.path.remove(at)
-    globals().update({name: getattr(native, name) for name in ["extract_scientific_names_csv", "build_sqlite_from_csv", "build_from_names_dmp"]})
+    sys.path.remove(at)
+    globals().update(impls)
 
 
 _rust_anything_build_taxonomy_db_rs()

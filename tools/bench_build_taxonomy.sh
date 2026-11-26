@@ -4,8 +4,12 @@
 #   e.g. tools/bench_build_taxonomy.sh python 2 -- python3 tools/build_taxonomy_db.py
 set -euo pipefail
 
-label="$1"; runs="$2"; shift 3
-[ "${1:-}" = "--" ] && shift
+label="$1"; runs="$2"; shift 2
+if [ "${1:-}" != "--" ]; then
+  echo "usage: $0 <label> <runs> -- <command...>" >&2
+  exit 2
+fi
+shift
 cmd_prefix=("$@")
 
 root="$(cd "$(dirname "$0")/.." && pwd)"

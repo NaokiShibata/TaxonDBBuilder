@@ -1,7 +1,7 @@
 {
   "unit": "tools/build_taxonomy_db.py",
   "files": 1,
-  "fingerprint": "c48fe6b042ec12ec",
+  "fingerprint": "065c2ee68d334108",
   "cases": 365,
   "cases_hash": "f4c680d4225c77ae"
 }

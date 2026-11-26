@@ -13,6 +13,40 @@ pub mod pynum;
 #[allow(unused_imports)]
 use pynum::Num;
 
+/// A `UnicodeDecodeError` from the `\u{1}`-separated parts port.rs emits
+/// (`encoding, start, end, reason, hex`): the built-in's `str()` renders the byte at
+/// `start` from `object`, so `object` carries the byte padded to the reported position.
+fn unicode_decode_error(parts: &str) -> PyErr {
+    let fallback =
+        || pyo3::exceptions::PyValueError::new_err(format!("UnicodeDecodeError: {parts}"));
+    let mut it = parts.split('\u{1}');
+    let _ = it.next();
+    let fields: Vec<&str> = it.collect();
+    let &[encoding, start_s, end_s, reason, hex] = fields.as_slice() else {
+        return fallback();
+    };
+    let (Ok(start), Ok(end)) = (start_s.parse::<usize>(), end_s.parse::<usize>()) else {
+        return fallback();
+    };
+    Python::attach(|py| {
+        let mut object = vec![0u8; start];
+        if end == start + 1 {
+            object.push(u8::from_str_radix(hex, 16).unwrap_or(0));
+        }
+        let class = py.get_type::<pyo3::exceptions::PyUnicodeDecodeError>();
+        class
+            .call1((
+                encoding,
+                pyo3::types::PyBytes::new(py, &object),
+                start,
+                end,
+                reason,
+            ))
+            .map(PyErr::from_value)
+            .unwrap_or_else(|_| fallback())
+    })
+}
+
 fn error(message: String) -> PyErr {
     use pyo3::exceptions as e;
     /// `Err("Kind: text")` for a `Kind` the match below does not know: a built-in exception's name or
@@ -60,6 +94,7 @@ fn error(message: String) -> PyErr {
         "LookupError" => e::PyLookupError::new_err(text),
         "ArithmeticError" => e::PyArithmeticError::new_err(text),
         "UnicodeError" => e::PyUnicodeError::new_err(text),
+        "UnicodeDecodeError" if text.starts_with('\u{1}') => unicode_decode_error(&text),
         "ValueError" => e::PyValueError::new_err(text),
         _ => named_error(kind, &text).unwrap_or_else(|| e::PyValueError::new_err(message)),
     }
@@ -109,7 +144,7 @@ fn build_from_names_dmp_inner(
     names_dmp: Bound<'_, PyAny>,
     output_csv: Bound<'_, PyAny>,
     output_db: Bound<'_, PyAny>,
-) -> Result<serde_json::Value, String> {
+) -> Result<(i64, i64), String> {
     let names_dmp: serde_json::Value = crate::pyconv::FromPy::from_py(&names_dmp)?;
     let output_csv: serde_json::Value = crate::pyconv::FromPy::from_py(&output_csv)?;
     let output_db: serde_json::Value = crate::pyconv::FromPy::from_py(&output_db)?;
@@ -128,7 +163,9 @@ fn build_from_names_dmp(
 ) -> PyResult<Py<PyAny>> {
     build_from_names_dmp_inner(names_dmp, output_csv, output_db)
         .map_err(error)
-        .and_then(|v| crate::pyconv::ToPy::to_py(&v, py))
+        .and_then(|(extracted, inserted)| {
+            pyo3::types::PyTuple::new(py, [extracted, inserted]).map(|t| t.into_any().unbind())
+        })
 }
 
 #[pymodule]
